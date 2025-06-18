@@ -1,5 +1,5 @@
 module IntegratedNestedLaplace
 
-# Write your package code here.
+include("observation_models/observation_models.jl")
 
 end
