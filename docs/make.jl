@@ -14,6 +14,9 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
+        "Reference" => [
+            "Observation Models" => "reference/observation_models.md",
+        ],
     ],
 )
 
