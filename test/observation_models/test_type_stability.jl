@@ -1,5 +1,6 @@
 using Test
 using IntegratedNestedLaplace
+using Distributions
 
 @testset "Type Stability" begin
     
@@ -9,24 +10,25 @@ using IntegratedNestedLaplace
         # Poisson model
         poisson_model = ExponentialFamily(Poisson)
         x = [1.0, 2.0]
-        θ = Float64[]
+        θ_poisson = NamedTuple()  # No parameters for Poisson
         y = [1, 3]
         
-        @inferred loglik(poisson_model, x, θ, y)
-        @inferred loggrad(poisson_model, x, θ, y)
-        @inferred loghessian(poisson_model, x, θ, y)
+        @inferred loglik(poisson_model, x, θ_poisson, y)
+        @inferred loggrad(poisson_model, x, θ_poisson, y)
+        @inferred loghessian(poisson_model, x, θ_poisson, y)
         
         # Bernoulli model
         bernoulli_model = ExponentialFamily(Bernoulli)
+        θ_bernoulli = NamedTuple()  # No parameters for Bernoulli
         y_bool = [0, 1]
         
-        @inferred loglik(bernoulli_model, x, θ, y_bool)
-        @inferred loggrad(bernoulli_model, x, θ, y_bool)
-        @inferred loghessian(bernoulli_model, x, θ, y_bool)
+        @inferred loglik(bernoulli_model, x, θ_bernoulli, y_bool)
+        @inferred loggrad(bernoulli_model, x, θ_bernoulli, y_bool)
+        @inferred loghessian(bernoulli_model, x, θ_bernoulli, y_bool)
         
         # Normal model
         normal_model = ExponentialFamily(Normal)
-        θ_normal = [1.0]  # sigma
+        θ_normal = (σ = 1.0,)  # Named parameter for Normal
         y_float = [1.1, 2.2]
         
         @inferred loglik(normal_model, x, θ_normal, y_float)
@@ -62,20 +64,20 @@ using IntegratedNestedLaplace
         # Simple custom model for testing
         struct SimpleCustomModel <: ObservationModel end
         
-        function IntegratedNestedLaplace.loglik(::SimpleCustomModel, x, θ, y)
+        function IntegratedNestedLaplace.loglik(::SimpleCustomModel, x, θ_named, y)
             return -0.5 * sum((x .- y).^2)
         end
         
         model = SimpleCustomModel()
         x = [1.0, 2.0]
-        θ = Float64[]
+        θ_named = NamedTuple()  # No parameters
         y = [1.1, 2.1]
         
-        @inferred loglik(model, x, θ, y)
+        @inferred loglik(model, x, θ_named, y)
         # Note: AD fallbacks may not be type stable due to ForwardDiff internals,
         # but we can still test that they return correct types
-        grad_result = loggrad(model, x, θ, y)
-        hess_result = loghessian(model, x, θ, y)
+        grad_result = loggrad(model, x, θ_named, y)
+        hess_result = loghessian(model, x, θ_named, y)
         
         @test grad_result isa Vector{Float64}
         @test hess_result isa AbstractMatrix{Float64}
@@ -92,10 +94,10 @@ using IntegratedNestedLaplace
         
         # Both should be type stable but with different signatures
         x = [1.0, 2.0]
-        θ = Float64[]
+        θ_poisson = NamedTuple()  # No parameters for Poisson
         y = [1, 2]
         
-        @inferred loglik(poisson_log, x, θ, y)
-        @inferred loglik(poisson_identity, x, θ, y)
+        @inferred loglik(poisson_log, x, θ_poisson, y)
+        @inferred loglik(poisson_identity, x, θ_poisson, y)
     end
 end

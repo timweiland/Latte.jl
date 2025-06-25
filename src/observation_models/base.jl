@@ -3,7 +3,7 @@ using SparseDiffTools
 using Symbolics
 using SparseArrays
 
-export ObservationModel, loglik, loggrad, loghessian
+export ObservationModel, loglik, loggrad, loghessian, hyperparameters
 
 """
     ObservationModel
@@ -46,9 +46,34 @@ See also: [`ExponentialFamily`](@ref), [`loglik`](@ref), [`loggrad`](@ref), [`lo
 abstract type ObservationModel end
 
 """
-    loglik(obs_model::ObservationModel, x, θ, y) -> Float64
+    hyperparameters(obs_model::ObservationModel) -> Tuple{Vararg{Symbol}}
 
-Compute the log-likelihood of observations `y` given latent field `x` and hyperparameters `θ`.
+Return a tuple of required hyperparameter names for this observation model.
+
+This method defines which hyperparameters the observation model expects to receive
+in the hyperparameter vector θ when calling loglik, loggrad, or loghessian.
+
+# Arguments  
+- `obs_model`: An observation model implementing the `ObservationModel` interface
+
+# Returns
+- `Tuple{Vararg{Symbol}}`: Tuple of parameter names (e.g., `(:σ,)` or `(:α, :β)`)
+
+# Example
+```julia
+hyperparameters(ExponentialFamily(Normal)) == (:σ,)
+hyperparameters(ExponentialFamily(Bernoulli)) == ()
+```
+
+# Implementation
+All observation models should implement this method. The default returns an empty tuple.
+"""
+hyperparameters(obs_model::ObservationModel) = ()
+
+"""
+    loglik(obs_model::ObservationModel, x, θ_named, y) -> Float64
+
+Compute the log-likelihood of observations `y` given latent field `x` and hyperparameters `θ_named`.
 
 This is the core method that all observation models must implement. It computes the 
 log-likelihood function ℓ(x, θ; y) = log p(y | x, θ).
@@ -56,7 +81,7 @@ log-likelihood function ℓ(x, θ; y) = log p(y | x, θ).
 # Arguments
 - `obs_model`: An observation model implementing the `ObservationModel` interface
 - `x`: Latent field values (vector of length n)
-- `θ`: Hyperparameters for the observation model (vector, possibly empty)
+- `θ_named`: Hyperparameters as a NamedTuple (e.g., `(σ = 0.5,)`)
 - `y`: Observed data (vector of length n)
 
 # Returns
@@ -66,20 +91,20 @@ log-likelihood function ℓ(x, θ; y) = log p(y | x, θ).
 ```julia
 model = ExponentialFamily(Poisson)
 x = [1.0, 2.0, 0.5]        # Latent field (will be exponentiated for Poisson)
-θ = Float64[]              # No hyperparameters for Poisson
+θ_named = NamedTuple()     # No hyperparameters for Poisson
 y = [1, 3, 0]              # Count observations
 
-ll = loglik(model, x, θ, y)
+ll = loglik(model, x, θ_named, y)
 ```
 
 See also: [`loggrad`](@ref), [`loghessian`](@ref), [`likelihood`](@ref)
 """
-function loglik(obs_model::ObservationModel, x, θ, y)
+function loglik(obs_model::ObservationModel, x, θ_named, y)
     error("loglik not implemented for $(typeof(obs_model))")
 end
 
 """
-    loggrad(obs_model::ObservationModel, x, θ, y) -> Vector{Float64}
+    loggrad(obs_model::ObservationModel, x, θ_named, y) -> Vector{Float64}
 
 Compute the gradient of the log-likelihood with respect to the latent field `x`.
 
@@ -90,7 +115,7 @@ ForwardDiff.jl is provided.
 # Arguments
 - `obs_model`: An observation model implementing the `ObservationModel` interface
 - `x`: Latent field values (vector of length n)
-- `θ`: Hyperparameters for the observation model (vector, possibly empty)
+- `θ_named`: Hyperparameters as a NamedTuple (e.g., `(σ = 0.5,)`)
 - `y`: Observed data (vector of length n)
 
 # Returns
@@ -100,10 +125,10 @@ ForwardDiff.jl is provided.
 ```julia
 model = ExponentialFamily(Bernoulli)
 x = [0.0, 1.0, -0.5]       # Latent field (logit scale)
-θ = Float64[]              # No hyperparameters for Bernoulli
+θ_named = NamedTuple()     # No hyperparameters for Bernoulli
 y = [0, 1, 0]              # Binary observations
 
-grad = loggrad(model, x, θ, y)
+grad = loggrad(model, x, θ_named, y)
 ```
 
 # Performance Note
@@ -112,12 +137,12 @@ The automatic differentiation fallback is convenient but may be slower for large
 
 See also: [`loglik`](@ref), [`loghessian`](@ref)
 """
-function loggrad(obs_model::ObservationModel, x, θ, y)
-    return ForwardDiff.gradient(xi -> loglik(obs_model, xi, θ, y), x)
+function loggrad(obs_model::ObservationModel, x, θ_named, y)
+    return ForwardDiff.gradient(xi -> loglik(obs_model, xi, θ_named, y), x)
 end
 
 """
-    loghessian(obs_model::ObservationModel, x, θ, y) -> AbstractMatrix{Float64}
+    loghessian(obs_model::ObservationModel, x, θ_named, y) -> AbstractMatrix{Float64}
 
 Compute the Hessian matrix of the log-likelihood with respect to the latent field `x`.
 
@@ -128,7 +153,7 @@ that attempts to exploit sparsity when possible.
 # Arguments
 - `obs_model`: An observation model implementing the `ObservationModel` interface
 - `x`: Latent field values (vector of length n)
-- `θ`: Hyperparameters for the observation model (vector, possibly empty)
+- `θ_named`: Hyperparameters as a NamedTuple (e.g., `(σ = 0.5,)`)
 - `y`: Observed data (vector of length n)
 
 # Returns
@@ -138,10 +163,10 @@ that attempts to exploit sparsity when possible.
 ```julia
 model = ExponentialFamily(Poisson)
 x = [1.0, 2.0]             # Latent field
-θ = Float64[]              # No hyperparameters
+θ_named = NamedTuple()     # No hyperparameters
 y = [1, 3]                 # Count observations
 
-hess = loghessian(model, x, θ, y)
+hess = loghessian(model, x, θ_named, y)
 ```
 
 # Performance Note
@@ -154,15 +179,15 @@ implementations can exploit for better performance.
 
 See also: [`loglik`](@ref), [`loggrad`](@ref)
 """
-function loghessian(obs_model::ObservationModel, x, θ, y)
+function loghessian(obs_model::ObservationModel, x, θ_named, y)
     try
-        f(xi) = loglik(obs_model, xi, θ, y)
+        f(xi) = loglik(obs_model, xi, θ_named, y)
         sparsity_pattern = Symbolics.hessian_sparsity(f, x)
         sparsity_pattern = Float64.(sparsity_pattern)
         colors = matrix_colors(sparsity_pattern)
         return forwarddiff_color_hessian(f, x, colors)
     catch e
-        return ForwardDiff.hessian(xi -> loglik(obs_model, xi, θ, y), x)
+        return ForwardDiff.hessian(xi -> loglik(obs_model, xi, θ_named, y), x)
     end
 end
 

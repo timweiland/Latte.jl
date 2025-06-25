@@ -291,7 +291,7 @@ _default_link(::Type{<:Bernoulli}) = LogitLink()
 _default_link(::Type{<:Binomial}) = LogitLink()
 
 """
-    likelihood(obs_model::ExponentialFamily, x, θ) -> Distribution
+    likelihood(obs_model::ExponentialFamily, x, θ_named) -> Distribution
 
 Construct the likelihood distribution for given latent field values and hyperparameters.
 
@@ -303,7 +303,7 @@ such as `logpdf`, `rand`, `mean`, `var`, etc.
 # Arguments
 - `obs_model`: An `ExponentialFamily` observation model
 - `x`: Latent field values (vector of length n)
-- `θ`: Hyperparameters for the observation model (vector, possibly empty)
+- `θ_named`: Hyperparameters as a NamedTuple (e.g., `(σ = 0.5,)`)
 
 # Returns
 A `Distribution` object representing the likelihood. For independent observations,
@@ -314,161 +314,161 @@ this is typically a product distribution from Distributions.jl.
 # Poisson model
 model = ExponentialFamily(Poisson)
 x = [1.0, 2.0]              # Latent field (log scale)
-θ = Float64[]               # No hyperparameters
+θ_named = NamedTuple()      # No hyperparameters
 
-dist = likelihood(model, x, θ)  # Product of Poisson distributions
-y_sample = rand(dist)           # Generate random observations
-ll = logpdf(dist, [2, 7])      # Compute log-likelihood
+dist = likelihood(model, x, θ_named)  # Product of Poisson distributions
+y_sample = rand(dist)                 # Generate random observations
+ll = logpdf(dist, [2, 7])            # Compute log-likelihood
 
 # Normal model  
 model = ExponentialFamily(Normal)
 x = [0.0, 1.0]              # Latent field (identity scale)
-θ = [0.5]                   # Standard deviation
+θ_named = (σ = 0.5,)        # Standard deviation
 
-dist = likelihood(model, x, θ)  # Product of Normal distributions
+dist = likelihood(model, x, θ_named)  # Product of Normal distributions
 ```
 
 # Relationship to loglik
 The `likelihood` function provides the underlying distribution, while `loglik` 
 evaluates it:
 ```julia
-dist = likelihood(model, x, θ)
-ll1 = logpdf(dist, y)           # Using likelihood
-ll2 = loglik(model, x, θ, y)    # Direct evaluation
+dist = likelihood(model, x, θ_named)
+ll1 = logpdf(dist, y)                  # Using likelihood
+ll2 = loglik(model, x, θ_named, y)     # Direct evaluation
 # ll1 ≈ ll2
 ```
 
 See also: [`ExponentialFamily`](@ref), [`loglik`](@ref)
 """
-function likelihood(obs_model::ExponentialFamily, x, θ)
+function likelihood(obs_model::ExponentialFamily, x, θ_named)
     η = x  # Linear predictor
     μ = apply_invlink.(Ref(obs_model.link), η)
     
-    return _likelihood_family(obs_model.family, μ, θ)
+    return _likelihood_family(obs_model.family, μ, θ_named)
 end
 
-function _likelihood_family(::Type{<:Normal}, μ, θ)
-    σ = θ[1]  # First hyperparameter is scale
+function _likelihood_family(::Type{<:Normal}, μ, θ_named)
+    σ = θ_named.σ  # Extract standard deviation
     return product_distribution(Normal.(μ, σ))
 end
 
-function _likelihood_family(::Type{<:Poisson}, μ, θ)
+function _likelihood_family(::Type{<:Poisson}, μ, θ_named)
     return product_distribution(Poisson.(μ))
 end
 
-function _likelihood_family(::Type{<:Bernoulli}, μ, θ)
+function _likelihood_family(::Type{<:Bernoulli}, μ, θ_named)
     return product_distribution(Bernoulli.(μ))
 end
 
-function _likelihood_family(::Type{<:Binomial}, μ, θ)
-    n = θ[1]  # First hyperparameter is number of trials
+function _likelihood_family(::Type{<:Binomial}, μ, θ_named)
+    n = θ_named.n  # Extract number of trials
     return product_distribution(Binomial.(n, μ))
 end
 
 # Refactor loglik to use the likelihood function
-function loglik(obs_model::ExponentialFamily, x, θ, y)
-    dist = likelihood(obs_model, x, θ)
+function loglik(obs_model::ExponentialFamily, x, θ_named, y)
+    dist = likelihood(obs_model, x, θ_named)
     return logpdf(dist, y)
 end
 
 
 # Specialized fast paths for canonical links
-function loggrad(::ExponentialFamily{<:Poisson, LogLink}, x, θ, y)
+function loggrad(::ExponentialFamily{<:Poisson, LogLink}, x, θ_named, y)
     η = x
     μ = exp.(η)
     return y .- μ
 end
 
-function loggrad(::ExponentialFamily{<:Bernoulli, LogitLink}, x, θ, y)
+function loggrad(::ExponentialFamily{<:Bernoulli, LogitLink}, x, θ_named, y)
     η = x
     μ = logistic.(η)
     return y .- μ
 end
 
-function loggrad(::ExponentialFamily{<:Binomial, LogitLink}, x, θ, y)
+function loggrad(::ExponentialFamily{<:Binomial, LogitLink}, x, θ_named, y)
     η = x
     μ = logistic.(η)
-    n = θ[1]
+    n = θ_named.n
     return y .- n .* μ
 end
 
-function loggrad(::ExponentialFamily{<:Normal, IdentityLink}, x, θ, y)
+function loggrad(::ExponentialFamily{<:Normal, IdentityLink}, x, θ_named, y)
     η = x
     μ = η  # Identity link
-    σ = θ[1]
+    σ = θ_named.σ
     return (y .- μ) ./ σ^2
 end
 
 # General fallback using chain rule
-function loggrad(obs_model::ExponentialFamily, x, θ, y)
+function loggrad(obs_model::ExponentialFamily, x, θ_named, y)
     η = x
     μ = apply_invlink.(Ref(obs_model.link), η)
     dμ_dη = derivative_invlink.(Ref(obs_model.link), η)
     
-    return _loggrad_family(obs_model.family, μ, dμ_dη, θ, y)
+    return _loggrad_family(obs_model.family, μ, dμ_dη, θ_named, y)
 end
 
-function _loggrad_family(::Type{<:Normal}, μ, dμ_dη, θ, y)
-    σ = θ[1]
+function _loggrad_family(::Type{<:Normal}, μ, dμ_dη, θ_named, y)
+    σ = θ_named.σ
     return ((y .- μ) ./ σ^2) .* dμ_dη
 end
 
-function _loggrad_family(::Type{<:Poisson}, μ, dμ_dη, θ, y)
+function _loggrad_family(::Type{<:Poisson}, μ, dμ_dη, θ_named, y)
     return ((y .- μ) ./ μ) .* dμ_dη
 end
 
-function _loggrad_family(::Type{<:Bernoulli}, μ, dμ_dη, θ, y)
+function _loggrad_family(::Type{<:Bernoulli}, μ, dμ_dη, θ_named, y)
     return ((y .- μ) ./ (μ .* (1 .- μ))) .* dμ_dη
 end
 
-function _loggrad_family(::Type{<:Binomial}, μ, dμ_dη, θ, y)
-    n = θ[1]
+function _loggrad_family(::Type{<:Binomial}, μ, dμ_dη, θ_named, y)
+    n = θ_named.n
     return ((y .- n .* μ) ./ (μ .* (1 .- μ))) .* dμ_dη
 end
 
 # Specialized fast paths for canonical links
-function loghessian(obs_model::ExponentialFamily{<:Poisson, LogLink}, x, θ, y)
+function loghessian(obs_model::ExponentialFamily{<:Poisson, LogLink}, x, θ_named, y)
     η = x
     μ = exp.(η)
     return Diagonal(-μ)
 end
 
-function loghessian(obs_model::ExponentialFamily{<:Bernoulli, LogitLink}, x, θ, y)
+function loghessian(obs_model::ExponentialFamily{<:Bernoulli, LogitLink}, x, θ_named, y)
     η = x
     μ = logistic.(η)
     return Diagonal(-μ .* (1 .- μ))
 end
 
-function loghessian(obs_model::ExponentialFamily{<:Binomial, LogitLink}, x, θ, y)
+function loghessian(obs_model::ExponentialFamily{<:Binomial, LogitLink}, x, θ_named, y)
     η = x
     μ = logistic.(η)
-    n = θ[1]
+    n = θ_named.n
     return Diagonal(-n .* μ .* (1 .- μ))
 end
 
-function loghessian(obs_model::ExponentialFamily{<:Normal, IdentityLink}, x, θ, y)
+function loghessian(obs_model::ExponentialFamily{<:Normal, IdentityLink}, x, θ_named, y)
     η = x
-    σ = θ[1]
+    σ = θ_named.σ
     return Diagonal(-ones(length(η)) ./ σ^2)
 end
 
 # General fallback using chain rule
-function loghessian(obs_model::ExponentialFamily, x, θ, y)
+function loghessian(obs_model::ExponentialFamily, x, θ_named, y)
     η = x
     μ = apply_invlink.(Ref(obs_model.link), η)
     dμ_dη = derivative_invlink.(Ref(obs_model.link), η)
     d2μ_dη2 = second_derivative_invlink.(Ref(obs_model.link), η)
     
-    diagonal_terms = _loghessian_diagonal_family(obs_model.family, μ, dμ_dη, d2μ_dη2, θ, y)
+    diagonal_terms = _loghessian_diagonal_family(obs_model.family, μ, dμ_dη, d2μ_dη2, θ_named, y)
     return Diagonal(diagonal_terms)
 end
 
-function _loghessian_diagonal_family(::Type{<:Normal}, μ, dμ_dη, d2μ_dη2, θ, y)
-    σ = θ[1]
+function _loghessian_diagonal_family(::Type{<:Normal}, μ, dμ_dη, d2μ_dη2, θ_named, y)
+    σ = θ_named.σ
     return -(dμ_dη.^2) ./ σ^2 .+ (y .- μ) ./ σ^2 .* d2μ_dη2
 end
 
-function _loghessian_diagonal_family(::Type{<:Poisson}, μ, dμ_dη, d2μ_dη2, θ, y)
+function _loghessian_diagonal_family(::Type{<:Poisson}, μ, dμ_dη, d2μ_dη2, θ_named, y)
     # ∂²ℓ/∂η² = (∂²ℓ/∂μ²) × (∂μ/∂η)² + (∂ℓ/∂μ) × (∂²μ/∂η²)
     # For Poisson: ∂²ℓ/∂μ² = -y/μ², ∂ℓ/∂μ = y/μ - 1
     d2l_dmu2 = -y ./ (μ.^2)
@@ -476,7 +476,7 @@ function _loghessian_diagonal_family(::Type{<:Poisson}, μ, dμ_dη, d2μ_dη2, 
     return d2l_dmu2 .* (dμ_dη.^2) .+ dl_dmu .* d2μ_dη2
 end
 
-function _loghessian_diagonal_family(::Type{<:Bernoulli}, μ, dμ_dη, d2μ_dη2, θ, y)
+function _loghessian_diagonal_family(::Type{<:Bernoulli}, μ, dμ_dη, d2μ_dη2, θ_named, y)
     # ∂²ℓ/∂η² = (∂²ℓ/∂μ²) × (∂μ/∂η)² + (∂ℓ/∂μ) × (∂²μ/∂η²)
     # For Bernoulli: ∂²ℓ/∂μ² = -y/μ² - (1-y)/(1-μ)², ∂ℓ/∂μ = y/μ - (1-y)/(1-μ)
     d2l_dmu2 = -(y ./ (μ.^2)) .- ((1 .- y) ./ ((1 .- μ).^2))
@@ -484,11 +484,17 @@ function _loghessian_diagonal_family(::Type{<:Bernoulli}, μ, dμ_dη, d2μ_dη2
     return d2l_dmu2 .* (dμ_dη.^2) .+ dl_dmu .* d2μ_dη2
 end
 
-function _loghessian_diagonal_family(::Type{<:Binomial}, μ, dμ_dη, d2μ_dη2, θ, y)
-    n = θ[1]
+function _loghessian_diagonal_family(::Type{<:Binomial}, μ, dμ_dη, d2μ_dη2, θ_named, y)
+    n = θ_named.n
     # ∂²ℓ/∂η² = (∂²ℓ/∂μ²) × (∂μ/∂η)² + (∂ℓ/∂μ) × (∂²μ/∂η²)
     # For Binomial: ∂²ℓ/∂μ² = -y/μ² - (n-y)/(1-μ)², ∂ℓ/∂μ = y/μ - (n-y)/(1-μ)
     d2l_dmu2 = -(y ./ (μ.^2)) .- ((n .- y) ./ ((1 .- μ).^2))
     dl_dmu = (y ./ μ) .- ((n .- y) ./ (1 .- μ))
     return d2l_dmu2 .* (dμ_dη.^2) .+ dl_dmu .* d2μ_dη2
 end
+
+# Hyperparameter interface implementations
+hyperparameters(::ExponentialFamily{<:Normal}) = (:σ,)
+hyperparameters(::ExponentialFamily{<:Bernoulli}) = ()
+hyperparameters(::ExponentialFamily{<:Binomial}) = (:n,)
+hyperparameters(::ExponentialFamily{<:Poisson}) = ()

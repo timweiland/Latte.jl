@@ -6,15 +6,24 @@ using LinearAlgebra
 using StatsFuns
 
 # Helper function to test gradient and hessian against ForwardDiff
-function test_against_autodiff(model, η, θ, y)
+function test_against_autodiff(model, η, θ_vec, y)
+    # Convert hyperparameter vector to NamedTuple based on model requirements
+    param_names = hyperparameters(model)
+    if isempty(param_names)
+        θ_named = NamedTuple()
+    else
+        @assert length(θ_vec) == length(param_names) "Parameter vector length must match required parameters"
+        θ_named = NamedTuple{param_names}(θ_vec)
+    end
+    
     # Test gradient
-    grad = loggrad(model, η, θ, y)
-    grad_fd = ForwardDiff.gradient(x -> loglik(model, x, θ, y), η)
+    grad = loggrad(model, η, θ_named, y)
+    grad_fd = ForwardDiff.gradient(x -> loglik(model, x, θ_named, y), η)
     @test grad ≈ grad_fd rtol=1e-10
     
     # Test hessian
-    hess = loghessian(model, η, θ, y)
-    hess_fd = ForwardDiff.hessian(x -> loglik(model, x, θ, y), η)
+    hess = loghessian(model, η, θ_named, y)
+    hess_fd = ForwardDiff.hessian(x -> loglik(model, x, θ_named, y), η)
     @test Matrix(hess) ≈ hess_fd rtol=1e-8
 end
 

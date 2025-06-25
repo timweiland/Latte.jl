@@ -6,7 +6,8 @@ Observation models define the relationship between observations and the latent f
 
 The observation model interface provides a flexible framework for connecting observations to latent fields. All observation models implement the [`ObservationModel`](@ref) interface, which requires:
 
-- **Log-likelihood computation**: `loglik(model, x, θ, y)` 
+- **Log-likelihood computation**: `loglik(model, x, θ_named, y)` 
+- **Hyperparameter specification**: `hyperparameters(model)` to declare required parameter names
 - **Automatic differentiation fallbacks**: For gradient and Hessian computation
 
 The package provides built-in support for exponential family distributions through the [`ExponentialFamily`](@ref) struct, which covers most common use cases in statistical modeling.
@@ -58,7 +59,7 @@ model = ExponentialFamily(Poisson)  # Uses LogLink automatically
 x = [log(2.0), log(5.0), log(1.0)]  # Corresponds to rates [2, 5, 1]
 y = [1, 4, 2]                       # Count observations
 
-ll = loglik(model, x, Float64[], y)
+ll = loglik(model, x, NamedTuple(), y)
 ```
 
 #### Bernoulli Model (Binary Data)  
@@ -69,7 +70,7 @@ model = ExponentialFamily(Bernoulli)  # Uses LogitLink automatically
 x = [0.0, 1.0, -1.0]  # Corresponds to probabilities [0.5, 0.73, 0.27]
 y = [0, 1, 0]         # Binary observations
 
-ll = loglik(model, x, Float64[], y)
+ll = loglik(model, x, NamedTuple(), y)
 ```
 
 #### Normal Model (Continuous Data)
@@ -177,15 +178,19 @@ struct CustomNormalModel <: ObservationModel
     σ::Float64
 end
 
+# Declare hyperparameters (none in this example)
+hyperparameters(::CustomNormalModel) = ()
+
 # Implement required interface
-function loglik(model::CustomNormalModel, x, θ, y)
+function loglik(model::CustomNormalModel, x, θ_named, y)
     return sum(logpdf.(Normal.(x, model.σ), y))
 end
 
 # Gradient and Hessian computed automatically via ForwardDiff
 model = CustomNormalModel(0.5)
-ll = loglik(model, x, θ, y)
-grad = loggrad(model, x, θ, y)  # Automatic differentiation
+θ_named = NamedTuple()  # No hyperparameters
+ll = loglik(model, x, θ_named, y)
+grad = loggrad(model, x, θ_named, y)  # Automatic differentiation
 ```
 
 ### Optimized Custom Model
@@ -197,15 +202,18 @@ struct OptimizedModel <: ObservationModel
     σ²::Float64
 end
 
-function loglik(model::OptimizedModel, x, θ, y)
+# Declare hyperparameters (none in this example)
+hyperparameters(::OptimizedModel) = ()
+
+function loglik(model::OptimizedModel, x, θ_named, y)
     return -0.5 * sum((y .- x).^2) / model.σ² - 0.5 * length(y) * log(2π * model.σ²)
 end
 
-function loggrad(model::OptimizedModel, x, θ, y)
+function loggrad(model::OptimizedModel, x, θ_named, y)
     return (y .- x) ./ model.σ²  # Analytical gradient
 end
 
-function loghessian(model::OptimizedModel, x, θ, y)
+function loghessian(model::OptimizedModel, x, θ_named, y)
     return Diagonal(-ones(length(x)) ./ model.σ²)  # Analytical Hessian
 end
 ```
@@ -234,6 +242,7 @@ For custom models with known structure, providing analytical derivatives can sig
 
 ```@docs
 ObservationModel
+hyperparameters
 loglik
 loggrad
 loghessian
