@@ -7,5 +7,6 @@ using Aqua
         Aqua.test_all(IntegratedNestedLaplace)
     end
     
+    include("hyperparameters/runtests.jl")
     include("observation_models/runtests.jl")
 end

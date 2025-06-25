@@ -16,6 +16,7 @@ makedocs(;
         "Home" => "index.md",
         "Reference" => [
             "Observation Models" => "reference/observation_models.md",
+            "Hyperparameters" => "reference/hyperparameters.md",
         ],
     ],
 )
