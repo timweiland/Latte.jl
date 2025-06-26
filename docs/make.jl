@@ -18,6 +18,7 @@ makedocs(;
             "Observation Models" => "reference/observation_models.md",
             "Hyperparameters" => "reference/hyperparameters.md",
             "Gaussian Approximation" => "reference/gaussian_approximation.md",
+            "INLA Model" => "reference/inla_model.md",
         ],
     ],
 )

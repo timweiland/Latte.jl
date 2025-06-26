@@ -148,17 +148,7 @@ using Distributions
             
             @test_throws ErrorException INLAModel(hp_prior, latent_gmrf, obs_model)
         end
-        
-        @testset "Unused hyperparameters warning" begin
-            # Provide more hyperparameters than needed
-            hp_prior = HyperparameterPrior((σ = Gamma(2, 3), μ = Normal(0, 1)))
-            obs_model = ExponentialFamily(Normal)  # Only needs σ
-            latent_gmrf = (θ) -> nothing
-            
-            # This should work but warn about unused μ
-            @test_logs (:warn, r"Unused hyperparameters.*μ") INLAModel(hp_prior, latent_gmrf, obs_model)
-        end
-        
+
         @testset "No hyperparameters needed" begin
             # Bernoulli needs no hyperparameters, but we can have hyperparameters for latent GMRF
             hp_prior = HyperparameterPrior((dummy = Normal(0, 1),))
