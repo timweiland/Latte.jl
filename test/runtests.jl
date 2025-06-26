@@ -9,4 +9,5 @@ using Aqua
     
     include("hyperparameters/runtests.jl")
     include("observation_models/runtests.jl")
+    include("gaussian_approximation/runtests.jl")
 end

@@ -17,6 +17,7 @@ makedocs(;
         "Reference" => [
             "Observation Models" => "reference/observation_models.md",
             "Hyperparameters" => "reference/hyperparameters.md",
+            "Gaussian Approximation" => "reference/gaussian_approximation.md",
         ],
     ],
 )
