@@ -4,7 +4,6 @@ using Documenter
 DocMeta.setdocmeta!(IntegratedNestedLaplace, :DocTestSetup, :(using IntegratedNestedLaplace); recursive=true)
 
 makedocs(;
-    modules=[IntegratedNestedLaplace],
     authors="Tim Weiland <tim@weiland-lahnstein.de> and contributors",
     sitename="IntegratedNestedLaplace.jl",
     format=Documenter.HTML(;

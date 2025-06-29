@@ -210,7 +210,6 @@ latent_prior = spatial_gmrf(θ_named)
 
 ```@docs
 HyperparameterPrior
-hyperparameters
 get_hyperparameter
 set_hyperparameter!
 to_named
