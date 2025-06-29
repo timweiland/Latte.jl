@@ -18,6 +18,7 @@ makedocs(;
             "Hyperparameters" => "reference/hyperparameters.md",
             "Gaussian Approximation" => "reference/gaussian_approximation.md",
             "INLA Model" => "reference/inla_model.md",
+            "Hyperparameter Posterior" => "reference/hyperparameter_posterior.md",
         ],
     ],
 )

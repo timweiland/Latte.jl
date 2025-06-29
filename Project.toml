@@ -4,27 +4,32 @@ authors = ["Tim Weiland <tim@weiland-lahnstein.de> and contributors"]
 version = "1.0.0-DEV"
 
 [deps]
+DataInterpolations = "82cc6244-b520-54b8-b5a6-8a565e85f1d0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+FiniteDiff = "6a86dc24-6348-571c-b903-95158fe2bd41"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 GaussianMarkovRandomFields = "d5f06795-35bb-4323-9f0b-405ef76cfc5b"
+HCubature = "19dc6840-f33b-545b-b366-655c7e3ffd49"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
+ScatteredInterpolation = "3f865c0f-6dca-5f4d-999b-29fe1e7e3c92"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 SparseDiffTools = "47a9eef4-7e08-11e9-0b38-333d64bd3804"
 StatsFuns = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
 Symbolics = "0c5d862f-8b57-4792-8d23-62f2024744c7"
 
 [compat]
-GaussianMarkovRandomFields = "0.3"
-julia = "1"
 Aqua = "0.8"
 Distributions = "0.25"
 ForwardDiff = "0.10"
+GaussianMarkovRandomFields = "0.3"
 LinearAlgebra = "<0.0.1, 1"
 SparseArrays = "<0.0.1, 1"
 SparseDiffTools = "2"
 StatsFuns = "1.5"
 Symbolics = "5"
 Test = "<0.0.1, 1"
+julia = "1"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"

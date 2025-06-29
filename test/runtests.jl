@@ -11,4 +11,5 @@ using Aqua
     include("observation_models/runtests.jl")
     include("gaussian_approximation/runtests.jl")
     include("test_inla_model.jl")
+    include("hyperparameter_posterior/runtests.jl")
 end
