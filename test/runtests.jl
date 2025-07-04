@@ -12,4 +12,5 @@ using Aqua
     include("gaussian_approximation/runtests.jl")
     include("test_inla_model.jl")
     include("hyperparameter_posterior/runtests.jl")
+    include("test_marginalization.jl")
 end

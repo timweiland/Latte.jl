@@ -17,6 +17,7 @@ makedocs(;
             "Observation Models" => "reference/observation_models.md",
             "Hyperparameters" => "reference/hyperparameters.md",
             "Gaussian Approximation" => "reference/gaussian_approximation.md",
+            "Marginalization" => "reference/marginalization.md",
             "INLA Model" => "reference/inla_model.md",
             "Hyperparameter Posterior" => "reference/hyperparameter_posterior.md",
         ],

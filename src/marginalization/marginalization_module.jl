@@ -1,0 +1,5 @@
+include("types.jl")
+include("gaussian_marginal.jl")
+include("laplace/laplace.jl")
+include("simplified_laplace.jl")
+include("marginalization.jl")
