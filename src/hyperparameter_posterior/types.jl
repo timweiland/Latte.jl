@@ -52,7 +52,7 @@ Handles both DataInterpolations.jl (CubicSpline) and ScatteredInterpolation.jl (
 """
 function (approx::HyperparameterPosteriorApproximation)(θ)
     if isa(approx.interpolant, CubicSpline)
-        # DataInterpolations.jl interface: interpolant(x) 
+        # DataInterpolations.jl interface: interpolant(x)
         return approx.interpolant(θ isa Vector ? θ[1] : θ)
     else
         # ScatteredInterpolation.jl interface: evaluate(interpolant, point)

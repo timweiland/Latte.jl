@@ -16,16 +16,18 @@ struct GaussianMarginal <: MarginalApproximation end
 
 Implementation for Gaussian marginalization.
 """
-function _marginalize_impl(ga, obs_model, θ, y, log_prior_θ::Real, 
-                          ::GaussianMarginal, indices::Vector{Int}, prior_gmrf)
+function _marginalize_impl(
+        ga, obs_model, θ, y, log_prior_θ::Real,
+        ::GaussianMarginal, indices::Vector{Int}, prior_gmrf
+    )
     # prior_gmrf is ignored for Gaussian marginalization
     μ = mean(ga)
     σ = std(ga)  # Marginal variances
-    
+
     marginals = Normal{Float64}[]
     for i in indices
         push!(marginals, Normal(μ[i], σ[i]))
     end
-    
+
     return marginals
 end

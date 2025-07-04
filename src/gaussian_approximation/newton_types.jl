@@ -35,7 +35,7 @@ Result of Newton-Raphson optimization.
 - `converged::Bool`: Whether optimization converged
 - `iterations::Int`: Number of iterations performed
 """
-struct NewtonResult{T<:AbstractMatrix, C}
+struct NewtonResult{T <: AbstractMatrix, C}
     μ::Vector{Float64}
     precision::T
     precision_chol::C
@@ -58,8 +58,8 @@ Options for Newton-Raphson optimization.
 """
 Base.@kwdef struct NewtonOptions
     max_iterations::Int = 100
-    tol_gradient::Float64 = 1e-6
-    tol_decrement::Float64 = 1e-8
-    min_step_size::Float64 = 1e-12
+    tol_gradient::Float64 = 1.0e-6
+    tol_decrement::Float64 = 1.0e-8
+    min_step_size::Float64 = 1.0e-12
     verbose::Bool = false
 end

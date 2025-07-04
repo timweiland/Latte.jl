@@ -1,17 +1,17 @@
 using IntegratedNestedLaplace
 using Documenter
 
-DocMeta.setdocmeta!(IntegratedNestedLaplace, :DocTestSetup, :(using IntegratedNestedLaplace); recursive=true)
+DocMeta.setdocmeta!(IntegratedNestedLaplace, :DocTestSetup, :(using IntegratedNestedLaplace); recursive = true)
 
 makedocs(;
-    authors="Tim Weiland <tim@weiland-lahnstein.de> and contributors",
-    sitename="IntegratedNestedLaplace.jl",
-    format=Documenter.HTML(;
-        canonical="https://timweiland.github.io/IntegratedNestedLaplace.jl",
-        edit_link="main",
-        assets=String[],
+    authors = "Tim Weiland <hello@timwei.land> and contributors",
+    sitename = "IntegratedNestedLaplace.jl",
+    format = Documenter.HTML(;
+        canonical = "https://timweiland.github.io/IntegratedNestedLaplace.jl",
+        edit_link = "main",
+        assets = String[],
     ),
-    pages=[
+    pages = [
         "Home" => "index.md",
         "Reference" => [
             "Observation Models" => "reference/observation_models.md",
@@ -25,6 +25,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/timweiland/IntegratedNestedLaplace.jl",
-    devbranch="main",
+    repo = "github.com/timweiland/IntegratedNestedLaplace.jl",
+    devbranch = "main",
 )

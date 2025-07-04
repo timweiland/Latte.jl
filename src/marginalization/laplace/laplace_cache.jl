@@ -52,10 +52,12 @@ Create a cache for Laplace approximation computations.
 - `prior_gmrf`: Original prior GMRF (before observations)
 - `threshold`: Threshold for active set selection
 """
-function LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf; threshold=0.001)
-    conditional_column, active_set = setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold=threshold)
-    return LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index, 
-                                   conditional_column, active_set, μ, σ, prior_gmrf)
+function LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf; threshold = 0.001)
+    conditional_column, active_set = setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold = threshold)
+    return LaplaceApproximationCache(
+        base_gmrf, obs_model, conditioning_index,
+        conditional_column, active_set, μ, σ, prior_gmrf
+    )
 end
 
 """
@@ -63,10 +65,10 @@ end
 
 Create a cache for Laplace approximation computations (convenience constructor).
 """
-function LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index::Int, prior_gmrf; threshold=0.001)
+function LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index::Int, prior_gmrf; threshold = 0.001)
     μ = mean(base_gmrf)
     σ = std(base_gmrf)
-    return LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index, μ, σ, prior_gmrf; threshold=threshold)
+    return LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index, μ, σ, prior_gmrf; threshold = threshold)
 end
 
 
@@ -89,23 +91,23 @@ Precompute the conditioning_index-independent components for Laplace approximati
 This function performs the expensive computations that are independent of the 
 specific value of x_i, allowing efficient evaluation at multiple x_i points.
 """
-function setup_conditional_computation(base_gmrf, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}; threshold=0.001)
+function setup_conditional_computation(base_gmrf, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}; threshold = 0.001)
     Q = precision_matrix(base_gmrf)
     n = size(Q, 1)
-    
+
     # Solve Q * v = e_i to get Q^{-1}[:,i]
     e_i = zeros(n)
     e_i[conditioning_index] = 1.0
     conditional_column = Q \ e_i
-    
+
     # Use precomputed standard deviations
     # Compute influence coefficients a_{ij} = -(Q^{-1})_{ji} / (σ_j * σ_i)
     σ_i = σ[conditioning_index]
     a_coeffs = -conditional_column ./ (σ * σ_i)
-    
+
     # Find active set based on threshold
     active_set = findall(abs.(a_coeffs) .> threshold)
-    
+
     return conditional_column, active_set
 end
 
@@ -114,10 +116,10 @@ end
 
 Backward compatibility version that computes μ and σ internally.
 """
-function setup_conditional_computation(base_gmrf, conditioning_index::Int; threshold=0.001)
+function setup_conditional_computation(base_gmrf, conditioning_index::Int; threshold = 0.001)
     μ = mean(base_gmrf)
     σ = std(base_gmrf)
-    return setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold=threshold)
+    return setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold = threshold)
 end
 
 """
@@ -140,18 +142,18 @@ A GMRF representing π̃_GG(x_{active_set} | x_i, θ, y) with proper mean and pr
 function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{Int}, μ_conditional::Vector{Float64}, θ, y)
     # Use the original prior precision matrix (not the Gaussian approximation precision)
     Q_prior = precision_matrix(cache.prior_gmrf)
-    
+
     # Extract conditional mean and prior precision for active set
     μ_cond_active = μ_conditional[active_set]
     Q_prior_block = Q_prior[active_set, active_set]
-    
+
     # Compute observation Hessian at conditional configuration
     H_obs = loghessian(cache.obs_model, μ_conditional, θ, y)
     H_obs_block = H_obs[active_set, active_set]
-    
+
     # Build conditional precision matrix: Q_prior - H_obs (correct formula)
     Q_conditional = Symmetric(Q_prior_block - H_obs_block)
-    
+
     # Return GMRF with proper mean and precision
     return GMRF(μ_cond_active, Q_conditional, CholeskySolverBlueprint())
 end
@@ -180,15 +182,15 @@ function evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i::Real, θ
     conditioning_index = cache.conditioning_index
     conditional_column = cache.conditional_column
     active_set = cache.active_set
-    
+
     # Compute conditional configuration once
     μ_prior = cache.μ  # Use cached mean
     σ_i_squared = cache.σ[conditioning_index]^2  # Use cached std deviation
     μ_conditional = μ_prior - conditional_column * (μ_prior[conditioning_index] - x_i) / σ_i_squared
-    
+
     # Build conditional GMRF using the computed conditional mean
     gmrf_gg = conditional_gmrf(cache, active_set, μ_conditional, θ, y)
-    
+
     # Evaluate joint log-density π(x, θ, y) at conditional configuration
     # This is: log π(θ) + log π(x | θ_prior) + log π(y | x, θ)
     # IMPORTANT: Use PRIOR GMRF for latent part, not the Gaussian approximation
@@ -196,13 +198,13 @@ function evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i::Real, θ
     latent_logpdf = logpdf(cache.prior_gmrf, μ_conditional)
     obs_logpdf = loglik(cache.obs_model, μ_conditional, θ, y)
     joint_logpdf = hyperparameter_logpdf + latent_logpdf + obs_logpdf
-    
+
     # Conditional log-density π̃_GG(x_{active_set} | x_i, θ, y)
     # Evaluate at the conditional mean
     μ_cond_active = mean(gmrf_gg)
     conditional_logpdf = logpdf(gmrf_gg, μ_cond_active)
-    
-    # Laplace approximation: log π̃_LA = joint - conditional  
+
+    # Laplace approximation: log π̃_LA = joint - conditional
     return joint_logpdf - conditional_logpdf
 end
 
@@ -228,7 +230,7 @@ Compute normalization constant using numerical integration over the fitted splin
 function _compute_accurate_normalization(spline, μ_i, σ_i)
     # Create Gaussian distribution once for efficiency
     gaussian_dist = Normal(μ_i, σ_i)
-    
+
     # Define integrand: π̃_G(x) * exp(spline(x))
     function integrand(x_vec)
         x = x_vec[1]
@@ -236,11 +238,11 @@ function _compute_accurate_normalization(spline, μ_i, σ_i)
         correction = spline(x)
         return exp(log_gaussian + correction)
     end
-    
+
     # Integrate over a wider range than the original quadrature points
-    integration_bounds = [μ_i - 6*σ_i, μ_i + 6*σ_i]
-    integral_result, _ = hcubature(integrand, [integration_bounds[1]], [integration_bounds[2]], rtol=1e-8)
-    
+    integration_bounds = [μ_i - 6 * σ_i, μ_i + 6 * σ_i]
+    integral_result, _ = hcubature(integrand, [integration_bounds[1]], [integration_bounds[2]], rtol = 1.0e-8)
+
     return log(integral_result)
 end
 
@@ -270,40 +272,42 @@ log π̃_LA(x_i | θ, y) ≈ log π̃_G(x_i | θ, y) + spline(x_i)
 The returned spline can be used as:
 log π̃_LA_normalized(x_i) ≈ log π̃_G(x_i) + spline(x_i) - log_norm_const
 """
-function fit_density_correction_spline(cache::LaplaceApproximationCache, θ, y, log_prior_θ::Real; 
-                                      n_points::Int=9, normalize_exactly::Bool=false)
-    
+function fit_density_correction_spline(
+        cache::LaplaceApproximationCache, θ, y, log_prior_θ::Real;
+        n_points::Int = 9, normalize_exactly::Bool = false
+    )
+
     # Get Gaussian marginal parameters from cache
     base_gmrf = cache.base_gmrf
     i = cache.conditioning_index
     μ_i = cache.μ[i]
     σ_i = cache.σ[i]
-    
+
     # Get Gauss-Hermite quadrature nodes and weights
     # Transform from standard Hermite [-∞,∞] to N(μ_i, σ_i²)
     ξ, w = gausshermite(n_points)
     nodes = μ_i .+ σ_i .* sqrt(2) .* ξ  # Transform to N(μ_i, σ_i²) scale
-    
+
     # Evaluate log-densities at quadrature points
     log_gaussian_values = Float64[]
     log_laplace_values = Float64[]
-    
+
     for x_i in nodes
         # Gaussian approximation log-density (marginal)
         log_gaussian = logpdf(Normal(μ_i, σ_i), x_i)
         push!(log_gaussian_values, log_gaussian)
-        
-        # Laplace approximation log-density  
+
+        # Laplace approximation log-density
         log_laplace = evaluate_laplace_logpdf(cache, x_i, θ, y, log_prior_θ)
         push!(log_laplace_values, log_laplace)
     end
-    
+
     # Compute correction: log π̃_LA - log π̃_G
     correction_values = log_laplace_values .- log_gaussian_values
-    
+
     # Fit cubic spline to the correction with constant extrapolation
-    spline = CubicSpline(correction_values, nodes; extrapolation=ExtrapolationType.Constant)
-    
+    spline = CubicSpline(correction_values, nodes; extrapolation = ExtrapolationType.Constant)
+
     # Compute normalization constant using chosen method
     if normalize_exactly
         log_norm_const = _compute_accurate_normalization(spline, μ_i, σ_i)
@@ -325,13 +329,13 @@ function evaluate_corrected_density(cache::LaplaceApproximationCache, spline, x_
     i = cache.conditioning_index
     μ_i = cache.μ[i]
     σ_i = cache.σ[i]
-    
+
     # Gaussian marginal log-density
     log_gaussian = logpdf(Normal(μ_i, σ_i), x_i)
-    
+
     # Spline correction
     correction = spline(x_i)
-    
+
     # Normalized log-density
     return log_gaussian + correction - log_norm_const
 end

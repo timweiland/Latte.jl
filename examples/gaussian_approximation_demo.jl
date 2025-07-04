@@ -14,8 +14,8 @@ n = 20
 σ² = 1.0
 
 # Create precision matrix for AR(1) process
-diag_main = [1.0; fill(1 + ϕ^2, n-2); 1.0] ./ σ²
-diag_off = fill(-ϕ, n-1) ./ σ²
+diag_main = [1.0; fill(1 + ϕ^2, n - 2); 1.0] ./ σ²
+diag_off = fill(-ϕ, n - 1) ./ σ²
 Q_prior = spdiagm(0 => diag_main, -1 => diag_off, 1 => diag_off)
 
 # Prior GMRF
@@ -38,12 +38,12 @@ println("\nFinding Gaussian approximation...")
 
 options = NewtonOptions(
     max_iterations = 20,
-    tol_gradient = 1e-6,
-    tol_decrement = 1e-8,
+    tol_gradient = 1.0e-6,
+    tol_decrement = 1.0e-8,
     verbose = true
 )
 
-result = gaussian_approximation(prior_gmrf, obs_model, θ_named, y_obs; options=options)
+result = gaussian_approximation(prior_gmrf, obs_model, θ_named, y_obs; options = options)
 
 # Display results
 println("\n" * "="^50)

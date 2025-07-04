@@ -39,22 +39,22 @@ obs_model = ExponentialFamily(Normal)
 model = INLAModel(hp_prior, latent_gmrf, obs_model)
 ```
 """
-struct INLAModel{HP, F, O<:ObservationModel}
+struct INLAModel{HP, F, O <: ObservationModel}
     hyperparameter_prior::HP
     latent_prior::F
     observation_model::O
-    
-    function INLAModel(hp_prior::HyperparameterPrior{FreeNames, AllNames}, latent_prior::F, observation_model::O) where {FreeNames, AllNames, F, O<:ObservationModel}
+
+    function INLAModel(hp_prior::HyperparameterPrior{FreeNames, AllNames}, latent_prior::F, observation_model::O) where {FreeNames, AllNames, F, O <: ObservationModel}
         # Validation: check all required hyperparameters are provided (both free and fixed)
         required = Set(hyperparameters(observation_model))
         provided = Set(AllNames)  # Check all parameters (free + fixed)
-        
+
         missing_params = setdiff(required, provided)
         if !isempty(missing_params)
             error("Missing required hyperparameters for $(typeof(observation_model)): $(collect(missing_params))")
         end
-        
-        new{typeof(hp_prior), F, O}(hp_prior, latent_prior, observation_model)
+
+        return new{typeof(hp_prior), F, O}(hp_prior, latent_prior, observation_model)
     end
 end
 
@@ -77,17 +77,17 @@ This computes: log π(θ) + log π(x | θ) + log π(y | x, θ)
 function log_joint_density(model::INLAModel, x, θ, y)
     # Convert hyperparameter vector to named tuple for clean parameter access
     θ_named = to_named(θ, model.hyperparameter_prior)
-    
+
     # Hyperparameter prior contribution
     log_prior_θ = logpdf(model.hyperparameter_prior.free_distribution, θ)
-    
-    # Latent field prior contribution  
+
+    # Latent field prior contribution
     x_prior = latent_gmrf(model, θ_named)
     log_prior_x = logpdf(x_prior, x)
-    
+
     # Observation model contribution
     log_likelihood = loglik(model.observation_model, x, θ_named, y)
-    
+
     return log_prior_θ + log_prior_x + log_likelihood
 end
 
@@ -100,5 +100,5 @@ function Base.show(io::IO, model::INLAModel{D, F, O}) where {D, F, O}
     println(io, "INLAModel")
     println(io, "  Hyperparameter prior:\n    $(repr(model.hyperparameter_prior))")
     println(io, "  Latent prior function: ", typeof(model.latent_prior))
-    println(io, "  Observation model: ", typeof(model.observation_model))
+    return println(io, "  Observation model: ", typeof(model.observation_model))
 end

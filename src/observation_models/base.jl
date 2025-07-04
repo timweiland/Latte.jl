@@ -190,4 +190,3 @@ function loghessian(obs_model::ObservationModel, x, θ_named, y)
         return ForwardDiff.hessian(xi -> loglik(obs_model, xi, θ_named, y), x)
     end
 end
-

@@ -39,68 +39,70 @@ hp_prior = HyperparameterPrior{(:ρ, :τ)}(
 ```
 """
 struct HyperparameterPrior{FreeNames, AllNames, D, F <: NamedTuple}
-    free_distribution::D              # Distribution only over free parameters  
+    free_distribution::D              # Distribution only over free parameters
     fixed_values::F                   # Type-stable NamedTuple of fixed values
     name_to_index::Dict{Symbol, Int}  # Maps free parameter names to indices
-    
+
     function HyperparameterPrior{FreeNames}(dist::D; fixed::F = NamedTuple()) where {FreeNames, D, F <: NamedTuple}
         # Validate that dimension matches
         n_free = length(FreeNames)
         if length(dist) != n_free
             error("Distribution dimension ($(length(dist))) must match number of free parameters ($n_free)")
         end
-        
+
         # Check for duplicate names in FreeNames
         if length(unique(FreeNames)) != length(FreeNames)
             error("Duplicate free parameter names found: $FreeNames")
         end
-        
+
         # MUST have at least one free parameter
         if isempty(FreeNames)
             error("INLA requires at least one free hyperparameter. All-fixed hyperparameter priors are not supported.")
         end
-        
+
         # Validate no overlap between free and fixed
         free_names = Set(FreeNames)
         fixed_names = Set(keys(fixed))
         overlap = intersect(free_names, fixed_names)
-        
+
         if !isempty(overlap)
             error("Parameters cannot be both free and fixed: $(collect(overlap))")
         end
-        
+
         # Combine and sort all parameter names
         all_names = Tuple(sort(collect(union(free_names, fixed_names))))
-        
+
         # Create efficient mapping for free parameters
         name_to_index = Dict(name => i for (i, name) in enumerate(FreeNames))
-        
-        new{FreeNames, all_names, D, F}(dist, fixed, name_to_index)
+
+        return new{FreeNames, all_names, D, F}(dist, fixed, name_to_index)
     end
 end
 
 # Constructor from NamedTuple of distributions + fixed parameters
-function HyperparameterPrior(free_params::NamedTuple{FreeNames}; 
-                            fixed::F = NamedTuple()) where {FreeNames, F <: NamedTuple}
-    
+function HyperparameterPrior(
+        free_params::NamedTuple{FreeNames};
+        fixed::F = NamedTuple()
+    ) where {FreeNames, F <: NamedTuple}
+
     # MUST have at least one free parameter
     if isempty(FreeNames)
         error("INLA requires at least one free hyperparameter. All-fixed hyperparameter priors are not supported.")
     end
-    
+
     # Validate no overlap between free and fixed
     free_names = Set(keys(free_params))
     fixed_names = Set(keys(fixed))
     overlap = intersect(free_names, fixed_names)
-    
+
     if !isempty(overlap)
         error("Parameters cannot be both free and fixed: $(collect(overlap))")
     end
-    
+
     # Create distribution only over free parameters
     free_dists = collect(values(free_params))
     joint_dist = product_distribution(free_dists)
-    
+
     return HyperparameterPrior{FreeNames}(joint_dist; fixed = fixed)
 end
 
@@ -114,13 +116,13 @@ function get_hyperparameter(θ_free::Vector{Float64}, hp_prior::HyperparameterPr
     if name in keys(hp_prior.fixed_values)
         return hp_prior.fixed_values[name]
     end
-    
+
     # Parameter is free - look up in θ_free vector
     if name in keys(hp_prior.name_to_index)
         idx = hp_prior.name_to_index[name]
         return θ_free[idx]
     end
-    
+
     throw(KeyError(name))
 end
 
@@ -134,14 +136,14 @@ function set_hyperparameter!(θ_free::Vector{Float64}, hp_prior::HyperparameterP
     if name in keys(hp_prior.fixed_values)
         error("Cannot set fixed parameter $name. Fixed parameters are immutable.")
     end
-    
+
     # Parameter must be free
     if name in keys(hp_prior.name_to_index)
         idx = hp_prior.name_to_index[name]
         θ_free[idx] = value
         return θ_free
     end
-    
+
     throw(KeyError(name))
 end
 
@@ -161,7 +163,7 @@ function to_named(θ_free::Vector{Float64}, hp_prior::HyperparameterPrior{FreeNa
             θ_free[idx]
         end
     end
-    
+
     return NamedTuple{AllNames}(values)
 end
 
@@ -175,12 +177,12 @@ function to_vector(named_params::NamedTuple, hp_prior::HyperparameterPrior{FreeN
     # Check that all required FREE parameters are provided
     provided_names = Set(keys(named_params))
     required_free_names = Set(FreeNames)
-    
+
     missing_names = setdiff(required_free_names, provided_names)
     if !isempty(missing_names)
         throw(KeyError("Missing required free hyperparameters: $(collect(missing_names))"))
     end
-    
+
     # Extract only FREE parameters for the vector
     θ_free = Vector{Float64}(undef, length(FreeNames))
     for (name, value) in pairs(named_params)
@@ -228,5 +230,5 @@ function Base.show(io::IO, hp_prior::HyperparameterPrior{FreeNames, AllNames}) w
             end
         end
     end
-    print(io, "Free parameters: $(length(FreeNames)), Fixed parameters: $(length(hp_prior.fixed_values))")
+    return print(io, "Free parameters: $(length(FreeNames)), Fixed parameters: $(length(hp_prior.fixed_values))")
 end

@@ -35,9 +35,9 @@ mutable struct SplineAugmentedGaussian{T} <: ContinuousUnivariateDistribution
     _cdf_spline::Union{Nothing, DataInterpolations.AbstractInterpolation}
     _quantile_spline::Union{Nothing, DataInterpolations.AbstractInterpolation}
 
-    function SplineAugmentedGaussian(base::Normal{T}, spline, normalization_constant::T) where T
+    function SplineAugmentedGaussian(base::Normal{T}, spline, normalization_constant::T) where {T}
         # The constructor is cheap: it only stores inputs and initializes caches to `nothing`.
-        new{T}(base, spline, normalization_constant, nothing, nothing, nothing)
+        return new{T}(base, spline, normalization_constant, nothing, nothing, nothing)
     end
 end
 
@@ -60,7 +60,7 @@ end
 and caches the result in `d._moments`. The integral to compute is of the form
 ∫ g(x) * N(x|μ,σ) dx, which is perfect for this method.
 """
-function _compute_and_cache_moments!(d::SplineAugmentedGaussian{T}; n_nodes=30) where T
+function _compute_and_cache_moments!(d::SplineAugmentedGaussian{T}; n_nodes = 30) where {T}
     # If already computed, do nothing.
     isnothing(d._moments) || return
 
@@ -122,7 +122,7 @@ end
 interpolating splines for both the CDF and quantile functions. Caches them
 in `d._cdf_spline` and `d._quantile_spline`.
 """
-function _compute_and_cache_splines!(d::SplineAugmentedGaussian{T}) where T
+function _compute_and_cache_splines!(d::SplineAugmentedGaussian{T}) where {T}
     isnothing(d._cdf_spline) || return
 
     μ, σ = params(d.base)
@@ -130,8 +130,8 @@ function _compute_and_cache_splines!(d::SplineAugmentedGaussian{T}) where T
     # 1. Create a grid for interpolation. More points near the mode.
     # A wide range (±10σ) ensures we capture the vast majority of the mass.
     lower_bound, upper_bound = μ - 10σ, μ + 10σ
-    grid_center = range(μ - 4σ, μ + 4σ, length=200)
-    grid_full = range(lower_bound, upper_bound, length=100)
+    grid_center = range(μ - 4σ, μ + 4σ, length = 200)
+    grid_full = range(lower_bound, upper_bound, length = 100)
     grid_points = sort(unique([collect(grid_center); collect(grid_full)]))
 
     # 2. Compute CDF values at grid points via numerical integration
@@ -142,8 +142,8 @@ function _compute_and_cache_splines!(d::SplineAugmentedGaussian{T}) where T
 
     for i in 2:length(grid_points)
         # Integrate from previous grid point to current one and accumulate
-        integral, _ = hcubature(integrand, [grid_points[i-1]], [grid_points[i]], rtol=1e-9)
-        cdf_values[i] = cdf_values[i-1] + integral
+        integral, _ = hcubature(integrand, [grid_points[i - 1]], [grid_points[i]], rtol = 1.0e-9)
+        cdf_values[i] = cdf_values[i - 1] + integral
     end
     # Clamp to handle potential minor numerical errors and ensure range is [0,1]
     cdf_values = min.(max.(cdf_values, 0.0), 1.0)
@@ -200,9 +200,9 @@ function Distributions.skewness(d::SplineAugmentedGaussian)
     μ_d = mean(d)
     σ_d = std(d)
     μ, σ = params(d.base)
-    
+
     integrand(x_vec) = ((x_vec[1] - μ_d) / σ_d)^3 * pdf(d, x_vec[1])
-    result, _ = hcubature(integrand, [μ - 6*σ], [μ + 6*σ], rtol=1e-6)
+    result, _ = hcubature(integrand, [μ - 6 * σ], [μ + 6 * σ], rtol = 1.0e-6)
     return result
 end
 
@@ -211,22 +211,22 @@ function Distributions.kurtosis(d::SplineAugmentedGaussian)
     μ_d = mean(d)
     σ_d = std(d)
     μ, σ = params(d.base)
-    
+
     integrand(x_vec) = ((x_vec[1] - μ_d) / σ_d)^4 * pdf(d, x_vec[1])
-    result, _ = hcubature(integrand, [μ - 6*σ], [μ + 6*σ], rtol=1e-6)
+    result, _ = hcubature(integrand, [μ - 6 * σ], [μ + 6 * σ], rtol = 1.0e-6)
     return result - 3.0  # Excess kurtosis
 end
 
 function Distributions.entropy(d::SplineAugmentedGaussian)
     # Numerical integration: -∫ pdf(x) * log(pdf(x)) dx
     μ, σ = params(d.base)
-    
+
     integrand(x_vec) = begin
         p = pdf(d, x_vec[1])
         p > 0 ? -p * log(p) : 0.0  # Handle p=0 case
     end
-    
-    result, _ = hcubature(integrand, [μ - 6*σ], [μ + 6*σ], rtol=1e-6)
+
+    result, _ = hcubature(integrand, [μ - 6 * σ], [μ + 6 * σ], rtol = 1.0e-6)
     return result
 end
 
@@ -244,4 +244,4 @@ Distributions.params(d::SplineAugmentedGaussian) = (d.base, d.spline, d.normaliz
 
 Return the parameter type.
 """
-Distributions.partype(::Type{SplineAugmentedGaussian{T}}) where T = T
+Distributions.partype(::Type{SplineAugmentedGaussian{T}}) where {T} = T

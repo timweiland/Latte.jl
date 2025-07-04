@@ -178,7 +178,7 @@ second_derivative_invlink(::IdentityLink, x) = zero(x)
 second_derivative_invlink(::LogLink, x) = exp(x)
 function second_derivative_invlink(::LogitLink, x)
     p = logistic(x)
-    return p * (one(p) - p) * (one(p) - 2*p)
+    return p * (one(p) - p) * (one(p) - 2 * p)
 end
 
 """
@@ -343,7 +343,7 @@ See also: [`ExponentialFamily`](@ref), [`loglik`](@ref)
 function likelihood(obs_model::ExponentialFamily, x, θ_named)
     η = x  # Linear predictor
     μ = apply_invlink.(Ref(obs_model.link), η)
-    
+
     return _likelihood_family(obs_model.family, μ, θ_named)
 end
 
@@ -404,7 +404,7 @@ function loggrad(obs_model::ExponentialFamily, x, θ_named, y)
     η = x
     μ = apply_invlink.(Ref(obs_model.link), η)
     dμ_dη = derivative_invlink.(Ref(obs_model.link), η)
-    
+
     return _loggrad_family(obs_model.family, μ, dμ_dη, θ_named, y)
 end
 
@@ -458,39 +458,39 @@ function loghessian(obs_model::ExponentialFamily, x, θ_named, y)
     μ = apply_invlink.(Ref(obs_model.link), η)
     dμ_dη = derivative_invlink.(Ref(obs_model.link), η)
     d2μ_dη2 = second_derivative_invlink.(Ref(obs_model.link), η)
-    
+
     diagonal_terms = _loghessian_diagonal_family(obs_model.family, μ, dμ_dη, d2μ_dη2, θ_named, y)
     return Diagonal(diagonal_terms)
 end
 
 function _loghessian_diagonal_family(::Type{<:Normal}, μ, dμ_dη, d2μ_dη2, θ_named, y)
     σ = θ_named.σ
-    return -(dμ_dη.^2) ./ σ^2 .+ (y .- μ) ./ σ^2 .* d2μ_dη2
+    return -(dμ_dη .^ 2) ./ σ^2 .+ (y .- μ) ./ σ^2 .* d2μ_dη2
 end
 
 function _loghessian_diagonal_family(::Type{<:Poisson}, μ, dμ_dη, d2μ_dη2, θ_named, y)
     # ∂²ℓ/∂η² = (∂²ℓ/∂μ²) × (∂μ/∂η)² + (∂ℓ/∂μ) × (∂²μ/∂η²)
     # For Poisson: ∂²ℓ/∂μ² = -y/μ², ∂ℓ/∂μ = y/μ - 1
-    d2l_dmu2 = -y ./ (μ.^2)
+    d2l_dmu2 = -y ./ (μ .^ 2)
     dl_dmu = (y ./ μ) .- 1
-    return d2l_dmu2 .* (dμ_dη.^2) .+ dl_dmu .* d2μ_dη2
+    return d2l_dmu2 .* (dμ_dη .^ 2) .+ dl_dmu .* d2μ_dη2
 end
 
 function _loghessian_diagonal_family(::Type{<:Bernoulli}, μ, dμ_dη, d2μ_dη2, θ_named, y)
     # ∂²ℓ/∂η² = (∂²ℓ/∂μ²) × (∂μ/∂η)² + (∂ℓ/∂μ) × (∂²μ/∂η²)
     # For Bernoulli: ∂²ℓ/∂μ² = -y/μ² - (1-y)/(1-μ)², ∂ℓ/∂μ = y/μ - (1-y)/(1-μ)
-    d2l_dmu2 = -(y ./ (μ.^2)) .- ((1 .- y) ./ ((1 .- μ).^2))
+    d2l_dmu2 = -(y ./ (μ .^ 2)) .- ((1 .- y) ./ ((1 .- μ) .^ 2))
     dl_dmu = (y ./ μ) .- ((1 .- y) ./ (1 .- μ))
-    return d2l_dmu2 .* (dμ_dη.^2) .+ dl_dmu .* d2μ_dη2
+    return d2l_dmu2 .* (dμ_dη .^ 2) .+ dl_dmu .* d2μ_dη2
 end
 
 function _loghessian_diagonal_family(::Type{<:Binomial}, μ, dμ_dη, d2μ_dη2, θ_named, y)
     n = θ_named.n
     # ∂²ℓ/∂η² = (∂²ℓ/∂μ²) × (∂μ/∂η)² + (∂ℓ/∂μ) × (∂²μ/∂η²)
     # For Binomial: ∂²ℓ/∂μ² = -y/μ² - (n-y)/(1-μ)², ∂ℓ/∂μ = y/μ - (n-y)/(1-μ)
-    d2l_dmu2 = -(y ./ (μ.^2)) .- ((n .- y) ./ ((1 .- μ).^2))
+    d2l_dmu2 = -(y ./ (μ .^ 2)) .- ((n .- y) ./ ((1 .- μ) .^ 2))
     dl_dmu = (y ./ μ) .- ((n .- y) ./ (1 .- μ))
-    return d2l_dmu2 .* (dμ_dη.^2) .+ dl_dmu .* d2μ_dη2
+    return d2l_dmu2 .* (dμ_dη .^ 2) .+ dl_dmu .* d2μ_dη2
 end
 
 # Hyperparameter interface implementations

@@ -6,7 +6,7 @@ using Aqua
     @testset "Code quality (Aqua.jl)" begin
         Aqua.test_all(IntegratedNestedLaplace)
     end
-    
+
     include("hyperparameters/runtests.jl")
     include("observation_models/runtests.jl")
     include("gaussian_approximation/runtests.jl")
