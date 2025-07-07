@@ -2,6 +2,7 @@ using Distributions
 using StatsBase
 using Random
 using Roots
+using Printf
 
 export WeightedMixture
 
@@ -153,4 +154,31 @@ Base.rand(d::WeightedMixture) = rand(Random.GLOBAL_RNG, d)
 function logsumexp(log_terms::Vector)
     max_log = maximum(log_terms)
     return max_log + log(sum(exp(x - max_log) for x in log_terms))
+end
+
+# Custom show method for better user experience
+function Base.show(io::IO, d::WeightedMixture)
+    n_components = length(d.components)
+
+    println(io, "WeightedMixture{", eltype(d.weights), "}:")
+    println(io, "  Components: ", n_components)
+
+    # Show first few components with their weights
+    max_show = min(n_components, 3)
+    for i in 1:max_show
+        comp_name = typeof(d.components[i]).name.name
+        println(
+            io, "    ", @sprintf("%.4f", d.weights[i]), " × ", comp_name,
+            "(μ=", @sprintf("%.4f", mean(d.components[i])),
+            ", σ=", @sprintf("%.4f", std(d.components[i])), ")"
+        )
+    end
+
+    if n_components > 3
+        println(io, "    ... and ", n_components - 3, " more components")
+    end
+
+    # Show mixture statistics
+    println(io, "  Mixture mean: ", @sprintf("%.4f", mean(d)))
+    return print(io, "  Mixture std: ", @sprintf("%.4f", std(d)))
 end

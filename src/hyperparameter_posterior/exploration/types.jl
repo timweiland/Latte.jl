@@ -1,3 +1,5 @@
+using Printf
+
 export GridPoint, HyperparameterExploration, integration_bounds
 
 """
@@ -18,6 +20,57 @@ struct HyperparameterExploration
     integration_indices::Vector{Int}
     transform::ReparameterizationTransform
     log_normalization_constant::Float64
+end
+
+# Custom show methods for better user experience
+
+function Base.show(io::IO, gp::GridPoint)
+    print(io, "GridPoint(θ=")
+    if length(gp.θ) <= 3
+        print(io, "[", join([@sprintf("%.4f", x) for x in gp.θ], ", "), "]")
+    else
+        print(io, "[", @sprintf("%.4f", gp.θ[1]), ", ", @sprintf("%.4f", gp.θ[2]), ", ..., ", @sprintf("%.4f", gp.θ[end]), "]")
+    end
+    print(io, ", log_density=", @sprintf("%.4f", gp.log_density))
+    if gp.marginal_result !== nothing
+        print(io, ", marginals=", length(gp.marginal_result.marginals), " variables")
+    else
+        print(io, ", marginals=none")
+    end
+    return print(io, ")")
+end
+
+function Base.show(io::IO, exploration::HyperparameterExploration)
+    println(io, "HyperparameterExploration:")
+    println(io, "  Grid points: ", length(exploration.grid_points))
+    println(io, "  Integration points: ", length(exploration.integration_indices))
+
+    # Get parameter dimension
+    if !isempty(exploration.grid_points)
+        n_dim = length(exploration.grid_points[1].θ)
+        println(io, "  Parameter dimensions: ", n_dim)
+
+        # Show parameter ranges for integration points
+        if !isempty(exploration.integration_indices)
+            integration_points = exploration.grid_points[exploration.integration_indices]
+            θ_values = [point.θ for point in integration_points]
+
+            for dim in 1:n_dim
+                dim_values = [θ[dim] for θ in θ_values]
+                min_val = minimum(dim_values)
+                max_val = maximum(dim_values)
+                println(io, "    Dimension ", dim, ": [", @sprintf("%.4f", min_val), ", ", @sprintf("%.4f", max_val), "]")
+            end
+        end
+    end
+
+    # Show log-density range
+    log_densities = [point.log_density for point in exploration.grid_points]
+    if !isempty(log_densities)
+        println(io, "  Log density range: [", @sprintf("%.4f", minimum(log_densities)), ", ", @sprintf("%.4f", maximum(log_densities)), "]")
+    end
+
+    return print(io, "  Log normalization constant: ", @sprintf("%.4f", exploration.log_normalization_constant))
 end
 
 """

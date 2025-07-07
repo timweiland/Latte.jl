@@ -1,5 +1,6 @@
 using LinearAlgebra
 using FiniteDiff
+using Printf
 
 export ReparameterizationTransform, logdet_jacobian, compute_reparameterization
 
@@ -62,4 +63,32 @@ function compute_reparameterization(model::INLAModel, y, θ_star)
     Λ_inv_sqrt = Diagonal(1.0 ./ sqrt.(Λ))
 
     return ReparameterizationTransform(θ_star, V, Λ_inv_sqrt, H)
+end
+
+# Custom show method for better user experience
+function Base.show(io::IO, t::ReparameterizationTransform)
+    n_dim = length(t.θ_star)
+    println(io, "ReparameterizationTransform:")
+
+    print(io, "  Mode: ")
+    if n_dim <= 3
+        print(io, "[", join([@sprintf("%.4f", x) for x in t.θ_star], ", "), "]")
+    else
+        print(io, "[", @sprintf("%.4f", t.θ_star[1]), ", ", @sprintf("%.4f", t.θ_star[2]), ", ..., ", @sprintf("%.4f", t.θ_star[end]), "]")
+    end
+    println(io)
+
+    println(io, "  Dimensions: ", n_dim)
+
+    # Show eigenvalues of the Hessian (curvature information)
+    eigenvalues = 1.0 ./ (diag(t.Λ_inv_sqrt) .^ 2)
+    print(io, "  Hessian eigenvalues: ")
+    if n_dim <= 3
+        print(io, "[", join([@sprintf("%.2e", x) for x in eigenvalues], ", "), "]")
+    else
+        print(io, "[", @sprintf("%.2e", eigenvalues[1]), ", ", @sprintf("%.2e", eigenvalues[2]), ", ..., ", @sprintf("%.2e", eigenvalues[end]), "]")
+    end
+    println(io)
+
+    return print(io, "  Log-det Jacobian: ", @sprintf("%.4f", logdet_jacobian(t)))
 end

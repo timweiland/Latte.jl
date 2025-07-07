@@ -100,8 +100,7 @@ println("\nStep 2: Exploring hyperparameter posterior...")
 #δ_π=2.5, interpolation_factor=3)
 
 exploration = explore_hyperparameter_posterior(
-    inla_model, y_gt, θ_star, nothing, nothing;
-    δ_π = 2.5, interpolation_factor = 3
+    inla_model, y_gt, θ_star, GaussianMarginal(), 1:k
 )
 
 println("Exploration results:")

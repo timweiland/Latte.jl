@@ -1,5 +1,6 @@
 using DataInterpolations
 using ScatteredInterpolation
+using Printf
 
 export build_posterior_interpolant, HyperparameterPosteriorApproximation
 
@@ -70,4 +71,31 @@ function build_posterior_interpolant(exploration::HyperparameterExploration)
     end
 
     return HyperparameterPosteriorApproximation(exploration, interpolant)
+end
+
+# Custom show method for better user experience
+function Base.show(io::IO, approx::HyperparameterPosteriorApproximation)
+    n_dim = length(approx.exploration.grid_points[1].θ)
+    n_points = length(approx.exploration.grid_points)
+    n_integration = length(approx.exploration.integration_indices)
+
+    println(io, "HyperparameterPosteriorApproximation:")
+    println(io, "  Interpolation method: ", typeof(approx.interpolant).name.name)
+    println(io, "  Parameter dimensions: ", n_dim)
+    println(io, "  Interpolation points: ", n_points)
+    println(io, "  Integration points: ", n_integration)
+
+    # Show parameter bounds
+    return if !isempty(approx.exploration.integration_indices)
+        integration_points = approx.exploration.grid_points[approx.exploration.integration_indices]
+        θ_values = [point.θ for point in integration_points]
+
+        println(io, "  Parameter bounds:")
+        for dim in 1:n_dim
+            dim_values = [θ[dim] for θ in θ_values]
+            min_val = minimum(dim_values)
+            max_val = maximum(dim_values)
+            println(io, "    Dimension ", dim, ": [", @sprintf("%.4f", min_val), ", ", @sprintf("%.4f", max_val), "]")
+        end
+    end
 end
