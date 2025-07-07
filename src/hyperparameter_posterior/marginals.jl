@@ -35,7 +35,7 @@ function hyperparameter_marginal_logpdf(
     )
 
     exploration = approx.exploration
-    n_dims = length(exploration.mode)
+    n_dims = length(exploration.grid_points[1].θ)
 
     if marginal_dim < 1 || marginal_dim > n_dims
         throw(BoundsError(1:n_dims, marginal_dim))
@@ -47,9 +47,10 @@ function hyperparameter_marginal_logpdf(
     end
 
     # Get precomputed integration bounds
+    bounds = integration_bounds(exploration)
     integration_dims = [i for i in 1:n_dims if i != marginal_dim]
-    bounds_lower = [exploration.integration_bounds[dim, 1] for dim in integration_dims]
-    bounds_upper = [exploration.integration_bounds[dim, 2] for dim in integration_dims]
+    bounds_lower = [bounds[dim, 1] for dim in integration_dims]
+    bounds_upper = [bounds[dim, 2] for dim in integration_dims]
 
     # Use precomputed mode logpdf for log-sum-exp stability
     #max_log = exploration.transformation.mode_logpdf

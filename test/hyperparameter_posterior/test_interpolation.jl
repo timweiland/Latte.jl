@@ -9,24 +9,32 @@ using SparseArrays
 @testset "Interpolation" begin
 
     @testset "1D Interpolation" begin
-        # Test building interpolant for 1D case
-        hp_prior = HyperparameterPrior((τ = Gamma(3, 1),))
+        # Test building interpolant for 1D case using stable AR-1 GMRF
+        hp_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3),), fixed = (σ = 1.0e-6,))
 
-        function precision_latent(θ_named)
-            τ = θ_named.τ
-            n = 4
-            Q = spdiagm(0 => fill(τ, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+        function ar_precision(ρ, k)
+            return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
         end
 
-        obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(hp_prior, precision_latent, obs_model)
+        function stable_1d_latent(θ_named)
+            σ_gmrf = θ_named.σ_gmrf
+            ρ = 0.3  # Fixed correlation for 1D test
+            k = 100
+            Q = ar_precision(ρ, k) ./ σ_gmrf^2
+            return GMRF(zeros(k), Q, CholeskySolverBlueprint())
+        end
 
-        y_test = [true, false, true, false]
+        obs_model = ExponentialFamily(Normal)
+        model = INLAModel(hp_prior, stable_1d_latent, obs_model)
+
+        # Generate stable test data
+        σ_gmrf_true = 2.5
+        x_gt = rand(stable_1d_latent((σ_gmrf = σ_gmrf_true,)))
+        y_test = rand(likelihood(obs_model, x_gt, (σ = 1.0e-6,)))
 
         # Get exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration = explore_hyperparameter_posterior(model, y_test, θ_star, mode_points, mode_logdensities)
+        exploration = explore_hyperparameter_posterior(model, y_test, θ_star, GaussianMarginal(), 1:100)
 
         # Build interpolant
         posterior_approx = build_posterior_interpolant(exploration)
@@ -50,28 +58,34 @@ using SparseArrays
     end
 
     @testset "2D Interpolation" begin
-        # Test building interpolant for 2D case
-        hp_prior = HyperparameterPrior((α = Gamma(2, 1), β = Gamma(2, 1)))
+        # Test building interpolant for 2D case using stable AR-1 GMRF
+        hp_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
 
-        function dual_precision_latent(θ_named)
-            α, β = θ_named.α, θ_named.β
-            n = 4
-            # Different precisions for different components
-            Q_diag = [α, α, β, β]
-            Q = spdiagm(0 => Q_diag)
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+        function ar_precision(ρ, k)
+            return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
         end
 
-        obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(hp_prior, dual_precision_latent, obs_model)
+        function stable_2d_latent(θ_named)
+            σ_gmrf, ρ = θ_named.σ_gmrf, θ_named.ρ
+            k = 100
+            Q = ar_precision(ρ, k) ./ σ_gmrf^2
+            return GMRF(zeros(k), Q, CholeskySolverBlueprint())
+        end
 
-        y_test = [true, false, true, false]
+        obs_model = ExponentialFamily(Normal)
+        model = INLAModel(hp_prior, stable_2d_latent, obs_model)
+
+        # Generate stable test data
+        σ_gmrf_true = 2.5
+        ρ_true = 0.4
+        x_gt = rand(stable_2d_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
+        y_test = rand(likelihood(obs_model, x_gt, (σ = 1.0e-6,)))
 
         # Get exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
         exploration = explore_hyperparameter_posterior(
-            model, y_test, θ_star, mode_points, mode_logdensities;
-            interpolation_factor = 2
+            model, y_test, θ_star, GaussianMarginal(), 1:100;
+            interpolation_subdivisions = 2
         )
 
         # Build interpolant

@@ -164,25 +164,33 @@ using SparseArrays
     end
 
     @testset "Bounds Checking and Error Handling" begin
-        # Create simple 2D model for bounds testing - use scaling factors to avoid boundary issues
-        hp_prior = HyperparameterPrior((μ_scale = Normal(0, 1), τ_scale = Gamma(3, 2)))
+        # Create stable 2D model using AR-1 GMRF pattern with proper regularization
+        hp_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
 
-        function simple_2d_latent(θ_named)
-            μ_scale, τ_scale = θ_named.μ_scale, θ_named.τ_scale
-            n = 4
-            μ = fill(μ_scale, n)  # Scaled constant mean
-            Q = spdiagm(0 => fill(τ_scale, n))  # Scaled diagonal precision
+        function ar_precision(ρ, k)
+            return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
+        end
+
+        function stable_2d_latent(θ_named)
+            σ_gmrf, ρ = θ_named.σ_gmrf, θ_named.ρ
+            k = 1000  # Large k for numerical stability
+            Q = ar_precision(ρ, k) ./ σ_gmrf^2
+            μ = zeros(k)
             return GMRF(μ, Q, CholeskySolverBlueprint())
         end
 
-        obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(hp_prior, simple_2d_latent, obs_model)
+        obs_model = ExponentialFamily(Normal)
+        model = INLAModel(hp_prior, stable_2d_latent, obs_model)
 
-        y_test = [true, true, true, false]  # Biased towards true
+        # Generate stable test data using the same method as the working example
+        σ_gmrf_true = 2.5
+        ρ_true = 0.4
+        x_gt = rand(stable_2d_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
+        y_test = rand(likelihood(obs_model, x_gt, (σ = 1.0e-6,)))
 
         # Get posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration = explore_hyperparameter_posterior(model, y_test, θ_star, mode_points, mode_logdensities)
+        exploration = explore_hyperparameter_posterior(model, y_test, θ_star, GaussianMarginal(), 1:1000)
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test bounds checking
@@ -199,25 +207,33 @@ using SparseArrays
     end
 
     @testset "Integration Tolerance Effects" begin
-        # Test effect of integration tolerances on marginal computation - use scaling factors
-        hp_prior = HyperparameterPrior((μ_scale = Normal(0, 0.5), τ_scale = Gamma(3, 2)))
+        # Test effect of integration tolerances using stable AR-1 GMRF pattern
+        hp_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
+
+        function ar_precision(ρ, k)
+            return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
+        end
 
         function tolerance_test_latent(θ_named)
-            μ_scale, τ_scale = θ_named.μ_scale, θ_named.τ_scale
-            n = 4
-            μ = fill(μ_scale, n)  # Scaled constant mean
-            Q = spdiagm(0 => fill(τ_scale, n))  # Scaled diagonal precision
+            σ_gmrf, ρ = θ_named.σ_gmrf, θ_named.ρ
+            k = 1000  # Large k for numerical stability
+            Q = ar_precision(ρ, k) ./ σ_gmrf^2
+            μ = zeros(k)
             return GMRF(μ, Q, CholeskySolverBlueprint())
         end
 
-        obs_model = ExponentialFamily(Bernoulli)
+        obs_model = ExponentialFamily(Normal)  # Use Normal for stability
         model = INLAModel(hp_prior, tolerance_test_latent, obs_model)
 
-        y_test = [true, true, false, true]  # Biased towards true
+        # Generate stable test data using the same method as the working example
+        σ_gmrf_true = 2.5
+        ρ_true = 0.4
+        x_gt = rand(tolerance_test_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
+        y_test = rand(likelihood(obs_model, x_gt, (σ = 1.0e-6,)))
 
         # Get posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration = explore_hyperparameter_posterior(model, y_test, θ_star, mode_points, mode_logdensities)
+        exploration = explore_hyperparameter_posterior(model, y_test, θ_star, GaussianMarginal(), 1:1000)
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test with different tolerances

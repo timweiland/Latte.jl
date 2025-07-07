@@ -12,25 +12,38 @@ using FiniteDiff
 export hyperparameter_logpdf, find_hyperparameter_mode
 
 """
-    hyperparameter_logpdf(model::INLAModel, θ, y)
+    hyperparameter_logpdf(model::INLAModel, θ, y, ga=nothing)
 
 Evaluate log π(θ | y) ∝ log π(θ) + log π(x*(θ), θ, y) - log π̃_G(x*(θ) | θ, y)
 
 This is the INLA approximation to the hyperparameter posterior.
+
+# Arguments
+- `model::INLAModel`: The INLA model specification
+- `θ`: Hyperparameter vector
+- `y`: Observed data  
+- `ga`: Optional pre-computed Gaussian approximation (GMRF object). If `nothing`, will be computed.
 """
-function hyperparameter_logpdf(model::INLAModel, θ, y)
+function hyperparameter_logpdf(model::INLAModel, θ, y, ga = nothing)
     # Check if θ is in support of the hyperparameter prior
     if !insupport(model.hyperparameter_prior.free_distribution, θ)
         return -Inf  # Return -Inf log-density for points outside support
     end
 
     θ_named = to_named(θ, model.hyperparameter_prior)
-    # Get latent field prior for this θ
-    x_prior = latent_gmrf(model, θ_named)
-    
-    # Find Gaussian approximation
-    result = gaussian_approximation(x_prior, model.observation_model, θ_named, y)
-    x_G = to_gmrf(result)
+
+    # Use provided Gaussian approximation or compute it
+    if ga === nothing
+        # Get latent field prior for this θ
+        x_prior = latent_gmrf(model, θ_named)
+
+        # Find Gaussian approximation
+        result = gaussian_approximation(x_prior, model.observation_model, θ_named, y)
+        x_G = to_gmrf(result)
+    else
+        x_G = ga
+    end
+
     x_star = mean(x_G)
 
     # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)

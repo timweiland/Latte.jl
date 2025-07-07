@@ -21,7 +21,7 @@ Compute marginal approximations for specified latent variables.
 function marginalize(
         ga, obs_model, θ, y, log_prior_θ::Real,
         method::MarginalApproximation,
-        indices::Vector{Int} = collect(1:length(mean(ga)));
+        indices::AbstractVector{<:Integer} = collect(1:length(mean(ga)));
         prior_gmrf = nothing
     )
 

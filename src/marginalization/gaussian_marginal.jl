@@ -18,7 +18,7 @@ Implementation for Gaussian marginalization.
 """
 function _marginalize_impl(
         ga, obs_model, θ, y, log_prior_θ::Real,
-        ::GaussianMarginal, indices::Vector{Int}, prior_gmrf
+        ::GaussianMarginal, indices::AbstractVector{<:Integer}, prior_gmrf
     )
     # prior_gmrf is ignored for Gaussian marginalization
     μ = mean(ga)
