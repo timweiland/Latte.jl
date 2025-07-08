@@ -13,5 +13,5 @@ using Aqua
     include("distributions/runtests.jl")
     include("test_inla_model.jl")
     include("hyperparameter_posterior/runtests.jl")
-    include("test_marginalization.jl")
+    include("test_latent_marginalization.jl")
 end
