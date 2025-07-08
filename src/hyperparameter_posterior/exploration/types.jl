@@ -1,6 +1,6 @@
 using Printf
 
-export GridPoint, HyperparameterExploration, integration_bounds
+export GridPoint, HyperparameterExploration
 
 """
 Represents a single point on the exploration grid with its computed results.
@@ -20,6 +20,32 @@ struct HyperparameterExploration
     integration_indices::Vector{Int}
     transform::ReparameterizationTransform
     log_normalization_constant::Float64
+    integration_bounds::Matrix{Float64}
+
+    # Constructor that computes integration bounds
+    function HyperparameterExploration(grid_points, integration_indices, transform, log_normalization_constant)
+        # Compute integration bounds once during construction
+        integration_points = grid_points[integration_indices]
+
+        if isempty(integration_points)
+            error("No integration points found in exploration")
+        end
+
+        # Extract parameter values
+        θ_values = [point.θ for point in integration_points]
+        n_dims = length(θ_values[1])
+
+        # Compute bounds for each dimension
+        bounds = Matrix{Float64}(undef, n_dims, 2)
+
+        for dim in 1:n_dims
+            dim_values = [θ[dim] for θ in θ_values]
+            bounds[dim, 1] = minimum(dim_values)  # min
+            bounds[dim, 2] = maximum(dim_values)  # max
+        end
+
+        return new(grid_points, integration_indices, transform, log_normalization_constant, bounds)
+    end
 end
 
 # Custom show methods for better user experience
@@ -71,41 +97,4 @@ function Base.show(io::IO, exploration::HyperparameterExploration)
     end
 
     return print(io, "  Log normalization constant: ", @sprintf("%.4f", exploration.log_normalization_constant))
-end
-
-"""
-    integration_bounds(exploration::HyperparameterExploration)
-
-Compute the integration bounds from the exploration results.
-Returns a matrix where bounds[i, 1] is the minimum and bounds[i, 2] is the maximum
-for the i-th hyperparameter dimension.
-
-# Arguments
-- `exploration::HyperparameterExploration`: The exploration results
-
-# Returns
-- `Matrix{Float64}`: (n_dims × 2) matrix with min/max bounds for each dimension
-"""
-function integration_bounds(exploration::HyperparameterExploration)
-    # Get integration points only
-    integration_points = exploration.grid_points[exploration.integration_indices]
-
-    if isempty(integration_points)
-        error("No integration points found in exploration")
-    end
-
-    # Extract parameter values
-    θ_values = [point.θ for point in integration_points]
-    n_dims = length(θ_values[1])
-
-    # Compute bounds for each dimension
-    bounds = Matrix{Float64}(undef, n_dims, 2)
-
-    for dim in 1:n_dims
-        dim_values = [θ[dim] for θ in θ_values]
-        bounds[dim, 1] = minimum(dim_values)  # min
-        bounds[dim, 2] = maximum(dim_values)  # max
-    end
-
-    return bounds
 end

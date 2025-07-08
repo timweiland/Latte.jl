@@ -47,7 +47,7 @@ function hyperparameter_marginal_logpdf(
     end
 
     # Get precomputed integration bounds
-    bounds = integration_bounds(exploration)
+    bounds = exploration.integration_bounds
     integration_dims = [i for i in 1:n_dims if i != marginal_dim]
     bounds_lower = [bounds[dim, 1] for dim in integration_dims]
     bounds_upper = [bounds[dim, 2] for dim in integration_dims]
