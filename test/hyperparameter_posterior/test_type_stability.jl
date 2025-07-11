@@ -30,9 +30,9 @@ using SparseArrays
         θ_star, _, _ = find_hyperparameter_mode(model, y_test; collect_points = false)
         @inferred Vector{Float64} find_hyperparameter_mode(model, y_test; collect_points = false)[1]
 
-        # Test mode computation from Product distribution
+        # Test initial hyperparameter guess function
         prior_product = product_distribution([Gamma(3, 2)])
-        @inferred Vector{Float64} mode(prior_product)
+        @inferred Vector{Float64} IntegratedNestedLaplace.initial_hyperparameter_guess(prior_product)
     end
 
     @testset "Memory Allocation" begin

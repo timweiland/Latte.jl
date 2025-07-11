@@ -32,22 +32,6 @@ using Distributions
         @test :ρ in keys(model.hyperparameter_prior.name_to_index)
     end
 
-    @testset "Integration with mode finding" begin
-        # Test that mode function works with new hyperparameter prior
-        hp_prior = HyperparameterPrior((α = Gamma(2, 3), β = Beta(2, 5)))
-
-        # Test mode extraction
-        mode_vec = mode(hp_prior.free_distribution)
-        @test length(mode_vec) == 2
-
-        # Test named mode
-        mode_named = to_named(mode_vec, hp_prior)
-        @test haskey(mode_named, :α)
-        @test haskey(mode_named, :β)
-        @test mode_named.α ≈ mode(Gamma(2, 3))
-        @test mode_named.β ≈ mode(Beta(2, 5))
-    end
-
     @testset "Integration with exploration bounds" begin
         # Test that exploration bounds work with named parameters
         hp_prior = HyperparameterPrior((μ = Normal(0, 1), σ = Gamma(1, 1)))

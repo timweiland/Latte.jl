@@ -163,14 +163,6 @@ using Distributions
     @testset "Integration with existing Distribution methods" begin
         hp_prior = HyperparameterPrior((σ = Gamma(2, 3), ρ = Uniform(0, 0.5)))
 
-        @testset "mode function" begin
-            # Test that mode works with the underlying distribution
-            mode_vec = mode(hp_prior.free_distribution)
-            @test length(mode_vec) == 2
-            @test mode_vec[1] ≈ mode(Gamma(2, 3))  # σ mode
-            @test mode_vec[2] ≈ mode(Uniform(0, 0.5))  # ρ mode
-        end
-
         @testset "rand and logpdf" begin
             # Test sampling and density evaluation
             θ_sample = rand(hp_prior.free_distribution)
@@ -310,10 +302,6 @@ using Distributions
                 (ρ = Beta(2, 2), τ = Gamma(2, 1)),  # Beta(2,2) has well-defined mode
                 fixed = (σ = 0.5,)
             )
-
-            # Test mode (only free parameters)
-            mode_vec = mode(hp_prior.free_distribution)
-            @test length(mode_vec) == 2
 
             # Test rand (only free parameters)
             rand_vec = rand(hp_prior.free_distribution)

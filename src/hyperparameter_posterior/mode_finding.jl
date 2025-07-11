@@ -8,8 +8,25 @@ posterior π(θ | y) and computing the associated reparameterization.
 using LinearAlgebra
 using Optim
 using FiniteDiff
+using Distributions
 
 export hyperparameter_logpdf, find_hyperparameter_mode
+
+"""
+    initial_hyperparameter_guess(distribution)
+
+Compute an initial guess for hyperparameter optimization.
+
+For Product distributions, returns the vector of modes of the marginal distributions.
+For other distributions, returns the mode directly.
+"""
+function initial_hyperparameter_guess(d::Product)
+    return [mode(marginal) for marginal in d.v]
+end
+
+function initial_hyperparameter_guess(d)
+    return mode(d)
+end
 
 """
     hyperparameter_logpdf(model::INLAModel, θ, y, ga=nothing)
@@ -94,7 +111,7 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
     end
 
     # Initial guess (mode of hyperparameter prior)
-    θ_init = mode(model.hyperparameter_prior.free_distribution)
+    θ_init = initial_hyperparameter_guess(model.hyperparameter_prior.free_distribution)
     if !isa(θ_init, Vector)
         θ_init = [θ_init]  # Handle scalar case
     end
