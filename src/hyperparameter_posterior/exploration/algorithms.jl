@@ -193,6 +193,12 @@ function explore_hyperparameter_posterior(
 
     # Step 6: Create the final, clean, normalized GridPoint objects for the user
     progress_callback(status = "Finalizing exploration", integration_points = length(integration_indices))
+
+    # Warn if exploration found very few points
+    if length(raw_interpolation_points) < 3
+        @warn "Exploration found only $(length(raw_interpolation_points)) grid points. Consider relaxing exploration parameters: increase max_log_drop (current: $max_log_drop) or decrease integration_step_z (current: $integration_step_z) for better coverage."
+    end
+
     final_grid_points = GridPoint[]
     for p in raw_interpolation_points
         normalized_log_density = p.log_density - log_normalization_constant

@@ -25,7 +25,7 @@ Evaluate the hyperparameter posterior approximation at point θ.
 Handles both DataInterpolations.jl (CubicSpline) and ScatteredInterpolation.jl (RBF) interpolants.
 """
 function (approx::HyperparameterPosteriorApproximation)(θ)
-    if isa(approx.interpolant, CubicSpline)
+    if isa(approx.interpolant, Union{CubicSpline, LinearInterpolation, ConstantInterpolation})
         # DataInterpolations.jl interface: interpolant(x)
         return approx.interpolant(θ isa Vector ? θ[1] : θ)
     else
@@ -66,7 +66,17 @@ function build_posterior_interpolant(exploration::HyperparameterExploration; pro
         sorted_θ = θ_values[perm]
         sorted_logpdf = log_densities[perm]
 
-        interpolant = CubicSpline(sorted_logpdf, sorted_θ)
+        # Use appropriate interpolation based on number of points
+        if length(sorted_θ) == 1
+            interpolant = ConstantInterpolation(sorted_logpdf, sorted_θ)
+            progress_callback(status = "Constant interpolant complete", method = "ConstantInterpolation")
+        elseif length(sorted_θ) == 2
+            interpolant = LinearInterpolation(sorted_logpdf, sorted_θ)
+            progress_callback(status = "Linear interpolant complete", method = "LinearInterpolation")
+        else
+            interpolant = CubicSpline(sorted_logpdf, sorted_θ)
+            progress_callback(status = "Spline interpolant complete", method = "CubicSpline")
+        end
     else
         # Multidimensional case - use thin-plate spline interpolation
         progress_callback(status = "Building RBF interpolant", dimensions = n_dim, points = n_points)
