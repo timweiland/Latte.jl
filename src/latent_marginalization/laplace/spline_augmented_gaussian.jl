@@ -2,6 +2,7 @@ using Distributions
 using HCubature
 using FastGaussQuadrature
 using DataInterpolations
+using DataInterpolations: ExtrapolationType
 using Random
 
 export SplineAugmentedGaussian
@@ -152,8 +153,8 @@ function _compute_and_cache_splines!(d::SplineAugmentedGaussian{T}) where {T}
     # Linear interpolation is robust, fast, and guarantees monotonicity.
     # CDF: x -> cdf_value, so LinearInterpolation(cdf_values, grid_points)
     # Quantile: cdf_value -> x, so LinearInterpolation(grid_points, cdf_values)
-    d._cdf_spline = LinearInterpolation(cdf_values, grid_points)
-    d._quantile_spline = LinearInterpolation(grid_points, cdf_values)
+    d._cdf_spline = LinearInterpolation(cdf_values, grid_points; extrapolation = ExtrapolationType.Constant)
+    d._quantile_spline = LinearInterpolation(grid_points, cdf_values; extrapolation = ExtrapolationType.Constant)
 
     return
 end
