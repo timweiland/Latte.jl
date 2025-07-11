@@ -28,7 +28,7 @@ function marginalize(
     # Validate indices
     n = length(mean(ga))
     if any(i -> i < 1 || i > n, indices)
-        throw(BoundsError("Index out of bounds for Gaussian approximation of size $n"))
+        throw(BoundsError(1:n, indices))
     end
     if length(unique(indices)) != length(indices)
         throw(ArgumentError("Duplicate indices not allowed"))
