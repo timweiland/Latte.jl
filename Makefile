@@ -28,8 +28,9 @@ help:
 # Setup development environment
 setup: deps
 	@echo "Setting up development environment..."
-	@julia -e 'using Pkg; Pkg.add("TestEnv")'
+	@julia -e 'using Pkg; Pkg.add("TestEnv"); Pkg.add("Runic")'
 	@echo "Setup complete!"
+	@echo "Consider also adding the Runic shell script. Check https://github.com/fredrikekre/Runic.jl"
 
 # Install package dependencies
 deps:
