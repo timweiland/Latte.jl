@@ -412,7 +412,7 @@ Distributions.partype(::Type{HyperparameterMarginalDistribution{T}}) where {T} =
 # ==================== Custom Show Method ====================
 
 function Base.show(io::IO, d::HyperparameterMarginalDistribution)
-    n_dims = length(d.approx.exploration.mode)
+    n_dims = length(d.approx.exploration.grid_points[1].θ)
     bounds = d.approx.exploration.integration_bounds
     lower = bounds[d.marginal_dim, 1]
     upper = bounds[d.marginal_dim, 2]

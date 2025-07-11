@@ -133,10 +133,10 @@ using FiniteDiff
         @test θ_star[1] ≈ 0.0 atol = 1.0e-3  # Should be near boundary for extreme data
     end
 
-    @testset "Product Distribution Mode" begin
+    @testset "Initial hyperparameter guess" begin
         # Test the basic mode computation from Product distributions
         prior_product = product_distribution([InverseGamma(2, 1), Beta(2, 2)])
-        mode_vec = mode(prior_product)
+        mode_vec = IntegratedNestedLaplace.initial_hyperparameter_guess(prior_product)
 
         @test length(mode_vec) == 2
         @test mode_vec[1] ≈ mode(InverseGamma(2, 1))

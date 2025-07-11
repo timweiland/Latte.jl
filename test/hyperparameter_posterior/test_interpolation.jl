@@ -42,9 +42,9 @@ using SparseArrays
         @test posterior_approx.exploration == exploration
 
         # Test interpolant evaluation at exploration points
-        for (i, θ_point) in enumerate(exploration.interpolation_points)
-            approx_value = posterior_approx(θ_point)
-            true_value = exploration.log_densities[i]
+        for (i, point) in enumerate(exploration.grid_points)
+            approx_value = posterior_approx(point.θ)
+            true_value = point.log_density
             @test approx_value ≈ true_value atol = 1.0e-10  # Should exactly interpolate
         end
 
@@ -95,9 +95,9 @@ using SparseArrays
 
         # Test interpolant evaluation at exploration points
         tolerance = 1.0e-6  # RBF interpolation may have small numerical errors
-        for (i, θ_point) in enumerate(exploration.interpolation_points)
-            approx_value = posterior_approx(θ_point)
-            true_value = exploration.log_densities[i]
+        for (i, point) in enumerate(exploration.grid_points)
+            approx_value = posterior_approx(point.θ)
+            true_value = point.log_density
             @test approx_value ≈ true_value atol = tolerance
         end
 
@@ -106,7 +106,7 @@ using SparseArrays
         @test isfinite(mode_approx)
 
         # Test interpolation at new points near the mode
-        log_normalization = exploration.transformation.log_normalization
+        log_normalization = exploration.log_normalization_constant
 
         # Generate test points around the mode within integration bounds
         mode_α, mode_β = θ_star[1], θ_star[2]
@@ -154,26 +154,26 @@ using SparseArrays
         # Get dense exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
         exploration = explore_hyperparameter_posterior(
-            model, y_test, θ_star, mode_points, mode_logdensities;
-            δ_π = 3.0, interpolation_factor = 1
+            model, y_test, θ_star, GaussianMarginal(), 1:2;
+            integration_step_z = 3.0, interpolation_subdivisions = 1
         )  # Dense sampling
 
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test interpolation quality: compare interpolated values with stored normalized values
-        test_indices = 1:min(5, length(exploration.interpolation_points))
+        test_indices = 1:min(5, length(exploration.grid_points))
 
         for i in test_indices
-            θ_point = exploration.interpolation_points[i]
-            approx_value = posterior_approx(θ_point)
-            stored_value = exploration.log_densities[i]  # This is already normalized
+            point = exploration.grid_points[i]
+            approx_value = posterior_approx(point.θ)
+            stored_value = point.log_density  # This is already normalized
 
             # Should be very close for points in the exploration (both normalized)
             @test approx_value ≈ stored_value atol = 1.0e-3
         end
 
         # Test interpolation at new points near the mode
-        log_normalization = exploration.transformation.log_normalization
+        log_normalization = exploration.log_normalization_constant
 
         # Generate test points around the mode within integration bounds
         mode_val = θ_star[1]

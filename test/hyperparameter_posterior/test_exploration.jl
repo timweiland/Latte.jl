@@ -33,21 +33,20 @@ using FiniteDiff
         θ_star, _, _ = find_hyperparameter_mode(model, y_test)
 
         # Compute reparameterization
-        H, V, Λ_inv_sqrt, mode_logpdf = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star)
+        transform = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star)
 
-        @test size(H) == (1, 1)
-        @test size(V) == (1, 1)
-        @test size(Λ_inv_sqrt) == (1, 1)
-        @test isfinite(mode_logpdf)
+        @test size(transform.H) == (1, 1)
+        @test size(transform.V) == (1, 1)
+        @test size(transform.Λ_inv_sqrt) == (1, 1)
 
-        # H should be negative definite (negative Hessian of log-density)
-        @test H[1, 1] > 0  # Since H = -∇²log π(θ|y)
+        # H should be positive definite (negative Hessian of log-density)
+        @test transform.H[1, 1] > 0  # Since H = -∇²log π(θ|y)
 
         # V should be orthogonal (eigenvalue decomposition)
-        @test V' * V ≈ I(1) atol = 1.0e-10
+        @test transform.V' * transform.V ≈ I(1) atol = 1.0e-10
 
         # Λ_inv_sqrt should be positive
-        @test Λ_inv_sqrt[1, 1] > 0
+        @test transform.Λ_inv_sqrt[1, 1] > 0
     end
 
     @testset "1D Exploration" begin
@@ -71,34 +70,37 @@ using FiniteDiff
 
         # Explore around mode
         exploration = explore_hyperparameter_posterior(
-            model, y_test, θ_star, mode_points, mode_logdensities;
-            δ_π = 2.0, interpolation_factor = 2
+            model, y_test, θ_star, GaussianMarginal(), 1:6;
+            integration_step_z = 2.0, interpolation_subdivisions = 2
         )
 
-        @test exploration.mode == θ_star
-        @test length(exploration.interpolation_points) > 5  # Should have multiple points
-        @test length(exploration.log_densities) == length(exploration.interpolation_points)
-        @test all(isfinite, exploration.log_densities)
+        # Find mode (point with highest log density)
+        max_idx = argmax([point.log_density for point in exploration.grid_points])
+        mode_point = exploration.grid_points[max_idx]
+        @test mode_point.θ ≈ θ_star atol = 1.0e-10
+
+        @test length(exploration.grid_points) >= 5  # Should have multiple points
+        @test all(isfinite, [point.log_density for point in exploration.grid_points])
 
         # Integration indices should be subset of all points
-        @test all(idx -> 1 <= idx <= length(exploration.interpolation_points), exploration.integration_indices)
+        @test all(idx -> 1 <= idx <= length(exploration.grid_points), exploration.integration_indices)
         @test length(exploration.integration_indices) > 0
 
         # Mode should be included in integration points
         mode_found = false
         for idx in exploration.integration_indices
-            if exploration.interpolation_points[idx] ≈ θ_star
+            if exploration.grid_points[idx].θ ≈ θ_star
                 mode_found = true
                 break
             end
         end
         @test mode_found
 
-        # Integration bounds should encompass all points
+        # Integration bounds should encompass all integration points
         @test size(exploration.integration_bounds) == (1, 2)
-        all_values = [p[1] for p in exploration.interpolation_points]
-        @test exploration.integration_bounds[1, 1] <= minimum(all_values)
-        @test exploration.integration_bounds[1, 2] >= maximum(all_values)
+        integration_values = [exploration.grid_points[idx].θ[1] for idx in exploration.integration_indices]
+        @test exploration.integration_bounds[1, 1] <= minimum(integration_values)
+        @test exploration.integration_bounds[1, 2] >= maximum(integration_values)
     end
 
     @testset "2D Exploration" begin
@@ -120,8 +122,8 @@ using FiniteDiff
         # Get 2D posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
         exploration = explore_hyperparameter_posterior(
-            model, y_test, θ_star, mode_points, mode_logdensities;
-            interpolation_factor = 2
+            model, y_test, θ_star, GaussianMarginal(), 1:4;
+            interpolation_subdivisions = 2
         )
 
         @test length(θ_star) == 2
@@ -131,16 +133,15 @@ using FiniteDiff
         @test all(θ_star .> 0)  # Should be in support
 
         # Test exploration structure
-        @test length(exploration.interpolation_points) > 10  # Should have multiple points
-        @test all(length(p) == 2 for p in exploration.interpolation_points)  # All points are 2D
-        @test length(exploration.log_densities) == length(exploration.interpolation_points)
-        @test all(isfinite, exploration.log_densities)
+        @test length(exploration.grid_points) > 10  # Should have multiple points
+        @test all(length(point.θ) == 2 for point in exploration.grid_points)  # All points are 2D
+        @test all(isfinite, [point.log_density for point in exploration.grid_points])
 
         # Integration bounds should make sense
         for dim in 1:2
-            all_dim_values = [p[dim] for p in exploration.interpolation_points]
-            @test exploration.integration_bounds[dim, 1] <= minimum(all_dim_values)
-            @test exploration.integration_bounds[dim, 2] >= maximum(all_dim_values)
+            integration_dim_values = [exploration.grid_points[idx].θ[dim] for idx in exploration.integration_indices]
+            @test exploration.integration_bounds[dim, 1] <= minimum(integration_dim_values)
+            @test exploration.integration_bounds[dim, 2] >= maximum(integration_dim_values)
         end
     end
 
