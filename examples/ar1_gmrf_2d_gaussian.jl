@@ -13,7 +13,6 @@
 
 using IntegratedNestedLaplace
 using GaussianMarkovRandomFields
-using LDLFactorizations
 using Distributions
 using LinearAlgebra
 using StatsFuns
@@ -26,7 +25,7 @@ function ar_precision(ρ, k)
 end
 
 # Model parameters
-k = 5000   # number of time points (smaller for speed)
+k = 1000   # number of time points
 
 # True hyperparameter values for simulation
 σ_gmrf_true = 2.5   # marginal standard deviation

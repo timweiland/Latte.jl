@@ -92,6 +92,7 @@ integer-based grid construction method.
 - `integration_step_z::Float64 = 1.0`: The step size in the standardized z-space for the coarse *integration* grid. A step of 1.0 corresponds to one standard deviation.
 - `interpolation_subdivisions::Int = 2`: The number of fine-grid steps per coarse integration step.
 - `max_log_drop::Float64 = 2.5`: Exploration along any axis stops when the log-density drops by this much from the mode.
+- `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
 
 # Returns
 - `HyperparameterExploration`: A struct containing the complete, normalized results of the exploration.
@@ -100,26 +101,36 @@ function explore_hyperparameter_posterior(
         model::INLAModel, y, θ_star, marginalization_method, marginalization_indices;
         integration_step_z::Float64 = 1.0,
         max_log_drop::Float64 = 2.5,
-        interpolation_subdivisions::Int = 2
+        interpolation_subdivisions::Int = 2,
+        progress_callback = nothing
     )
     n_dim = length(θ_star)
 
+    # Handle progress callback
+    if progress_callback === nothing
+        progress_callback = (; kwargs...) -> nothing
+    end
+
     # Step 1: Compute the transformation object
+    progress_callback(status = "Computing reparameterization", dimensions = n_dim)
     transform = compute_reparameterization(model, y, θ_star)
 
     # Step 2: Evaluate the mode point once, authoritatively
+    progress_callback(status = "Evaluating mode point", mode = θ_star)
     mode_log_density, mode_marginal_result = evaluate_logpdf_and_marginals(
         model, y, θ_star; compute_marginals = true, marginalization_method, marginalization_indices
     )
     mode_point = GridPoint(θ_star, mode_log_density, mode_marginal_result)
 
     # Step 3: Explore axes and build the lookup table of raw (unnormalized) points
+    progress_callback(status = "Starting axis exploration", dimensions = n_dim)
     point_lookup = Dict{NTuple{n_dim, Int}, GridPoint}()
     point_lookup[Tuple(zeros(Int, n_dim))] = mode_point
     step_ranges_per_dim = Vector{UnitRange{Int}}(undef, n_dim)
     evaluation_step_z = integration_step_z / interpolation_subdivisions
 
     for d in 1:n_dim
+        progress_callback(status = "Exploring axis", current_dimension = d, total_dimensions = n_dim)
         axis_points, axis_range = explore_dimension_and_build_lookup(
             model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
             interpolation_subdivisions, marginalization_method, marginalization_indices
@@ -129,8 +140,15 @@ function explore_hyperparameter_posterior(
     end
 
     # Step 4: Build the full grid by evaluating off-axis points
+    total_grid_points = prod(length.(step_ranges_per_dim))
+    progress_callback(status = "Building full grid", estimated_total_points = total_grid_points)
+
     raw_interpolation_points = GridPoint[]
+    points_evaluated = 0
+
     for key_tuple in Iterators.product(step_ranges_per_dim...)
+        points_evaluated += 1
+
         if haskey(point_lookup, key_tuple)
             push!(raw_interpolation_points, point_lookup[key_tuple])
             continue
@@ -149,9 +167,19 @@ function explore_hyperparameter_posterior(
         if mode_log_density - log_density <= max_log_drop
             push!(raw_interpolation_points, GridPoint(θ_off_axis, log_density, marginal_result))
         end
+
+        # Update progress for every grid point
+        progress_callback(
+            status = "Evaluating grid points",
+            points_evaluated = points_evaluated,
+            total_points = total_grid_points,
+            current_θ = θ_off_axis,
+            log_density = log_density
+        )
     end
 
     # Step 5: Compute the normalization constant using the Jacobian
+    progress_callback(status = "Computing normalization", total_explored_points = length(raw_interpolation_points))
     integration_indices = findall(p -> p.marginal_result !== nothing, raw_interpolation_points)
     unnormalized_integration_logpdfs = [p.log_density for p in raw_interpolation_points[integration_indices]]
 
@@ -164,11 +192,14 @@ function explore_hyperparameter_posterior(
     log_normalization_constant = logsumexp(unnormalized_integration_logpdfs) + logdet_jacobian(transform) + log_z_cell_volume
 
     # Step 6: Create the final, clean, normalized GridPoint objects for the user
+    progress_callback(status = "Finalizing exploration", integration_points = length(integration_indices))
     final_grid_points = GridPoint[]
     for p in raw_interpolation_points
         normalized_log_density = p.log_density - log_normalization_constant
         push!(final_grid_points, GridPoint(p.θ, normalized_log_density, p.marginal_result))
     end
+
+    progress_callback(status = "Exploration complete", final_points = length(final_grid_points))
 
     return HyperparameterExploration(
         final_grid_points,

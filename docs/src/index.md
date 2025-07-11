@@ -23,39 +23,60 @@ IntegratedNestedLaplace.jl implements the INLA methodology for approximate Bayes
 using IntegratedNestedLaplace
 using GaussianMarkovRandomFields
 using Distributions
+using SparseArrays
 
-# Set up observation model
-obs_model = ExponentialFamily(Binomial)  # Binomial with logit link
+# AR-1 precision matrix for time series
+function ar1_precision(ρ, k)
+    return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k) .+ ρ^2, 1 => -ρ * ones(k - 1))
+end
 
-# Set up prior GMRF
-μ_prior = zeros(10)
-Q_prior = spdiagm(0 => ones(10))
-prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+# Model setup with proper INLA parameterization
+k = 100
+θ_prior = HyperparameterPrior((
+    τ_gmrf_log = Normal(0, 1),              # Log precision
+    η = Normal(atanh(0.95), 0.5)            # atanh(correlation)
+))
 
-# Generate some data
-x_true = rand(prior_gmrf)
-θ_named = (n = 20,)  # Number of trials per observation
-y_obs = rand(likelihood(obs_model, x_true, θ_named))
+# Latent GMRF with AR-1 structure
+function latent_gmrf(θ)
+    τ = exp(θ.τ_gmrf_log)        # Transform to precision
+    ρ = tanh(θ.η)                # Transform to correlation
+    
+    Q = ar1_precision(ρ, k) .* τ
+    μ = log(1000.0) .* [ρ^i for i in 1:k]  # Exponential decay
+    
+    return GMRF(μ, Q, CholeskySolverBlueprint())
+end
 
-# Find Gaussian approximation to posterior
-result = gaussian_approximation(prior_gmrf, obs_model, θ_named, y_obs)
+# Poisson observations with log-link
+obs_model = ExponentialFamily(Poisson)
+model = INLAModel(θ_prior, latent_gmrf, obs_model)
 
-# Extract posterior
-posterior_gmrf = to_gmrf(result)
-posterior_mean = mean(posterior_gmrf)
+# Run INLA inference
+result = inla(model, y_observed)
+
+# Access posterior results
+hyperparameter_marginals = result.hyperparameter_marginals
+latent_marginals = result.latent_marginals
+posterior_mode = result.hyperparameter_mode
 ```
 
 ## Package Structure
 
-The package is organized into several key components:
+The package provides both high-level and low-level interfaces:
 
-### Observation Models
+### [Main Interface](@id main-interface-overview)
 
-The observation model interface connects observations to latent fields through probability distributions and link functions. See [Observation Models](@ref observation-models) for detailed documentation.
+The [`inla`](@ref) function provides a unified interface for INLA inference with automatic hyperparameter marginalization and progress tracking. See [Main Interface](@ref main-interface) for complete documentation and examples.
 
-### Gaussian Approximation
+### Low-Level Components
 
-Efficient Newton-Raphson optimization for finding posterior modes in INLA. See [Gaussian Approximation](@ref gaussian-approximation) for detailed documentation.
+For advanced users, the package exposes individual components:
+
+- **[Observation Models](@ref observation-models)**: Connects observations to latent fields through probability distributions and link functions
+- **[Gaussian Approximation](@ref gaussian-approximation)**: Newton-Raphson optimization for finding posterior modes
+- **[Hyperparameter Posterior](@ref hyperparameter-posterior)**: Exploration and marginalization over hyperparameters
+- **[Marginalization](@ref)**: Computation of latent field marginals
 
 ## Examples
 

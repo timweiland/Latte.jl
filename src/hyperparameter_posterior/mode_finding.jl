@@ -54,7 +54,7 @@ function hyperparameter_logpdf(model::INLAModel, θ, y, ga = nothing)
 end
 
 """
-    find_hyperparameter_mode(model::INLAModel, y; method=BFGS(), collect_points=true)
+    find_hyperparameter_mode(model::INLAModel, y; method=BFGS(), collect_points=true, progress_callback=nothing)
 
 Find the mode θ* of the hyperparameter posterior π(θ | y).
 
@@ -63,13 +63,14 @@ Find the mode θ* of the hyperparameter posterior π(θ | y).
 - `y`: Observed data
 - `method`: Optimization method (from Optim.jl)
 - `collect_points`: Whether to collect intermediate points during optimization
+- `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
 
 # Returns
 - `θ_star`: The posterior mode
 - `mode_points`: Points evaluated during optimization (if collect_points=true)
 - `mode_logdensities`: Log-densities at mode_points (if collect_points=true)
 """
-function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_points = true)
+function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_points = true, progress_callback = nothing)
 
     # Storage for optimization path points
     mode_points = Vector{Float64}[]
@@ -98,6 +99,21 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
         θ_init = [θ_init]  # Handle scalar case
     end
 
+    # Handle progress callback
+    if progress_callback === nothing
+        progress_callback = (; kwargs...) -> nothing
+    end
+
+    # Create Optim callback for progress tracking
+    optim_callback = function (state)
+        progress_callback(
+            iteration = state.iteration,
+            objective = state.value,
+            gradient_norm = state.g_norm
+        )
+        return false  # Continue optimization
+    end
+
     # Efficient INLA hyperparameter optimization tolerances
     options = Optim.Options(
         f_reltol = 1.0e-3,     # Relative tolerance in objective (log-likelihood) changes
@@ -106,7 +122,8 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
         x_reltol = 1.0e-3,     # Relative tolerance in parameter changes
         iterations = 1000,   # Reasonable max iterations
         show_trace = false,  # Set to true for debugging
-        allow_f_increases = true  # Allow occasional increases during search
+        allow_f_increases = true,  # Allow occasional increases during search
+        callback = optim_callback  # Add progress callback
     )
     result = Optim.optimize(objective, θ_init, method, options)
 

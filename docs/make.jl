@@ -13,6 +13,7 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
+        "Main Interface" => "main_interface.md",
         "Reference" => [
             "Observation Models" => "reference/observation_models.md",
             "Hyperparameters" => "reference/hyperparameters.md",

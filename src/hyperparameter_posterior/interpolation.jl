@@ -37,21 +37,29 @@ function (approx::HyperparameterPosteriorApproximation)(θ)
 end
 
 """
-    build_posterior_interpolant(exploration::HyperparameterExploration)
+    build_posterior_interpolant(exploration::HyperparameterExploration; progress_callback=nothing)
 
 Build an interpolant for the hyperparameter posterior log-density.
 
 # Arguments
 - `exploration`: Results from explore_hyperparameter_posterior
+- `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
 
 # Returns  
 - `HyperparameterPosteriorApproximation`: Interpolated posterior approximation
 """
-function build_posterior_interpolant(exploration::HyperparameterExploration)
+function build_posterior_interpolant(exploration::HyperparameterExploration; progress_callback = nothing)
     n_dim = length(exploration.transform.θ_star)
+    n_points = length(exploration.grid_points)
+
+    # Handle progress callback
+    if progress_callback === nothing
+        progress_callback = (; kwargs...) -> nothing
+    end
 
     if n_dim == 1
         # For 1D case, use spline interpolation
+        progress_callback(status = "Building 1D spline interpolant", dimensions = n_dim, points = n_points)
         θ_values = [p.θ[1] for p in exploration.grid_points]
         log_densities = [p.log_density for p in exploration.grid_points]
         perm = sortperm(θ_values)
@@ -61,6 +69,7 @@ function build_posterior_interpolant(exploration::HyperparameterExploration)
         interpolant = CubicSpline(sorted_logpdf, sorted_θ)
     else
         # Multidimensional case - use thin-plate spline interpolation
+        progress_callback(status = "Building RBF interpolant", dimensions = n_dim, points = n_points)
         # Convert points to matrix format (n_dim × n_points)
         points_matrix = reduce(hcat, [p.θ for p in exploration.grid_points])
         log_densities = [p.log_density for p in exploration.grid_points]
@@ -68,8 +77,10 @@ function build_posterior_interpolant(exploration::HyperparameterExploration)
         # Use thin-plate splines (best performance in practice)
         rbf = ThinPlate()
         interpolant = interpolate(rbf, points_matrix, log_densities)
+        progress_callback(status = "RBF interpolant complete", method = "ThinPlate")
     end
 
+    progress_callback(status = "Interpolation complete", final_interpolant = typeof(interpolant))
     return HyperparameterPosteriorApproximation(exploration, interpolant)
 end
 
