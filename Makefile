@@ -64,7 +64,7 @@ ar1-poisson-ref:
 # Format code
 format:
 	@echo "Formatting code with Runic..."
-	@julia -e 'using Runic; Runic.format(".", verbose=true)'
+	@runic --inplace .
 
 # Build documentation
 docs:
