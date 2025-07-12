@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$TOOL_RESULT\" == *\".jl\"* ]]; then echo \"🎨 Formatting Julia files...\"; make format; echo \"✅ Formatting complete\"; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$TOOL_RESULT\" == *\".jl\"* ]]; then echo \"🎨 Formatting Julia files...\"; make format; echo \"✅ Formatting complete\"; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$TOOL_RESULT\" == *\".jl\"* ]]; then echo \"🎨 Formatting Julia files...\"; make format; echo \"✅ Formatting complete\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
