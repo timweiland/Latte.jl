@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Main Interface · IntegratedNestedLaplace.jl</title><meta name="title" content="Main Interface · IntegratedNestedLaplace.jl"/><meta property="og:title" content="Main Interface · IntegratedNestedLaplace.jl"/><meta property="twitter:title" content="Main Interface · IntegratedNestedLaplace.jl"/><meta name="description" content="Documentation for IntegratedNestedLaplace.jl."/><meta property="og:description" content="Documentation for IntegratedNestedLaplace.jl."/><meta property="twitter:description" content="Documentation for IntegratedNestedLaplace.jl."/><meta property="og:url" content="https://timweiland.github.io/IntegratedNestedLaplace.jl/main_interface/"/><meta property="twitter:url" content="https://timweiland.github.io/IntegratedNestedLaplace.jl/main_interface/"/><link rel="canonical" href="https://timweiland.github.io/IntegratedNestedLaplace.jl/main_interface/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">IntegratedNestedLaplace.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Main Interface</a><ul class="internal"><li><a class="tocitem" href="#What-is-INLA?"><span>What is INLA?</span></a></li><li><a class="tocitem" href="#Quick-Start"><span>Quick Start</span></a></li><li><a class="tocitem" href="#The-inla-Function"><span>The <code>inla</code> Function</span></a></li><li><a class="tocitem" href="#Understanding-the-Results"><span>Understanding the Results</span></a></li><li><a class="tocitem" href="#Complete-Example:-AR-1-Time-Series-with-Count-Data"><span>Complete Example: AR-1 Time Series with Count Data</span></a></li><li><a class="tocitem" href="#Advanced-Usage"><span>Advanced Usage</span></a></li><li><a class="tocitem" href="#Best-Practices"><span>Best Practices</span></a></li><li><a class="tocitem" href="#Common-Pitfalls"><span>Common Pitfalls</span></a></li><li><a class="tocitem" href="#API-Reference"><span>API Reference</span></a></li></ul></li><li><span class="tocitem">Reference</span><ul><li><a class="tocitem" href="../reference/observation_models/">Observation Models</a></li><li><a class="tocitem" href="../reference/hyperparameters/">Hyperparameters</a></li><li><a class="tocitem" href="../reference/gaussian_approximation/">Gaussian Approximation</a></li><li><a class="tocitem" href="../reference/marginalization/">Marginalization</a></li><li><a class="tocitem" href="../reference/inla_model/">INLA Model</a></li><li><a class="tocitem" href="../reference/hyperparameter_posterior/">Hyperparameter Posterior</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Main Interface</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Main Interface</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/timweiland/IntegratedNestedLaplace.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/timweiland/IntegratedNestedLaplace.jl/blob/main/docs/src/main_interface.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="main-interface"><a class="docs-heading-anchor" href="#main-interface">Main Interface</a><a id="main-interface-1"></a><a class="docs-heading-anchor-permalink" href="#main-interface" title="Permalink"></a></h1><p>The <a href="#IntegratedNestedLaplace.inla"><code>inla</code></a> function is the primary entry point for performing Integrated Nested Laplace Approximation. It provides a unified, user-friendly interface that handles all aspects of INLA inference automatically.</p><h2 id="What-is-INLA?"><a class="docs-heading-anchor" href="#What-is-INLA?">What is INLA?</a><a id="What-is-INLA?-1"></a><a class="docs-heading-anchor-permalink" href="#What-is-INLA?" title="Permalink"></a></h2><p>Integrated Nested Laplace Approximation (INLA) is a method for fast approximate Bayesian inference in latent Gaussian models. Instead of using expensive MCMC sampling, INLA uses clever analytical approximations and numerical integration to compute posterior marginals directly.</p><p><strong>Key advantages:</strong></p><ul><li><strong>Speed</strong>: Orders of magnitude faster than MCMC</li><li><strong>Accuracy</strong>: High-quality approximations for most models  </li><li><strong>Deterministic</strong>: Same results every run (no MCMC uncertainty)</li><li><strong>Automatic</strong>: Minimal tuning required</li></ul><h2 id="Quick-Start"><a class="docs-heading-anchor" href="#Quick-Start">Quick Start</a><a id="Quick-Start-1"></a><a class="docs-heading-anchor-permalink" href="#Quick-Start" title="Permalink"></a></h2><pre><code class="language-julia hljs">using IntegratedNestedLaplace
+using GaussianMarkovRandomFields
+using Distributions
+using SparseArrays
+
+# AR-1 precision matrix for time series
+function ar1_precision(ρ, k)
+    return spdiagm(-1 =&gt; -ρ * ones(k - 1), 0 =&gt; ones(k) .+ ρ^2, 1 =&gt; -ρ * ones(k - 1))
+end
+
+# Model parameters (use proper INLA parameterization)
+k = 100
+θ_prior = HyperparameterPrior((
+    τ_gmrf_log = Normal(0, 1),                               # Log precision
+    η = Normal(atanh(0.95), 0.5 * (atanh(0.98) - atanh(0.95)))  # atanh(correlation)
+))
+
+# Latent field: AR-1 GMRF with exponential decay mean
+function latent_gmrf(θ)
+    τ = exp(θ.τ_gmrf_log)        # Transform to precision
+    ρ = tanh(θ.η)                # Transform to correlation
+    
+    Q = ar1_precision(ρ, k) .* τ
+    μ₀ = log(1000.0)             # Log-scale for Poisson rates
+    μ = μ₀ .* [ρ^i for i in 1:k] # Exponential decay
+    
+    return GMRF(μ, Q, CholeskySolverBlueprint())
+end
+
+# Observation model: Poisson with log-link
+obs_model = ExponentialFamily(Poisson)
+model = INLAModel(θ_prior, latent_gmrf, obs_model)
+
+# Run INLA on your data
+result = inla(model, y_observed)
+
+# Access results
+hyperparameter_marginals = result.hyperparameter_marginals  
+latent_marginals = result.latent_marginals
+posterior_mode = result.hyperparameter_mode</code></pre><h2 id="The-inla-Function"><a class="docs-heading-anchor" href="#The-inla-Function">The <code>inla</code> Function</a><a id="The-inla-Function-1"></a><a class="docs-heading-anchor-permalink" href="#The-inla-Function" title="Permalink"></a></h2><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="IntegratedNestedLaplace.inla" href="#IntegratedNestedLaplace.inla"><code>IntegratedNestedLaplace.inla</code></a> — <span class="docstring-category">Function</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">inla(model::INLAModel, y::AbstractVector; kwargs...)</code></pre><p>Unified INLA inference with automatic parameter selection and progress tracking.</p><p>This function provides a simplified interface for INLA inference, automatically selecting sensible defaults while supporting advanced customization.</p><p><strong>Arguments</strong></p><ul><li><code>model::INLAModel</code>: The INLA model specification</li><li><code>y::AbstractVector</code>: Observed data</li></ul><p><strong>Keyword Arguments</strong></p><ul><li><code>marginalization_method::MarginalApproximation = GaussianMarginal()</code>: Method for latent marginalization</li><li><code>latent_indices::Union{Nothing, AbstractVector{&lt;:Integer}} = nothing</code>: Indices to marginalize (default: all)</li><li><code>max_log_drop::Float64 = 2.5</code>: Maximum log-density drop for exploration boundary</li><li><code>interpolation_subdivisions::Int = 2</code>: Subdivision factor for interpolation grid</li><li><code>mode_method = BFGS()</code>: Optimization method for mode finding</li><li><code>mode_iterations::Int = 1000</code>: Maximum iterations for mode finding</li><li><code>progress::Bool = true</code>: Enable progress tracking</li></ul><p><strong>Returns</strong></p><ul><li><code>INLAResult</code>: Complete INLA inference results with marginals and diagnostics</li></ul><p><strong>Examples</strong></p><pre><code class="language-julia hljs"># Basic usage with default settings
+result = inla(model, y)
+
+# Custom exploration parameters
+result = inla(model, y, max_log_drop=3.0, interpolation_subdivisions=3)
+
+# Disable progress tracking
+result = inla(model, y, progress=false)
+
+# Custom marginalization
+result = inla(model, y, 
+    marginalization_method=SimplifiedLaplace(), 
+    latent_indices=1:100)</code></pre><p><strong>Progress Tracking</strong></p><p>When <code>progress=true</code>, displays a 3-phase progress bar:</p><ul><li>Phase 1 (33%): Mode finding with iteration tracking</li><li>Phase 2 (66%): Exploration with grid point evaluation</li><li>Phase 3 (100%): Interpolation construction</li></ul><p>Each phase shows detailed real-time information about the computation.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/timweiland/IntegratedNestedLaplace.jl/blob/366dff3ea67f5b2fb8ce29add0bc4cd4d5a5ef6e/src/main_interface/inla_inference.jl#L5-L53">source</a></section></article><h2 id="Understanding-the-Results"><a class="docs-heading-anchor" href="#Understanding-the-Results">Understanding the Results</a><a id="Understanding-the-Results-1"></a><a class="docs-heading-anchor-permalink" href="#Understanding-the-Results" title="Permalink"></a></h2><p>The <code>inla</code> function returns an <a href="#IntegratedNestedLaplace.INLAResult"><code>INLAResult</code></a> object containing all posterior information:</p><h3 id="Hyperparameter-Marginals"><a class="docs-heading-anchor" href="#Hyperparameter-Marginals">Hyperparameter Marginals</a><a id="Hyperparameter-Marginals-1"></a><a class="docs-heading-anchor-permalink" href="#Hyperparameter-Marginals" title="Permalink"></a></h3><p>Posterior marginal distributions for model hyperparameters:</p><pre><code class="language-julia hljs">result = inla(model, y)
+
+# Access marginals (in transformed space)
+τ_log_marginal = result.hyperparameter_marginals[1]  # Log precision
+η_marginal = result.hyperparameter_marginals[2]      # atanh(correlation)
+
+# Compute posterior summaries
+log_precision_mean = mean(τ_log_marginal)
+correlation_mode = tanh(result.hyperparameter_mode[2])  # Transform back
+
+# Credible intervals
+log_prec_ci = quantile(τ_log_marginal, [0.025, 0.975])</code></pre><h3 id="Latent-Field-Marginals"><a class="docs-heading-anchor" href="#Latent-Field-Marginals">Latent Field Marginals</a><a id="Latent-Field-Marginals-1"></a><a class="docs-heading-anchor-permalink" href="#Latent-Field-Marginals" title="Permalink"></a></h3><p>Posterior marginal distributions for each latent field component:</p><pre><code class="language-julia hljs"># Extract posterior means and uncertainties
+posterior_means = [mean(m) for m in result.latent_marginals]
+posterior_stds = [std(m) for m in result.latent_marginals]
+
+# Credible intervals for each component
+credible_intervals = [quantile(m, [0.025, 0.975]) for m in result.latent_marginals]
+
+# Transform to original scale (for Poisson: exp for rates)
+poisson_rates_mean = exp.(posterior_means)</code></pre><h3 id="Convergence-Diagnostics"><a class="docs-heading-anchor" href="#Convergence-Diagnostics">Convergence Diagnostics</a><a id="Convergence-Diagnostics-1"></a><a class="docs-heading-anchor-permalink" href="#Convergence-Diagnostics" title="Permalink"></a></h3><p>Always check that the optimization converged:</p><pre><code class="language-julia hljs">if result.convergence.mode_converged
+    println(&quot;✓ Mode finding converged successfully&quot;)
+    println(&quot;Final log-likelihood: $(result.convergence.final_loglik)&quot;)
+else
+    @warn &quot;Mode finding did not converge - check model specification&quot;
+end</code></pre><h2 id="Complete-Example:-AR-1-Time-Series-with-Count-Data"><a class="docs-heading-anchor" href="#Complete-Example:-AR-1-Time-Series-with-Count-Data">Complete Example: AR-1 Time Series with Count Data</a><a id="Complete-Example:-AR-1-Time-Series-with-Count-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-Example:-AR-1-Time-Series-with-Count-Data" title="Permalink"></a></h2><p>This example demonstrates INLA on a realistic time series model with count observations:</p><pre><code class="language-julia hljs">using IntegratedNestedLaplace
+using GaussianMarkovRandomFields
+using Distributions
+using SparseArrays
+using Random
+
+# Set reproducible seed
+Random.seed!(123)
+
+# AR-1 precision matrix function
+function ar1_precision(ρ, k)
+    return spdiagm(-1 =&gt; -ρ * ones(k - 1), 0 =&gt; ones(k) .+ ρ^2, 1 =&gt; -ρ * ones(k - 1))
+end
+
+# Model setup with proper INLA parameterization
+k = 200  # Time series length
+
+# Hyperparameter priors (in transformed space for numerical stability)
+θ_prior = HyperparameterPrior((
+    τ_gmrf_log = Normal(0, 1),  # Log precision: exp(τ_gmrf_log) = 1/σ²
+    η = Normal(atanh(0.95), 0.5 * (atanh(0.98) - atanh(0.95)))  # atanh(ρ)
+))
+
+# Latent GMRF definition
+function latent_gmrf(θ)
+    # Transform parameters back to natural scale
+    τ = exp(θ.τ_gmrf_log)        # Precision
+    ρ = tanh(θ.η)                # Correlation in (-1, 1)
+    
+    # AR-1 precision matrix
+    Q = ar1_precision(ρ, k) .* τ
+    
+    # Mean structure: exponentially decaying (typical for AR models)
+    μ₀ = log(1000.0)             # Base log-rate  
+    μ = μ₀ .* [ρ^i for i in 1:k] # Exponential decay
+    
+    return GMRF(μ, Q, CholeskySolverBlueprint())
+end
+
+# Poisson observations with log-link (canonical)
+obs_model = ExponentialFamily(Poisson)
+
+# Complete model specification
+model = INLAModel(θ_prior, latent_gmrf, obs_model)
+
+# Generate synthetic data for demonstration
+true_params = (τ_gmrf_log = log(1/0.3^2), η = atanh(0.98))
+x_true = rand(latent_gmrf(true_params))
+y_observed = rand.(Poisson.(exp.(x_true)))
+
+println(&quot;Generated $(length(y_observed)) observations&quot;)
+println(&quot;Observation range: $(minimum(y_observed)) to $(maximum(y_observed))&quot;)
+
+# Run INLA inference with progress tracking
+println(&quot;Running INLA inference...&quot;)
+result = inla(model, y_observed, progress=true)
+
+# Check convergence
+if result.convergence.mode_converged
+    println(&quot;✓ INLA converged successfully!&quot;)
+else
+    @warn &quot;INLA did not converge - check model specification&quot;
+end
+
+# Extract posterior summaries
+τ_log_posterior = result.hyperparameter_marginals[1]
+η_posterior = result.hyperparameter_marginals[2]
+
+# Transform back to interpretable scale
+precision_mode = exp(result.hyperparameter_mode[1])
+correlation_mode = tanh(result.hyperparameter_mode[2])
+precision_mean = exp(mean(τ_log_posterior))
+correlation_mean = tanh(mean(η_posterior))
+
+println(&quot;\\nPosterior Results:&quot;)
+println(&quot;Precision (1/σ²):&quot;)
+println(&quot;  Mode: $(round(precision_mode, digits=2))&quot;)  
+println(&quot;  Mean: $(round(precision_mean, digits=2))&quot;)
+println(&quot;  True: $(round(exp(true_params.τ_gmrf_log), digits=2))&quot;)
+
+println(&quot;Correlation (ρ):&quot;)
+println(&quot;  Mode: $(round(correlation_mode, digits=3))&quot;)
+println(&quot;  Mean: $(round(correlation_mean, digits=3))&quot;)  
+println(&quot;  True: $(round(tanh(true_params.η), digits=3))&quot;)
+
+# Analyze latent field
+latent_means = [mean(m) for m in result.latent_marginals]
+latent_stds = [std(m) for m in result.latent_marginals]
+
+println(&quot;\\nLatent Field Summary:&quot;)
+println(&quot;Mean absolute error: $(round(mean(abs.(latent_means - x_true)), digits=3))&quot;)
+println(&quot;Average posterior std: $(round(mean(latent_stds), digits=3))&quot;)
+
+# Compare with true values (if available)
+correlation = cor(latent_means, x_true)
+println(&quot;Correlation with truth: $(round(correlation, digits=3))&quot;)</code></pre><h2 id="Advanced-Usage"><a class="docs-heading-anchor" href="#Advanced-Usage">Advanced Usage</a><a id="Advanced-Usage-1"></a><a class="docs-heading-anchor-permalink" href="#Advanced-Usage" title="Permalink"></a></h2><h3 id="Different-Marginalization-Methods"><a class="docs-heading-anchor" href="#Different-Marginalization-Methods">Different Marginalization Methods</a><a id="Different-Marginalization-Methods-1"></a><a class="docs-heading-anchor-permalink" href="#Different-Marginalization-Methods" title="Permalink"></a></h3><p>INLA offers different methods for computing latent field marginals:</p><pre><code class="language-julia hljs"># Gaussian marginalization (faster, good for most cases)
+result_gaussian = inla(model, y_observed, marginalization_method=GaussianMarginal())
+
+# Laplace marginalization (more accurate, especially for non-Gaussian posteriors)
+result_laplace = inla(model, y_observed, marginalization_method=LaplaceMarginal())
+
+# Compare the methods
+i = 50  # Example latent component
+gauss_mean = mean(result_gaussian.latent_marginals[i])
+laplace_mean = mean(result_laplace.latent_marginals[i])
+println(&quot;Gaussian mean: $(round(gauss_mean, digits=3))&quot;)
+println(&quot;Laplace mean: $(round(laplace_mean, digits=3))&quot;)</code></pre><h3 id="Subset-Marginalization-for-Large-Models"><a class="docs-heading-anchor" href="#Subset-Marginalization-for-Large-Models">Subset Marginalization for Large Models</a><a id="Subset-Marginalization-for-Large-Models-1"></a><a class="docs-heading-anchor-permalink" href="#Subset-Marginalization-for-Large-Models" title="Permalink"></a></h3><p>For computational efficiency, compute marginals only where needed:</p><pre><code class="language-julia hljs"># Only compute marginals for every 10th component
+indices_of_interest = 1:10:k
+result = inla(model, y_observed, latent_indices=indices_of_interest)
+
+# result.latent_marginals now has length 20, not 200
+subset_means = [mean(m) for m in result.latent_marginals]</code></pre><h3 id="Progress-Control"><a class="docs-heading-anchor" href="#Progress-Control">Progress Control</a><a id="Progress-Control-1"></a><a class="docs-heading-anchor-permalink" href="#Progress-Control" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Run with progress bar (default)
+result = inla(model, y_observed, progress=true)
+
+# Run silently (useful for batch processing)
+result = inla(model, y_observed, progress=false)</code></pre><h2 id="Best-Practices"><a class="docs-heading-anchor" href="#Best-Practices">Best Practices</a><a id="Best-Practices-1"></a><a class="docs-heading-anchor-permalink" href="#Best-Practices" title="Permalink"></a></h2><h3 id="Parameterization"><a class="docs-heading-anchor" href="#Parameterization">Parameterization</a><a id="Parameterization-1"></a><a class="docs-heading-anchor-permalink" href="#Parameterization" title="Permalink"></a></h3><ul><li><strong>Use log-scale for positive parameters</strong>: <code>τ_log</code> instead of <code>τ</code> for precision</li><li><strong>Use transforms for bounded parameters</strong>: <code>atanh(ρ)</code> for correlations in (-1,1)</li><li><strong>Center parameters</strong>: Use <code>Normal(0, σ)</code> priors for transformed parameters</li></ul><h3 id="Model-Specification"><a class="docs-heading-anchor" href="#Model-Specification">Model Specification</a><a id="Model-Specification-1"></a><a class="docs-heading-anchor-permalink" href="#Model-Specification" title="Permalink"></a></h3><ul><li><strong>Informative priors</strong>: Weakly informative priors often work better than flat priors</li><li><strong>Check scales</strong>: Ensure data and parameters are on reasonable scales</li><li><strong>Sparse precision</strong>: Use sparse matrices for large problems</li></ul><h3 id="Diagnostics"><a class="docs-heading-anchor" href="#Diagnostics">Diagnostics</a><a id="Diagnostics-1"></a><a class="docs-heading-anchor-permalink" href="#Diagnostics" title="Permalink"></a></h3><ul><li><strong>Always check convergence</strong>: <code>result.convergence.mode_converged</code></li><li><strong>Examine posterior modes</strong>: Should be in reasonable ranges</li><li><strong>Compare methods</strong>: Try both Gaussian and Laplace marginalization</li><li><strong>Cross-validate</strong>: Compare predictions with held-out data</li></ul><h3 id="Performance-Tips"><a class="docs-heading-anchor" href="#Performance-Tips">Performance Tips</a><a id="Performance-Tips-1"></a><a class="docs-heading-anchor-permalink" href="#Performance-Tips" title="Permalink"></a></h3><ul><li><strong>Problem size</strong>: INLA scales well to thousands of latent variables</li><li><strong>Subset marginalization</strong>: Use <code>latent_indices</code> for large models</li><li><strong>Sparse operations</strong>: Ensure GMRF precision matrices are sparse</li><li><strong>Batch processing</strong>: Process multiple datasets efficiently</li></ul><h2 id="Common-Pitfalls"><a class="docs-heading-anchor" href="#Common-Pitfalls">Common Pitfalls</a><a id="Common-Pitfalls-1"></a><a class="docs-heading-anchor-permalink" href="#Common-Pitfalls" title="Permalink"></a></h2><h3 id="Convergence-Issues"><a class="docs-heading-anchor" href="#Convergence-Issues">Convergence Issues</a><a id="Convergence-Issues-1"></a><a class="docs-heading-anchor-permalink" href="#Convergence-Issues" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Check if optimization failed
+if !result.convergence.mode_converged
+    # Try different hyperparameter bounds
+    θ_prior_relaxed = HyperparameterPrior((
+        τ_gmrf_log = Normal(0, 2),  # Wider prior
+        η = Normal(0, 1)            # Less informative
+    ))
+    result = inla(INLAModel(θ_prior_relaxed, latent_gmrf, obs_model), y_observed)
+end</code></pre><h3 id="Numerical-Instability"><a class="docs-heading-anchor" href="#Numerical-Instability">Numerical Instability</a><a id="Numerical-Instability-1"></a><a class="docs-heading-anchor-permalink" href="#Numerical-Instability" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Check for extreme parameter values
+mode_values = result.hyperparameter_mode
+if any(abs.(mode_values) .&gt; 10)
+    @warn &quot;Extreme parameter values detected - consider reparameterization&quot;
+end</code></pre><h3 id="Poor-Approximation-Quality"><a class="docs-heading-anchor" href="#Poor-Approximation-Quality">Poor Approximation Quality</a><a id="Poor-Approximation-Quality-1"></a><a class="docs-heading-anchor-permalink" href="#Poor-Approximation-Quality" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Compare Gaussian vs Laplace marginalization
+result_g = inla(model, y, marginalization_method=GaussianMarginal())
+result_l = inla(model, y, marginalization_method=LaplaceMarginal())
+
+# Large differences suggest Gaussian approximation may be poor
+mean_diff = mean(abs.([mean(m) for m in result_g.latent_marginals] - 
+                     [mean(m) for m in result_l.latent_marginals]))
+if mean_diff &gt; 0.1
+    @warn &quot;Large difference between marginalization methods&quot;
+    println(&quot;Consider using LaplaceMarginal() for better accuracy&quot;)
+end</code></pre><h2 id="API-Reference"><a class="docs-heading-anchor" href="#API-Reference">API Reference</a><a id="API-Reference-1"></a><a class="docs-heading-anchor-permalink" href="#API-Reference" title="Permalink"></a></h2><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="IntegratedNestedLaplace.INLAResult" href="#IntegratedNestedLaplace.INLAResult"><code>IntegratedNestedLaplace.INLAResult</code></a> — <span class="docstring-category">Type</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">INLAResult</code></pre><p>Results structure for INLA inference containing all outputs from the inference process.</p><p>This structure provides organized access to all results from INLA inference, including hyperparameter marginals, latent marginals, and diagnostic information.</p><p><strong>Fields</strong></p><ul><li><code>hyperparameter_marginals::Vector{HyperparameterMarginalDistribution}</code>: Marginal distributions for each hyperparameter (lazy evaluation)</li><li><code>latent_marginals::Vector{WeightedMixture}</code>: Marginal distributions for latent variables</li><li><code>hyperparameter_mode::Vector{Float64}</code>: Mode of the hyperparameter posterior</li><li><code>exploration::HyperparameterExploration</code>: Results from posterior exploration</li><li><code>posterior_approximation::HyperparameterPosteriorApproximation</code>: Interpolated posterior approximation</li><li><code>convergence::NamedTuple</code>: Convergence diagnostics and information</li><li><code>computation_time::NamedTuple</code>: Timing breakdown by computation phase</li><li><code>model::INLAModel</code>: Original INLA model specification</li><li><code>options::NamedTuple</code>: Options used for inference</li></ul><p><strong>Usage</strong></p><pre><code class="language-julia hljs">result = inla_inference(model, y)
+
+# Access hyperparameter marginals
+result.hyperparameter_marginals[1]  # First hyperparameter marginal
+mean(result.hyperparameter_marginals[1])  # Mean of first hyperparameter
+
+# Access latent marginals
+result.latent_marginals[1]  # First latent variable marginal (WeightedMixture)
+
+# Access mode and exploration results
+result.hyperparameter_mode  # Mode of hyperparameter posterior
+result.exploration.mode     # Should be same as hyperparameter_mode
+
+# Access diagnostics
+result.convergence.mode_converged      # Did mode finding converge?
+result.computation_time.total          # Total computation time
+result.computation_time.mode_finding   # Time spent finding mode</code></pre></div><a class="docs-sourcelink" target="_blank" href="https://github.com/timweiland/IntegratedNestedLaplace.jl/blob/366dff3ea67f5b2fb8ce29add0bc4cd4d5a5ef6e/src/main_interface/types.jl#L6-L45">source</a></section></article></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../reference/observation_models/">Observation Models »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.14.1 on <span class="colophon-date" title="Saturday 12 July 2025 09:03">Saturday 12 July 2025</span>. Using Julia version 1.11.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
