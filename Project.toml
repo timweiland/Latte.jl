@@ -30,6 +30,7 @@ Distributions = "0.25"
 ForwardDiff = "0.10"
 GaussianMarkovRandomFields = "0.3"
 JLD2 = "0.5"
+LDLFactorizations = "0.10"
 LinearAlgebra = "<0.0.1, 1"
 ProgressMeter = "1"
 SparseArrays = "<0.0.1, 1"
@@ -42,9 +43,10 @@ julia = "1"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+LDLFactorizations = "40e66cde-538c-5869-a4ad-c39174c6795b"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 
 [targets]
-test = ["Aqua", "JLD2", "Turing", "Test"]
+test = ["Aqua", "LDLFactorizations", "JLD2", "Turing", "Test"]
