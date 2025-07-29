@@ -32,6 +32,8 @@ jobs:
           - x64
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: julia-actions/setup-julia@v1
         with:
           version: ${{ matrix.version }}
@@ -52,6 +54,8 @@ jobs:
       statuses: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: julia-actions/setup-julia@v1
         with:
           version: '1'
