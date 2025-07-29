@@ -286,6 +286,7 @@ For custom models with known structure, providing analytical derivatives can sig
 
 ```@docs
 ObservationModel
+ObservationLikelihood
 hyperparameters
 loglik
 loggrad
