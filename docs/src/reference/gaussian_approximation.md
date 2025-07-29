@@ -12,27 +12,9 @@ The Gaussian approximation process finds the mode of the posterior distribution 
 gaussian_approximation
 ```
 
-## Optimization Step
+## Implementation Details
 
-```@docs
-fisher_scoring_step
-```
-
-## Result Types
-
-```@docs
-NewtonResult
-NewtonStats
-NewtonOptions
-```
-
-## Utility Functions
-
-```@docs
-to_gmrf
-Base.summary(::NewtonResult)
-IntegratedNestedLaplace.plot_convergence
-```
+The gaussian_approximation function uses NonlinearSolve.jl with Newton-Raphson optimization and CHOLMOD factorization for efficient sparse linear algebra.
 
 ## Basic Usage
 
@@ -52,7 +34,8 @@ obs_model = ExponentialFamily(Poisson)
 
 # Generate synthetic data
 x_true = rand(prior_gmrf)
-y_obs = rand(likelihood(obs_model, x_true, θ_named))
+data_dist = data_distribution(obs_model, x_true, θ_named)
+y_obs = rand(data_dist)
 
 # Find Gaussian approximation
 obs_lik = obs_model(y_obs; θ_named...)
@@ -96,26 +79,14 @@ The implementation leverages sparse linear algebra throughout:
 - Cholesky factorizations use sparse solvers when available
 - Memory usage scales with the sparsity pattern of the prior
 
-### Early Convergence Optimization
+### Optimization Details
 
-The implementation includes an important optimization for computational efficiency:
+The implementation uses NonlinearSolve.jl with Newton-Raphson method:
 
-**Early Convergence Detection**: Before computing the expensive Hessian and Cholesky factorization, the algorithm checks if the gradient norm is already below the tolerance. If so, it immediately returns without performing costly linear algebra operations.
-
-This is particularly beneficial for:
-- **Gaussian observation models**: Where the algorithm converges in exactly one iteration
-- **Nearly converged states**: Where the gradient is already small from a good starting point
-- **Large problems**: Where Cholesky factorization is expensive
-
-### Convergence Criteria
-
-The optimization stops when either:
-- **Early convergence**: Gradient norm falls below `tol_gradient` before taking a Newton step
-- **Standard convergence**: Gradient norm or Newton decrement falls below tolerance after a step
-- **Maximum iterations reached**
-- **Step size becomes too small**
-
-The Newton decrement λ²/2 = ∇f(x)ᵀH⁻¹∇f(x)/2 provides a theoretically justified stopping criterion, as it bounds the suboptimality of the current iterate.
+- **Jacobian computation**: Uses automatic differentiation for precise gradients and Hessians
+- **Linear solver**: CHOLMOD factorization for sparse precision matrices
+- **Convergence**: Built-in tolerances for `abstol=1e-6` and `reltol=1e-6`
+- **Permutation handling**: Preserves sparsity patterns from the prior GMRF
 
 ## Mathematical Background
 
@@ -149,11 +120,11 @@ Where `μ_mode` is the posterior mode and `Q_mode` is the posterior precision ma
 
 The function handles various edge cases:
 
-- **Non-convergence**: Returns partial results with `converged = false`
-- **Numerical issues**: Checks for minimum step sizes to detect stagnation
-- **Matrix conditioning**: Uses robust Cholesky factorization with error handling
+- **Non-convergence**: NonlinearSolve.jl provides convergence diagnostics
+- **Numerical issues**: CHOLMOD factorization handles ill-conditioned matrices robustly
+- **Matrix conditioning**: Sparse factorization with automatic pivoting
 
 For problematic cases, consider:
-- Adjusting convergence tolerances
-- Using different prior specifications
-- Checking observation model gradients and Hessians
+- Checking observation model implementations (`loglik`, `loggrad`, `loghessian`)
+- Verifying prior GMRF is well-conditioned
+- Using more informative priors to improve conditioning
