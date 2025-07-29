@@ -27,8 +27,8 @@ obs_model = ExponentialFamily(Bernoulli)  # Non-Gaussian likelihood
 y = [1, 0, 1, 0]  # Observed data
 
 # Compute Gaussian approximation
-ga_result = gaussian_approximation(prior_gmrf, obs_model, θ, y)
-ga = to_gmrf(ga_result)
+obs_lik = obs_model(y; θ...)
+ga = gaussian_approximation(prior_gmrf, obs_lik)
 
 # Marginalize selected variables
 result = marginalize(ga, obs_model, θ, y, 0.0, LaplaceMarginal(), [1, 3]; 

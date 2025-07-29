@@ -16,7 +16,7 @@ Cache for efficient evaluation of Laplace approximation marginals.
 
 # Fields
 - `base_gmrf`: The base GMRF from Gaussian approximation
-- `obs_model`: Observation model
+- `obs_lik`: Materialized observation likelihood (contains data and hyperparameters)
 - `conditioning_index`: Index of the conditioning variable
 - `conditional_column`: Precomputed Q^{-1}[:,i]
 - `active_set`: Precomputed active set indices
@@ -29,7 +29,7 @@ allowing efficient evaluation at multiple points.
 """
 struct LaplaceApproximationCache{G, O, P}
     base_gmrf::G
-    obs_model::O
+    obs_lik::O
     conditioning_index::Int
     conditional_column::Vector{Float64}
     active_set::Vector{Int}
@@ -39,23 +39,23 @@ struct LaplaceApproximationCache{G, O, P}
 end
 
 """
-    LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index, μ, σ, prior_gmrf; threshold=0.001)
+    LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index, μ, σ, prior_gmrf; threshold=0.001)
 
 Create a cache for Laplace approximation computations.
 
 # Arguments
 - `base_gmrf`: The base GMRF from Gaussian approximation
-- `obs_model`: Observation model
+- `obs_lik`: Materialized observation likelihood (contains data and hyperparameters)
 - `conditioning_index`: Index of conditioning variable
 - `μ`: Precomputed mean vector
 - `σ`: Precomputed standard deviation vector
 - `prior_gmrf`: Original prior GMRF (before observations)
 - `threshold`: Threshold for active set selection
 """
-function LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf; threshold = 0.001)
+function LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf; threshold = 0.001)
     conditional_column, active_set = setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold = threshold)
     return LaplaceApproximationCache(
-        base_gmrf, obs_model, conditioning_index,
+        base_gmrf, obs_lik, conditioning_index,
         conditional_column, active_set, μ, σ, prior_gmrf
     )
 end
@@ -139,7 +139,7 @@ Construct the conditional GMRF π̃_GG(x_{R_i} | x_i, θ, y) for the Laplace app
 # Returns
 A GMRF representing π̃_GG(x_{active_set} | x_i, θ, y) with proper mean and precision.
 """
-function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{Int}, μ_conditional::Vector{Float64}, θ, y)
+function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{Int}, μ_conditional::Vector{Float64})
     # Use the original prior precision matrix (not the Gaussian approximation precision)
     Q_prior = precision_matrix(cache.prior_gmrf)
 
@@ -148,7 +148,7 @@ function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{I
     Q_prior_block = Q_prior[active_set, active_set]
 
     # Compute observation Hessian at conditional configuration
-    H_obs = loghessian(cache.obs_model, μ_conditional, θ, y)
+    H_obs = loghessian(cache.obs_lik, μ_conditional)
     H_obs_block = H_obs[active_set, active_set]
 
     # Build conditional precision matrix: Q_prior - H_obs (correct formula)
@@ -159,7 +159,7 @@ function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{I
 end
 
 """
-    evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i, θ, y, log_prior_θ)
+    evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i, log_prior_θ)
 
 Evaluate the Laplace approximation log-density π̃_LA(x_i | θ, y) using cached computations.
 
@@ -167,16 +167,14 @@ This implements the formula:
 π̃_LA(x_i | θ, y) ∝ [π(x, θ, y) / π̃_GG(x_{-i} | x_i, θ, y)]|_{x_{-i} = x_{-i}^*(x_i, θ)}
 
 # Arguments
-- `cache`: Precomputed cache containing all necessary data
+- `cache`: Precomputed cache containing obs_lik (with data and hyperparameters) and all necessary data
 - `x_i`: Value to evaluate the marginal at
-- `θ`: Hyperparameters
-- `y`: Observed data
 - `log_prior_θ`: Log-density of hyperparameter prior log π(θ)
 
 # Returns
 The log-density value log π̃_LA(x_i | θ, y) (up to normalizing constant).
 """
-function evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i::Real, θ, y, log_prior_θ::Real)
+function evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i::Real, log_prior_θ::Real)
     # Extract cached values
     base_gmrf = cache.base_gmrf
     conditioning_index = cache.conditioning_index
@@ -189,14 +187,14 @@ function evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i::Real, θ
     μ_conditional = μ_prior - conditional_column * (μ_prior[conditioning_index] - x_i) / σ_i_squared
 
     # Build conditional GMRF using the computed conditional mean
-    gmrf_gg = conditional_gmrf(cache, active_set, μ_conditional, θ, y)
+    gmrf_gg = conditional_gmrf(cache, active_set, μ_conditional)
 
     # Evaluate joint log-density π(x, θ, y) at conditional configuration
     # This is: log π(θ) + log π(x | θ_prior) + log π(y | x, θ)
     # IMPORTANT: Use PRIOR GMRF for latent part, not the Gaussian approximation
     hyperparameter_logpdf = log_prior_θ
     latent_logpdf = logpdf(cache.prior_gmrf, μ_conditional)
-    obs_logpdf = loglik(cache.obs_model, μ_conditional, θ, y)
+    obs_logpdf = loglik(cache.obs_lik, μ_conditional)
     joint_logpdf = hyperparameter_logpdf + latent_logpdf + obs_logpdf
 
     # Conditional log-density π̃_GG(x_{active_set} | x_i, θ, y)
@@ -273,7 +271,7 @@ The returned spline can be used as:
 log π̃_LA_normalized(x_i) ≈ log π̃_G(x_i) + spline(x_i) - log_norm_const
 """
 function fit_density_correction_spline(
-        cache::LaplaceApproximationCache, θ, y, log_prior_θ::Real;
+        cache::LaplaceApproximationCache, log_prior_θ::Real;
         n_points::Int = 9, normalize_exactly::Bool = false
     )
 
@@ -298,7 +296,7 @@ function fit_density_correction_spline(
         push!(log_gaussian_values, log_gaussian)
 
         # Laplace approximation log-density
-        log_laplace = evaluate_laplace_logpdf(cache, x_i, θ, y, log_prior_θ)
+        log_laplace = evaluate_laplace_logpdf(cache, x_i, log_prior_θ)
         push!(log_laplace_values, log_laplace)
     end
 

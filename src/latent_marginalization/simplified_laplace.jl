@@ -12,15 +12,16 @@ Results in skew-normal distributions.
 struct SimplifiedLaplace <: MarginalApproximation end
 
 """
-    _marginalize_impl(ga, obs_model, θ, y, log_prior_θ, ::SimplifiedLaplace, indices)
+    _marginalize_impl(ga, obs_lik, log_prior_θ, ::SimplifiedLaplace, indices, prior_gmrf)
 
 Implementation for Simplified Laplace approximation (second-order Taylor).
 Results in skew-normal distributions.
 """
 function _marginalize_impl(
-        ga, obs_model, θ, y, log_prior_θ::Real,
-        ::SimplifiedLaplace, indices::Vector{Int}
+        ga, obs_lik, log_prior_θ::Real,
+        ::SimplifiedLaplace, indices::Vector{Int}, prior_gmrf
     )
+    # obs_lik and prior_gmrf are not used in this simplified implementation
     μ = mean(ga)
     σ = std(ga)
 

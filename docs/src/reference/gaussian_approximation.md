@@ -55,53 +55,27 @@ x_true = rand(prior_gmrf)
 y_obs = rand(likelihood(obs_model, x_true, θ_named))
 
 # Find Gaussian approximation
-result = gaussian_approximation(prior_gmrf, obs_model, θ_named, y_obs)
+obs_lik = obs_model(y_obs; θ_named...)
+posterior_gmrf = gaussian_approximation(prior_gmrf, obs_lik)
 
-# Check convergence
-if result.converged
-    println("Optimization converged in $(result.iterations) iterations")
-    
-    # Extract posterior GMRF
-    posterior_gmrf = to_gmrf(result)
-    posterior_mean = mean(posterior_gmrf)
-    posterior_precision = precision_matrix(posterior_gmrf)
-else
-    println("Optimization did not converge")
-end
+# Extract posterior statistics
+posterior_mean = mean(posterior_gmrf)
+posterior_precision = precision_matrix(posterior_gmrf)
+println("Gaussian approximation computed successfully")
 ```
 
-## Convergence Control
+## Mathematical Properties
 
-The optimization process can be controlled through the `NewtonOptions` struct:
-
-```julia
-# Custom optimization options
-options = NewtonOptions(
-    max_iterations = 50,
-    tol_gradient = 1e-8,
-    tol_decrement = 1e-10,
-    verbose = true
-)
-
-result = gaussian_approximation(prior_gmrf, obs_model, θ_named, y_obs; options=options)
-```
-
-## Monitoring Convergence
-
-The optimization result contains detailed statistics from each iteration:
+The Gaussian approximation finds the mode of the posterior distribution and constructs a Gaussian around it. For observation models with Gaussian likelihood, this approximation is exact:
 
 ```julia
-# Print summary
-summary(result)
+# For Gaussian observations, the approximation is exact
+obs_model = ExponentialFamily(Normal)
+θ_named = (σ = 0.5,)
 
-# Access iteration statistics
-for stats in result.stats
-    println("Iteration $(stats.iteration): gradient norm = $(stats.gradient_norm)")
-end
-
-# Plot convergence (requires Plots.jl)
-using Plots
-plot_convergence(result)
+# The posterior precision combines prior and observation precision
+# Q_posterior = Q_prior + Q_obs
+# μ_posterior = Q_posterior^(-1) * (Q_prior * μ_prior + Q_obs * y)
 ```
 
 ## Performance Considerations

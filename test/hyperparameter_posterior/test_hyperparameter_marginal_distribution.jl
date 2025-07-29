@@ -46,7 +46,7 @@ using Random
         # Generate synthetic data
         Random.seed!(123)
         x_gt = rand(latent_gmrf((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_gt = rand(likelihood(obs_model, x_gt, (σ = 1.0e-6,)))
+        y_gt = rand(data_distribution(obs_model, x_gt, (σ = 1.0e-6,)))
 
         return inla_model, y_gt, k
     end

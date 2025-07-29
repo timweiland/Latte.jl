@@ -19,12 +19,12 @@ end
 LaplaceMarginal() = LaplaceMarginal(false)
 
 """
-    _marginalize_impl(ga, obs_model, θ, y, log_prior_θ, method::LaplaceMarginal, indices, prior_gmrf)
+    _marginalize_impl(ga, obs_lik, log_prior_θ, method::LaplaceMarginal, indices, prior_gmrf)
 
 Implementation for Laplace marginalization using spline correction.
 """
 function _marginalize_impl(
-        ga, obs_model, θ, y, log_prior_θ::Real,
+        ga, obs_lik, log_prior_θ::Real,
         method::LaplaceMarginal, indices::Vector{Int}, prior_gmrf
     )
     # Validate that prior_gmrf is provided for Laplace marginalization
@@ -40,11 +40,11 @@ function _marginalize_impl(
 
     for i in indices
         # Create cache for this variable (passing μ and σ for efficiency)
-        cache = LaplaceApproximationCache(ga, obs_model, i, μ, σ, prior_gmrf)
+        cache = LaplaceApproximationCache(ga, obs_lik, i, μ, σ, prior_gmrf)
 
         # Fit spline correction using the normalization method specified in the LaplaceMarginal
         spline, log_norm_const, nodes, corrections = fit_density_correction_spline(
-            cache, θ, y, log_prior_θ; normalize_exactly = method.normalize_exactly
+            cache, log_prior_θ; normalize_exactly = method.normalize_exactly
         )
 
         # Create base Gaussian using precomputed values
