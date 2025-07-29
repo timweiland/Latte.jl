@@ -60,7 +60,7 @@ x = [1.0, 2.0]        # Latent field (log scale due to LogLink)
 y = [2, 7]           # Count observations
 
 ll = loglik(model, x, θ, y)
-dist = likelihood(model, x, θ)  # Returns Product distribution
+dist = data_distribution(model, x, θ)  # Returns Product distribution
 
 # Bernoulli model for binary data
 model = ExponentialFamily(Bernoulli)
@@ -72,7 +72,7 @@ y = [0, 1]           # Binary observations
 Canonical link functions have optimized implementations that avoid redundant computations.
 Non-canonical links use general chain rule formulations which may be slower.
 
-See also: [`LinkFunction`](@ref), [`loglik`](@ref), [`likelihood`](@ref)
+See also: [`LinkFunction`](@ref), [`loglik`](@ref), [`data_distribution`](@ref)
 """
 struct ExponentialFamily{F <: Distribution, L <: LinkFunction} <: ObservationModel
     family::Type{F}

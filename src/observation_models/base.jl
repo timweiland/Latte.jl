@@ -56,7 +56,6 @@ ll = loglik(obs_lik, x)      # Only x argument needed!
 grad = loggrad(obs_lik, x)   # Fast x-only evaluation
 ```
 
-See also: [`NormalLikelihood`](@ref), [`PoissonLikelihood`](@ref), [`BernoulliLikelihood`](@ref)
 """
 abstract type ObservationLikelihood end
 
