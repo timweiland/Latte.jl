@@ -30,7 +30,7 @@ using SparseArrays
         # Generate stable test data
         σ_gmrf_true = 2.5
         x_gt = rand(stable_1d_latent((σ_gmrf = σ_gmrf_true,)))
-        y_test = rand(likelihood(obs_model, x_gt, (σ = 1.0e-6,)))
+        y_test = rand(data_distribution(obs_model, x_gt, (σ = 1.0e-6,)))
 
         # Get exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
@@ -79,7 +79,7 @@ using SparseArrays
         σ_gmrf_true = 2.5
         ρ_true = 0.4
         x_gt = rand(stable_2d_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_test = rand(likelihood(obs_model, x_gt, (σ = 1.0e-6,)))
+        y_test = rand(data_distribution(obs_model, x_gt, (σ = 1.0e-6,)))
 
         # Get exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)

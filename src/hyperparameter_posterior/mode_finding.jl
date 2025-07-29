@@ -55,8 +55,8 @@ function hyperparameter_logpdf(model::INLAModel, θ, y, ga = nothing)
         x_prior = latent_gmrf(model, θ_named)
 
         # Find Gaussian approximation
-        result = gaussian_approximation(x_prior, model.observation_model, θ_named, y)
-        x_G = to_gmrf(result)
+        obs_lik = model.observation_model(y; θ_named...)
+        x_G = gaussian_approximation(x_prior, obs_lik)
     else
         x_G = ga
     end

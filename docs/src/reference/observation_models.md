@@ -4,11 +4,13 @@ Observation models define the relationship between observations and the latent f
 
 ## Overview
 
-The observation model interface provides a flexible framework for connecting observations to latent fields. All observation models implement the [`ObservationModel`](@ref) interface, which requires:
+The observation model interface provides a flexible framework for connecting observations to latent fields. The design uses a **factory pattern** for efficiency:
 
-- **Log-likelihood computation**: `loglik(model, x, θ_named, y)` 
-- **Hyperparameter specification**: `hyperparameters(model)` to declare required parameter names
-- **Automatic differentiation fallbacks**: For gradient and Hessian computation
+1. **Create observation model template**: Define the distribution and link function with `ExponentialFamily(Distribution, LinkFunction)`
+2. **Materialize with data**: Create observation likelihood with `obs_lik = obs_model(y; θ_named...)`
+3. **Fast evaluation**: Compute log-likelihood efficiently with `loglik(obs_lik, x)`
+
+This approach eliminates redundant parameter passing and provides significant performance benefits by pre-materializing the observation likelihood with data and hyperparameters.
 
 The package provides built-in support for exponential family distributions through the [`ExponentialFamily`](@ref) struct, which covers most common use cases in statistical modeling.
 
@@ -19,21 +21,23 @@ using IntegratedNestedLaplace
 using Distributions
 
 # Create a Poisson observation model (canonical link)
-model = ExponentialFamily(Poisson)
+obs_model = ExponentialFamily(Poisson)
 
-# Latent field values (log scale due to LogLink)
-x = [1.0, 2.0, 0.5]
-θ = Float64[]  # No hyperparameters for Poisson
-y = [2, 7, 1]  # Count observations
+# Observations and latent field values
+y = [2, 7, 1]  # Count observations  
+x = [1.0, 2.0, 0.5]  # Latent field values (log scale due to LogLink)
 
-# Core interface methods
-ll = loglik(model, x, θ, y)      # Log-likelihood
-grad = loggrad(model, x, θ, y)   # Gradient w.r.t. x
-hess = loghessian(model, x, θ, y) # Hessian w.r.t. x
+# Materialize observation likelihood with data (no hyperparameters for Poisson)
+obs_lik = obs_model(y)
 
-# Get likelihood as Distribution object
-dist = likelihood(model, x, θ)
-samples = rand(dist, 100)        # Generate synthetic data
+# Fast evaluation using materialized likelihood
+ll = loglik(obs_lik, x)      # Log-likelihood
+grad = loggrad(obs_lik, x)   # Gradient w.r.t. x
+hess = loghessian(obs_lik, x) # Hessian w.r.t. x
+
+# Get data distribution as Distribution object
+dist = data_distribution(obs_lik, x)
+samples = rand(dist, 100)    # Generate synthetic data
 ```
 
 ## Exponential Family Models
@@ -53,48 +57,54 @@ The [`ExponentialFamily`](@ref) struct provides ready-to-use models for standard
 
 #### Poisson Model (Count Data)
 ```julia
-model = ExponentialFamily(Poisson)  # Uses LogLink automatically
+obs_model = ExponentialFamily(Poisson)  # Uses LogLink automatically
 
-# Latent field on log scale
-x = [log(2.0), log(5.0), log(1.0)]  # Corresponds to rates [2, 5, 1]
+# Observations and latent field
 y = [1, 4, 2]                       # Count observations
+x = [log(2.0), log(5.0), log(1.0)]  # Latent field on log scale (rates [2, 5, 1])
 
-ll = loglik(model, x, NamedTuple(), y)
+# Materialize and evaluate
+obs_lik = obs_model(y)  # No hyperparameters
+ll = loglik(obs_lik, x)
 ```
 
 #### Bernoulli Model (Binary Data)  
 ```julia
-model = ExponentialFamily(Bernoulli)  # Uses LogitLink automatically
+obs_model = ExponentialFamily(Bernoulli)  # Uses LogitLink automatically
 
-# Latent field on logit scale
-x = [0.0, 1.0, -1.0]  # Corresponds to probabilities [0.5, 0.73, 0.27]
+# Observations and latent field  
 y = [0, 1, 0]         # Binary observations
+x = [0.0, 1.0, -1.0]  # Latent field on logit scale (probabilities [0.5, 0.73, 0.27])
 
-ll = loglik(model, x, NamedTuple(), y)
+# Materialize and evaluate
+obs_lik = obs_model(y)  # No hyperparameters
+ll = loglik(obs_lik, x)
 ```
 
 #### Normal Model (Continuous Data)
 ```julia
-model = ExponentialFamily(Normal)  # Uses IdentityLink automatically
+obs_model = ExponentialFamily(Normal)  # Uses IdentityLink automatically
 
-# Latent field directly as means
-x = [0.0, 1.0, -0.5]
-θ = [0.5]             # Standard deviation
+# Observations and latent field
 y = [0.1, 1.2, -0.4]  # Continuous observations
+x = [0.0, 1.0, -0.5]  # Latent field directly as means
 
-ll = loglik(model, x, θ, y)
+# Materialize with hyperparameter
+obs_lik = obs_model(y; σ = 0.5)  # Standard deviation
+ll = loglik(obs_lik, x)
 ```
 
 #### Binomial Model
 ```julia
-model = ExponentialFamily(Binomial)  # Uses LogitLink automatically
+obs_model = ExponentialFamily(Binomial)  # Uses LogitLink automatically
 
-# Latent field on logit scale
-x = [0.0, 0.5]
-θ = [10.0]     # Number of trials
+# Observations and latent field
 y = [5, 7]     # Number of successes
+x = [0.0, 0.5] # Latent field on logit scale
 
-ll = loglik(model, x, θ, y)
+# Materialize with hyperparameter
+obs_lik = obs_model(y; n = 10.0)  # Number of trials
+ll = loglik(obs_lik, x)
 ```
 
 ### Non-Canonical Links
@@ -104,15 +114,19 @@ You can specify custom link functions for specialized applications:
 ```julia
 # Poisson with identity link (non-canonical)
 # Requires x values to be positive
-model = ExponentialFamily(Poisson, IdentityLink())
-x = [2.0, 5.0, 1.0]  # Directly as rates (must be positive)
+obs_model = ExponentialFamily(Poisson, IdentityLink())
 y = [1, 4, 2]
+x = [2.0, 5.0, 1.0]  # Directly as rates (must be positive)
+obs_lik = obs_model(y)
+ll = loglik(obs_lik, x)
 
 # Bernoulli with log link (non-canonical)  
 # Requires x values such that exp(x) ∈ (0,1)
-model = ExponentialFamily(Bernoulli, LogLink())
-x = [log(0.3), log(0.7)]  # log-probabilities
+obs_model = ExponentialFamily(Bernoulli, LogLink())
 y = [0, 1]
+x = [log(0.3), log(0.7)]  # log-probabilities
+obs_lik = obs_model(y)
+ll = loglik(obs_lik, x)
 ```
 
 ## Link Functions
@@ -144,26 +158,29 @@ logit = LogitLink()
 μ₂ = apply_invlink(logit, 0.0)      # = 0.5
 ```
 
-## Likelihood Distributions
+## Data Distributions
 
-The [`likelihood`](@ref) function returns Distribution objects compatible with Distributions.jl:
+The [`data_distribution`](@ref) function returns Distribution objects compatible with Distributions.jl:
 
 ```julia
-model = ExponentialFamily(Poisson)
-x = [1.0, 2.0]
-θ = Float64[]
+obs_model = ExponentialFamily(Poisson)
+y = [2, 7]  # Observations 
+x = [1.0, 2.0]  # Latent field values
 
-# Get likelihood as Distribution
-dist = likelihood(model, x, θ)
+# Materialize observation likelihood
+obs_lik = obs_model(y)
+
+# Get data distribution given latent field
+dist = data_distribution(obs_lik, x)
 
 # Use with Distributions.jl
 synthetic_data = rand(dist, 100)    # Generate samples
 mean_val = mean(dist)               # Compute moments  
 var_val = var(dist)
-prob = logpdf(dist, [2, 7])        # Evaluate likelihood
+prob = logpdf(dist, y)              # Evaluate data probability
 
 # Equivalent to direct loglik call
-prob2 = loglik(model, x, θ, [2, 7])  # prob ≈ prob2
+prob2 = loglik(obs_lik, x)  # prob ≈ prob2
 ```
 
 ## Custom Observation Models
@@ -181,16 +198,29 @@ end
 # Declare hyperparameters (none in this example)
 hyperparameters(::CustomNormalModel) = ()
 
-# Implement required interface
-function loglik(model::CustomNormalModel, x, θ_named, y)
-    return sum(logpdf.(Normal.(x, model.σ), y))
+# Implement factory pattern: callable syntax returns materialized likelihood
+function (model::CustomNormalModel)(y; kwargs...)
+    return MaterializedCustomModel(y, model.σ)
 end
 
-# Gradient and Hessian computed automatically via ForwardDiff
-model = CustomNormalModel(0.5)
-θ_named = NamedTuple()  # No hyperparameters
-ll = loglik(model, x, θ_named, y)
-grad = loggrad(model, x, θ_named, y)  # Automatic differentiation
+# Materialized likelihood struct
+struct MaterializedCustomModel{Y}
+    y::Y
+    σ::Float64
+end
+
+# Implement loglik for materialized version
+function loglik(obs_lik::MaterializedCustomModel, x)
+    return sum(logpdf.(Normal.(x, obs_lik.σ), obs_lik.y))
+end
+
+# Usage
+obs_model = CustomNormalModel(0.5)
+y = [0.1, 1.2, -0.4]
+obs_lik = obs_model(y)  # Materialize
+x = [0.0, 1.0, -0.5]
+ll = loglik(obs_lik, x)
+grad = loggrad(obs_lik, x)  # Automatic differentiation
 ```
 
 ### Optimized Custom Model
@@ -205,16 +235,30 @@ end
 # Declare hyperparameters (none in this example)
 hyperparameters(::OptimizedModel) = ()
 
-function loglik(model::OptimizedModel, x, θ_named, y)
-    return -0.5 * sum((y .- x).^2) / model.σ² - 0.5 * length(y) * log(2π * model.σ²)
+# Factory pattern implementation
+function (model::OptimizedModel)(y; kwargs...)
+    return MaterializedOptimizedModel(y, model.σ²)
 end
 
-function loggrad(model::OptimizedModel, x, θ_named, y)
-    return (y .- x) ./ model.σ²  # Analytical gradient
+struct MaterializedOptimizedModel{Y}
+    y::Y
+    σ²::Float64
 end
 
-function loghessian(model::OptimizedModel, x, θ_named, y)
-    return Diagonal(-ones(length(x)) ./ model.σ²)  # Analytical Hessian
+# Optimized implementations for materialized likelihood
+function loglik(obs_lik::MaterializedOptimizedModel, x)
+    y, σ² = obs_lik.y, obs_lik.σ²
+    return -0.5 * sum((y .- x).^2) / σ² - 0.5 * length(y) * log(2π * σ²)
+end
+
+function loggrad(obs_lik::MaterializedOptimizedModel, x)
+    y, σ² = obs_lik.y, obs_lik.σ²
+    return (y .- x) ./ σ²  # Analytical gradient
+end
+
+function loghessian(obs_lik::MaterializedOptimizedModel, x)
+    σ² = obs_lik.σ²
+    return Diagonal(-ones(length(x)) ./ σ²)  # Analytical Hessian
 end
 ```
 
@@ -252,7 +296,7 @@ loghessian
 
 ```@docs
 ExponentialFamily
-likelihood
+data_distribution
 ```
 
 ### Link Functions

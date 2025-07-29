@@ -37,19 +37,16 @@ using Random
         y = x_true + θ.σ * randn(n)  # Add observation noise
 
         # Compute Gaussian approximation
-        options = NewtonOptions(max_iterations = 20, verbose = false)
-        ga_result = gaussian_approximation(prior_gmrf, obs_model, θ, y; options = options)
-        @test ga_result.converged
-
-        ga = to_gmrf(ga_result)
+        obs_lik = obs_model(y; θ...)
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
         log_prior_θ = 0.0
 
         # Test indices
         test_indices = [1, 3, 5]
 
         # Compute marginals with both methods
-        gauss_result = marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal(), test_indices)
-        laplace_result = marginalize(ga, obs_model, θ, y, log_prior_θ, LaplaceMarginal(true), test_indices; prior_gmrf = prior_gmrf)
+        gauss_result = marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal(), test_indices)
+        laplace_result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(true), test_indices; prior_gmrf = prior_gmrf)
 
         @test length(gauss_result.marginals) == length(laplace_result.marginals)
 
@@ -92,18 +89,15 @@ using Random
         y = [rand(Bernoulli(p)) for p in p_true]
 
         # Compute Gaussian approximation
-        options = NewtonOptions(max_iterations = 25, verbose = false)
-        ga_result = gaussian_approximation(prior_gmrf, obs_model, θ, y; options = options)
-        @test ga_result.converged
-
-        ga = to_gmrf(ga_result)
+        obs_lik = obs_model(y; θ...)
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
         log_prior_θ = 0.0
 
         # Test different marginalization methods
         test_indices = [2, 4, 6]
 
-        gauss_result = marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal(), test_indices)
-        laplace_result = marginalize(ga, obs_model, θ, y, log_prior_θ, LaplaceMarginal(true), test_indices; prior_gmrf = prior_gmrf)
+        gauss_result = marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal(), test_indices)
+        laplace_result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(true), test_indices; prior_gmrf = prior_gmrf)
 
         @test length(gauss_result.marginals) == length(laplace_result.marginals)
 
@@ -156,19 +150,16 @@ using Random
         y = [rand(Poisson(λ)) for λ in λ_true]
 
         # Compute Gaussian approximation
-        options = NewtonOptions(max_iterations = 30, verbose = false)
-        ga_result = gaussian_approximation(prior_gmrf, obs_model, θ, y; options = options)
-        @test ga_result.converged
-
-        ga = to_gmrf(ga_result)
+        obs_lik = obs_model(y; θ...)
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
         log_prior_θ = 0.0
 
         # Test single and multiple indices
-        single_result = marginalize(ga, obs_model, θ, y, log_prior_θ, LaplaceMarginal(false), [1]; prior_gmrf = prior_gmrf)
+        single_result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(false), [1]; prior_gmrf = prior_gmrf)
         @test length(single_result.marginals) == 1
         @test isa(single_result.marginals[1], SplineAugmentedGaussian)
 
-        multi_result = marginalize(ga, obs_model, θ, y, log_prior_θ, LaplaceMarginal(false), [1, 3, 5]; prior_gmrf = prior_gmrf)
+        multi_result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(false), [1, 3, 5]; prior_gmrf = prior_gmrf)
         @test length(multi_result.marginals) == 3
         @test all(isa.(multi_result.marginals, SplineAugmentedGaussian))
 
@@ -193,16 +184,13 @@ using Random
         y = [1, 0, 1, 0]  # Binary observations
 
         # Compute Gaussian approximation
-        options = NewtonOptions(max_iterations = 20, verbose = false)
-        ga_result = gaussian_approximation(prior_gmrf, obs_model, θ, y; options = options)
-        @test ga_result.converged
-
-        ga = to_gmrf(ga_result)
+        obs_lik = obs_model(y; θ...)
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
         log_prior_θ = 0.0
 
         # Compare exact vs approximate normalization
-        exact_result = marginalize(ga, obs_model, θ, y, log_prior_θ, LaplaceMarginal(true), [1, 2]; prior_gmrf = prior_gmrf)
-        approx_result = marginalize(ga, obs_model, θ, y, log_prior_θ, LaplaceMarginal(false), [1, 2]; prior_gmrf = prior_gmrf)
+        exact_result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(true), [1, 2]; prior_gmrf = prior_gmrf)
+        approx_result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(false), [1, 2]; prior_gmrf = prior_gmrf)
 
         @test length(exact_result.marginals) == length(approx_result.marginals)
 
@@ -228,27 +216,26 @@ using Random
         θ = (σ = 1.0,)
         y = [0.0, 1.0, -0.5]
 
-        options = NewtonOptions(max_iterations = 10, verbose = false)
-        ga_result = gaussian_approximation(prior_gmrf, obs_model, θ, y; options = options)
-        ga = to_gmrf(ga_result)
+        obs_lik = obs_model(y; θ...)
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
         log_prior_θ = 0.0
 
         # Empty indices
-        empty_result = marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal(), Int[])
+        empty_result = marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal(), Int[])
         @test length(empty_result.marginals) == 0
         @test empty_result.indices == Int[]
 
         # Default (all variables)
-        all_result = marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal())
+        all_result = marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal())
         @test length(all_result.marginals) == n
         @test all_result.indices == collect(1:n)
 
         # Error cases
-        @test_throws BoundsError marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal(), [n + 1])
-        @test_throws ArgumentError marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal(), [1, 1])
+        @test_throws BoundsError marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal(), [n + 1])
+        @test_throws ArgumentError marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal(), [1, 1])
 
         # Test result structure
-        result = marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal(), [1])
+        result = marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal(), [1])
         @test isa(result, MarginalResult)
         @test isa(result.computation_time, Float64)
         @test result.computation_time > 0

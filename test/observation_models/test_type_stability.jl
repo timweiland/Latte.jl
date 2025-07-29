@@ -5,35 +5,35 @@ using Distributions
 @testset "Type Stability" begin
 
     @testset "ExponentialFamily Type Stability" begin
-        # Test that ExponentialFamily models are type stable
+        # Test that ObservationLikelihood models are type stable using new API
 
         # Poisson model
         poisson_model = ExponentialFamily(Poisson)
         x = [1.0, 2.0]
-        θ_poisson = NamedTuple()  # No parameters for Poisson
         y = [1, 3]
+        poisson_lik = poisson_model(y)
 
-        @inferred loglik(poisson_model, x, θ_poisson, y)
-        @inferred loggrad(poisson_model, x, θ_poisson, y)
-        @inferred loghessian(poisson_model, x, θ_poisson, y)
+        @inferred loglik(poisson_lik, x)
+        @inferred loggrad(poisson_lik, x)
+        @inferred loghessian(poisson_lik, x)
 
         # Bernoulli model
         bernoulli_model = ExponentialFamily(Bernoulli)
-        θ_bernoulli = NamedTuple()  # No parameters for Bernoulli
         y_bool = [0, 1]
+        bernoulli_lik = bernoulli_model(y_bool)
 
-        @inferred loglik(bernoulli_model, x, θ_bernoulli, y_bool)
-        @inferred loggrad(bernoulli_model, x, θ_bernoulli, y_bool)
-        @inferred loghessian(bernoulli_model, x, θ_bernoulli, y_bool)
+        @inferred loglik(bernoulli_lik, x)
+        @inferred loggrad(bernoulli_lik, x)
+        @inferred loghessian(bernoulli_lik, x)
 
         # Normal model
         normal_model = ExponentialFamily(Normal)
-        θ_normal = (σ = 1.0,)  # Named parameter for Normal
         y_float = [1.1, 2.2]
+        normal_lik = normal_model(y_float; σ = 1.0)
 
-        @inferred loglik(normal_model, x, θ_normal, y_float)
-        @inferred loggrad(normal_model, x, θ_normal, y_float)
-        @inferred loghessian(normal_model, x, θ_normal, y_float)
+        @inferred loglik(normal_lik, x)
+        @inferred loggrad(normal_lik, x)
+        @inferred loghessian(normal_lik, x)
     end
 
     @testset "Link Function Type Stability" begin
@@ -60,24 +60,25 @@ using Distributions
         @inferred (() -> IntegratedNestedLaplace.derivative_invlink.(Ref(LogitLink()), x))()
     end
 
-    @testset "Custom Model Type Stability" begin
-        # Simple custom model for testing
-        struct SimpleCustomModel <: ObservationModel end
-
-        function IntegratedNestedLaplace.loglik(::SimpleCustomModel, x, θ_named, y)
-            return -0.5 * sum((x .- y) .^ 2)
+    @testset "Custom ObservationLikelihood Type Stability" begin
+        # Simple custom likelihood for testing
+        struct SimpleCustomLikelihood <: ObservationLikelihood
+            y::Vector{Float64}
         end
 
-        model = SimpleCustomModel()
-        x = [1.0, 2.0]
-        θ_named = NamedTuple()  # No parameters
-        y = [1.1, 2.1]
+        function IntegratedNestedLaplace.loglik(lik::SimpleCustomLikelihood, x)
+            return -0.5 * sum((x .- lik.y) .^ 2)
+        end
 
-        @inferred loglik(model, x, θ_named, y)
+        y = [1.1, 2.1]
+        lik = SimpleCustomLikelihood(y)
+        x = [1.0, 2.0]
+
+        @inferred loglik(lik, x)
         # Note: AD fallbacks may not be type stable due to ForwardDiff internals,
         # but we can still test that they return correct types
-        grad_result = loggrad(model, x, θ_named, y)
-        hess_result = loghessian(model, x, θ_named, y)
+        grad_result = loggrad(lik, x)
+        hess_result = loghessian(lik, x)
 
         @test grad_result isa Vector{Float64}
         @test hess_result isa AbstractMatrix{Float64}
@@ -92,12 +93,14 @@ using Distributions
         @test poisson_log.family == poisson_identity.family
         @test typeof(poisson_log.link) != typeof(poisson_identity.link)
 
-        # Both should be type stable but with different signatures
+        # Both should be type stable with new API
         x = [1.0, 2.0]
-        θ_poisson = NamedTuple()  # No parameters for Poisson
         y = [1, 2]
 
-        @inferred loglik(poisson_log, x, θ_poisson, y)
-        @inferred loglik(poisson_identity, x, θ_poisson, y)
+        poisson_log_lik = poisson_log(y)
+        poisson_identity_lik = poisson_identity(y)
+
+        @inferred loglik(poisson_log_lik, x)
+        @inferred loglik(poisson_identity_lik, x)
     end
 end

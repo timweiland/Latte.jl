@@ -5,25 +5,16 @@ using ForwardDiff
 using LinearAlgebra
 using StatsFuns
 
-# Helper function to test gradient and hessian against ForwardDiff
-function test_against_autodiff(model, η, θ_vec, y)
-    # Convert hyperparameter vector to NamedTuple based on model requirements
-    param_names = hyperparameters(model)
-    if isempty(param_names)
-        θ_named = NamedTuple()
-    else
-        @assert length(θ_vec) == length(param_names) "Parameter vector length must match required parameters"
-        θ_named = NamedTuple{param_names}(θ_vec)
-    end
-
+# Helper function to test gradient and hessian against ForwardDiff using new API
+function test_against_autodiff(obs_lik, η)
     # Test gradient
-    grad = loggrad(model, η, θ_named, y)
-    grad_fd = ForwardDiff.gradient(x -> loglik(model, x, θ_named, y), η)
+    grad = loggrad(obs_lik, η)
+    grad_fd = ForwardDiff.gradient(x -> loglik(obs_lik, x), η)
     @test grad ≈ grad_fd rtol = 1.0e-10
 
     # Test hessian
-    hess = loghessian(model, η, θ_named, y)
-    hess_fd = ForwardDiff.hessian(x -> loglik(model, x, θ_named, y), η)
+    hess = loghessian(obs_lik, η)
+    hess_fd = ForwardDiff.hessian(x -> loglik(obs_lik, x), η)
     return @test Matrix(hess) ≈ hess_fd rtol = 1.0e-8
 end
 
@@ -44,9 +35,11 @@ end
             end
 
             y = rand(0:10, 5)  # Random count data
-            θ = Float64[]  # No hyperparameters
 
-            test_against_autodiff(model, η, θ, y)
+            # Create materialized likelihood using new API
+            obs_lik = model(y)
+
+            test_against_autodiff(obs_lik, η)
         end
     end
 
@@ -65,9 +58,11 @@ end
             end
 
             y = rand([0, 1], 5)  # Random binary data
-            θ = Float64[]  # No hyperparameters
 
-            test_against_autodiff(model, η, θ, y)
+            # Create materialized likelihood using new API
+            obs_lik = model(y)
+
+            test_against_autodiff(obs_lik, η)
         end
     end
 
@@ -87,9 +82,11 @@ end
             end
 
             y = rand(0:n, 5)  # Random binomial data
-            θ = [n]  # Number of trials as hyperparameter
 
-            test_against_autodiff(model, η, θ, y)
+            # Create materialized likelihood using new API
+            obs_lik = model(y; n = n)
+
+            test_against_autodiff(obs_lik, η)
         end
     end
 
@@ -109,9 +106,11 @@ end
             end
 
             y = randn(5)  # Random normal data
-            θ = [σ]  # Standard deviation as hyperparameter
 
-            test_against_autodiff(model, η, θ, y)
+            # Create materialized likelihood using new API
+            obs_lik = model(y; σ = σ)
+
+            test_against_autodiff(obs_lik, η)
         end
     end
 end

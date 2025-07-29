@@ -48,7 +48,7 @@ using LDLFactorizations
 
     # Generate synthetic data
     x_gt = rand(latent_gmrf((τ_gmrf_log = τ_gmrf_log_true, η = η_true)))
-    y_gt = rand(likelihood(obs_model, x_gt, ()))
+    y_gt = rand(obs_model; x = x_gt, θ_named = NamedTuple())
 
     # Run INLA inference
     inla_start_time = time()

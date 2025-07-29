@@ -5,6 +5,7 @@ using LDLFactorizations
 using Distributions
 using LinearAlgebra
 using SparseArrays
+using Random
 
 @testset "INLAModel" begin
 
@@ -229,7 +230,18 @@ using SparseArrays
         # Custom observation model that uses both parameters
         struct TestObsModel <: ObservationModel end
         IntegratedNestedLaplace.hyperparameters(::TestObsModel) = (:σ, :df)
-        IntegratedNestedLaplace.loglik(::TestObsModel, x, θ_named, y) = -0.5 * sum((y - x) .^ 2) / θ_named.σ^2 - length(y) * log(θ_named.σ) / 2
+
+        # Factory pattern implementation
+        function (::TestObsModel)(y; σ, df, kwargs...)
+            return MaterializedTestObsModel(y, σ)
+        end
+
+        struct MaterializedTestObsModel{Y}
+            y::Y
+            σ::Float64
+        end
+
+        IntegratedNestedLaplace.loglik(obs_lik::MaterializedTestObsModel, x) = -0.5 * sum((obs_lik.y - x) .^ 2) / obs_lik.σ^2 - length(obs_lik.y) * log(obs_lik.σ) / 2
 
         obs_model = TestObsModel()
         model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
@@ -240,6 +252,56 @@ using SparseArrays
 
         log_joint = log_joint_density(model, x, θ, y)
         @test isfinite(log_joint)
+    end
+
+    @testset "Random Sampling" begin
+        # Simple model
+        hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+
+        function latent_gmrf_func(θ_named)
+            σ = θ_named.σ
+            n = 5
+            Q = spdiagm(0 => fill(1 / σ^2, n))
+            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+        end
+
+        obs_model = ExponentialFamily(Normal)
+        model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
+
+        # Test basic sampling
+        sample = rand(model)
+        @test sample isa NamedTuple{(:θ, :x, :y)}
+        @test length(sample.θ) == 1 && sample.θ[1] > 0
+        @test length(sample.x) == length(sample.y) == 5
+        @test all(isfinite, sample.θ) && all(isfinite, sample.x) && all(isfinite, sample.y)
+
+        # Test with explicit RNG
+        rng = MersenneTwister(123)
+        sample1 = rand(rng, model)
+        rng = MersenneTwister(123)
+        sample2 = rand(rng, model)
+        @test sample1.θ == sample2.θ && sample1.x == sample2.x && sample1.y == sample2.y
+
+        # Test different samples are different
+        @test rand(model) != rand(model)
+
+        # Test with fixed parameters
+        hp_prior_fixed = HyperparameterPrior(
+            (σ_latent = InverseGamma(2, 1),);
+            fixed = (σ = 0.5,)
+        )
+
+        function latent_gmrf_fixed(θ_named)
+            σ_latent = θ_named.σ_latent
+            n = 3
+            Q = spdiagm(0 => fill(1 / σ_latent^2, n))
+            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+        end
+
+        model_fixed = INLAModel(hp_prior_fixed, latent_gmrf_fixed, obs_model)
+        sample_fixed = rand(model_fixed)
+        @test length(sample_fixed.θ) == 1  # Only one free parameter
+        @test length(sample_fixed.x) == length(sample_fixed.y) == 3
     end
 
 end

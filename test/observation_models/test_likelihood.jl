@@ -2,52 +2,70 @@ using Test
 using IntegratedNestedLaplace
 using Distributions
 
-@testset "Likelihood Function" begin
+@testset "Materialized Likelihood Function" begin
 
-    @testset "Returns Distribution Objects" begin
+    @testset "Factory Pattern and Materialization" begin
+        # Test that obs_model(y; params...) creates correct likelihood objects
+
         # Test Poisson
         poisson_model = ExponentialFamily(Poisson)
-        η = [1.0, 2.0]
-        θ_poisson = NamedTuple()  # No parameters for Poisson
-
-        dist = likelihood(poisson_model, η, θ_poisson)
-        @test dist isa Distribution
-        @test all(d -> d isa Poisson, dist.v)  # Product distribution components
+        y_poisson = [1, 3]
+        poisson_lik = poisson_model(y_poisson)
+        @test poisson_lik isa PoissonLikelihood{LogLink}
+        @test poisson_lik.y == y_poisson
 
         # Test Normal
         normal_model = ExponentialFamily(Normal)
-        η_norm = [0.0, 1.0]
-        θ_norm = (σ = 0.5,)  # Named parameter
-
-        dist_norm = likelihood(normal_model, η_norm, θ_norm)
-        @test dist_norm isa Distribution
+        y_normal = [0.1, 1.2]
+        normal_lik = normal_model(y_normal; σ = 0.5)
+        @test normal_lik isa NormalLikelihood{IdentityLink}
+        @test normal_lik.y == y_normal
+        @test normal_lik.σ == 0.5
 
         # Test Bernoulli
         bernoulli_model = ExponentialFamily(Bernoulli)
-        η_bern = [0.0, 1.0]
-        θ_bern = NamedTuple()  # No parameters for Bernoulli
+        y_bernoulli = [0, 1]
+        bernoulli_lik = bernoulli_model(y_bernoulli)
+        @test bernoulli_lik isa BernoulliLikelihood{LogitLink}
+        @test bernoulli_lik.y == y_bernoulli
 
-        dist_bern = likelihood(bernoulli_model, η_bern, θ_bern)
-        @test dist_bern isa Distribution
-        @test all(d -> d isa Bernoulli, dist_bern.v)
+        # Test Binomial
+        binomial_model = ExponentialFamily(Binomial)
+        y_binomial = [3, 8]
+        binomial_lik = binomial_model(y_binomial; n = 10)
+        @test binomial_lik isa BinomialLikelihood{LogitLink}
+        @test binomial_lik.y == y_binomial
+        @test binomial_lik.n == 10
     end
 
-    @testset "Consistency with loglik" begin
-        # Test that loglik(model, x, θ, y) ≈ logpdf(likelihood(model, x, θ), y)
+    @testset "Likelihood Evaluation with Materialized Objects" begin
+        # Test that materialized likelihoods work correctly
 
-        models_and_data = [
-            (ExponentialFamily(Poisson), [1.0, 2.0], NamedTuple(), [1, 3]),
-            (ExponentialFamily(Normal), [0.0, 1.0], (σ = 0.5,), [0.1, 1.2]),
-            (ExponentialFamily(Bernoulli), [0.0, 1.0], NamedTuple(), [0, 1]),
-            (ExponentialFamily(Binomial), [0.0, 0.5], (n = 10,), [3, 8]),
+        test_cases = [
+            (ExponentialFamily(Poisson), [1, 3], NamedTuple(), [1.0, 2.0]),
+            (ExponentialFamily(Normal), [0.1, 1.2], (σ = 0.5,), [0.0, 1.0]),
+            (ExponentialFamily(Bernoulli), [0, 1], NamedTuple(), [0.0, 1.0]),
+            (ExponentialFamily(Binomial), [3, 8], (n = 10,), [0.0, 0.5]),
         ]
 
-        for (model, η, θ_named, y) in models_and_data
-            dist = likelihood(model, η, θ_named)
-            ll_via_likelihood = logpdf(dist, y)
-            ll_direct = loglik(model, η, θ_named, y)
+        for (model, y, θ_named, x) in test_cases
+            # Create materialized likelihood
+            obs_lik = model(y; θ_named...)
 
-            @test ll_via_likelihood ≈ ll_direct rtol = 1.0e-12
+            # Test that loglik works
+            ll = loglik(obs_lik, x)
+            @test ll isa Float64
+            @test isfinite(ll)
+
+            # Test that gradients work
+            grad = loggrad(obs_lik, x)
+            @test grad isa Vector{Float64}
+            @test length(grad) == length(x)
+
+            # Test that hessians work
+            hess = loghessian(obs_lik, x)
+            @test hess isa AbstractMatrix{Float64}
+            @test size(hess) == (length(x), length(x))
         end
     end
 end

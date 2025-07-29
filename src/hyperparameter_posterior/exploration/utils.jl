@@ -25,8 +25,8 @@ function evaluate_logpdf_and_marginals(
     # Perform the expensive Gaussian Approximation once
     θ_named = to_named(θ, model.hyperparameter_prior)
     prior_gmrf = latent_gmrf(model, θ_named)
-    ga_result = gaussian_approximation(prior_gmrf, model.observation_model, θ_named, y)
-    ga = to_gmrf(ga_result)
+    obs_lik = model.observation_model(y; θ_named...)
+    ga = gaussian_approximation(prior_gmrf, obs_lik)
 
     # Compute log posterior density using the pre-computed GA
     log_density = hyperparameter_logpdf(model, θ, y, ga)
@@ -35,8 +35,10 @@ function evaluate_logpdf_and_marginals(
     if compute_marginals
         # Reuse the GA for marginalization
         log_prior_θ = logpdf(model.hyperparameter_prior.free_distribution, θ)
+        # Materialize observation likelihood with data and hyperparameters
+        obs_lik = model.observation_model(y; θ_named...)
         marginal_result = marginalize(
-            ga, model.observation_model, θ_named, y,
+            ga, obs_lik,
             log_prior_θ, marginalization_method, marginalization_indices;
             prior_gmrf = prior_gmrf
         )
