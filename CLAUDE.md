@@ -31,6 +31,10 @@ make format
 
 **Automated Formatting**: This project includes a Claude Code hook (`.claude/hooks.json`) that automatically runs the formatter after editing Julia files. The hook triggers on `Edit`, `Write`, and `MultiEdit` operations for `.jl` files.
 
+## Testing Tips
+
+- To run a specific test, do `julia --project`, followed by `using TestEnv; TestEnv.activate(); include("...")`, where "..." contains the test file with the tests to run
+
 ## Architecture
 
 - **Main Interface**: `src/main_interface/` - Unified INLA inference interface
@@ -155,4 +159,3 @@ A task is complete when:
 2. Implementation notes document the approach and changes
 3. All tests pass and code is properly formatted
 4. Relevant documentation is updated
-
