@@ -31,7 +31,7 @@ obs_lik = obs_model(y; θ...)
 ga = gaussian_approximation(prior_gmrf, obs_lik)
 
 # Marginalize selected variables
-result = marginalize(ga, obs_model, θ, y, 0.0, LaplaceMarginal(), [1, 3]; 
+result = marginalize(ga, obs_lik, 0.0, LaplaceMarginal(), [1, 3]; 
                     prior_gmrf=prior_gmrf)
 
 # Access marginal distributions
@@ -61,7 +61,7 @@ GaussianMarginal
 **Example:**
 ```julia
 # Fast Gaussian marginalization
-gaussian_result = marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal())
+gaussian_result = marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal())
 ```
 
 ### Laplace Marginalization
@@ -78,7 +78,7 @@ LaplaceMarginal
 **Example:**
 ```julia
 # Accurate Laplace marginalization
-laplace_result = marginalize(ga, obs_model, θ, y, log_prior_θ, 
+laplace_result = marginalize(ga, obs_lik, log_prior_θ, 
                            LaplaceMarginal(true), [1, 2, 5]; 
                            prior_gmrf=prior_gmrf)
 ```
@@ -163,8 +163,8 @@ where the spline correction accounts for non-Gaussian structure in the likelihoo
 ### Comparing Methods
 ```julia
 # Compare Gaussian vs Laplace for validation
-gauss_result = marginalize(ga, obs_model, θ, y, log_prior_θ, GaussianMarginal())
-laplace_result = marginalize(ga, obs_model, θ, y, log_prior_θ, LaplaceMarginal(); 
+gauss_result = marginalize(ga, obs_lik, log_prior_θ, GaussianMarginal())
+laplace_result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(); 
                            prior_gmrf=prior_gmrf)
 
 # For Gaussian likelihoods, these should be nearly identical
@@ -187,7 +187,7 @@ prob_positive = 1 - cdf(marginal, 0.0)
 # Marginalize specific variables of interest
 n = length(mean(ga))
 indices = [1, div(n,2), n]  # First, middle, last variables
-result = marginalize(ga, obs_model, θ, y, log_prior_θ, LaplaceMarginal(), indices; 
+result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(), indices; 
                     prior_gmrf=prior_gmrf)
 ```
 
