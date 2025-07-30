@@ -16,7 +16,8 @@ Generic loglik implementation for all exponential family likelihoods using produ
 """
 function loglik(lik::ExponentialFamilyLikelihood, x)
     y = lik.y
-    η = x
+    # Use indexed view if indices are specified, otherwise use full x
+    η = lik.indices === nothing ? x : view(x, lik.indices)
     μ = apply_invlink.(Ref(lik.link), η)
     dist = _construct_distribution(lik, μ)
     return logpdf(dist, y)
@@ -31,7 +32,8 @@ Computes: ∑ᵢ logpdf(Normal(μᵢ, σ), yᵢ) = -n/2 * log(2π) - n * log(σ)
 """
 function loglik(lik::NormalLikelihood, x)
     y = lik.y
-    η = x
+    # Use indexed view if indices are specified, otherwise use full x
+    η = lik.indices === nothing ? x : view(x, lik.indices)
     μ = apply_invlink.(Ref(lik.link), η)
 
     # Fast computation avoiding product_distribution
@@ -67,10 +69,20 @@ end
 
 Compute gradient of Normal likelihood with canonical identity link w.r.t. latent field x.
 """
-function loggrad(lik::NormalLikelihood{IdentityLink}, x)
+# Non-indexed case (indices === nothing)
+function loggrad(lik::NormalLikelihood{IdentityLink, Nothing}, x)
     y = lik.y
     μ = x  # Canonical identity link: μ = x
     return (y .- μ) .* lik.inv_σ²
+end
+
+# Indexed case (indices !== nothing)
+function loggrad(lik::NormalLikelihood{IdentityLink}, x)
+    y = lik.y
+    grad = zeros(eltype(x), length(x))
+    μ = view(x, lik.indices)
+    grad[lik.indices] .= (y .- μ) .* lik.inv_σ²
+    return grad
 end
 
 """
@@ -78,11 +90,22 @@ end
 
 Compute gradient of Poisson likelihood with canonical log link w.r.t. latent field x.
 """
-function loggrad(lik::PoissonLikelihood{LogLink}, x)
+# Non-indexed case
+function loggrad(lik::PoissonLikelihood{LogLink, Nothing}, x)
     y = lik.y
     η = x
     μ = exp.(η)  # Canonical log link: μ = exp(η)
     return y .- μ
+end
+
+# Indexed case
+function loggrad(lik::PoissonLikelihood{LogLink}, x)
+    y = lik.y
+    grad = zeros(eltype(x), length(x))
+    η = view(x, lik.indices)
+    μ = exp.(η)
+    grad[lik.indices] .= y .- μ
+    return grad
 end
 
 """
@@ -90,11 +113,22 @@ end
 
 Compute gradient of Bernoulli likelihood with canonical logit link w.r.t. latent field x.
 """
-function loggrad(lik::BernoulliLikelihood{LogitLink}, x)
+# Non-indexed case
+function loggrad(lik::BernoulliLikelihood{LogitLink, Nothing}, x)
     y = lik.y
     η = x
     μ = logistic.(η)  # Canonical logit link: μ = logistic(η)
     return y .- μ
+end
+
+# Indexed case
+function loggrad(lik::BernoulliLikelihood{LogitLink}, x)
+    y = lik.y
+    grad = zeros(eltype(x), length(x))
+    η = view(x, lik.indices)
+    μ = logistic.(η)
+    grad[lik.indices] .= y .- μ
+    return grad
 end
 
 """
@@ -102,12 +136,24 @@ end
 
 Compute gradient of Binomial likelihood with canonical logit link w.r.t. latent field x.
 """
-function loggrad(lik::BinomialLikelihood{LogitLink}, x)
+# Non-indexed case
+function loggrad(lik::BinomialLikelihood{LogitLink, Nothing}, x)
     y = lik.y
     n = lik.n
     η = x
     μ = logistic.(η)  # Canonical logit link: μ = logistic(η)
     return y .- n .* μ
+end
+
+# Indexed case
+function loggrad(lik::BinomialLikelihood{LogitLink}, x)
+    y = lik.y
+    n = lik.n
+    grad = zeros(eltype(x), length(x))
+    η = view(x, lik.indices)
+    μ = logistic.(η)
+    grad[lik.indices] .= y .- n .* μ
+    return grad
 end
 
 # ----------------------------- loghessian methods for canonical links --------------------------
@@ -117,8 +163,16 @@ end
 
 Compute Hessian of Normal likelihood with canonical identity link w.r.t. latent field x.
 """
-function loghessian(lik::NormalLikelihood{IdentityLink}, x)
+# Non-indexed case
+function loghessian(lik::NormalLikelihood{IdentityLink, Nothing}, x)
     return Diagonal(-ones(length(x)) .* lik.inv_σ²)
+end
+
+# Indexed case
+function loghessian(lik::NormalLikelihood{IdentityLink}, x)
+    diagonal_terms = zeros(eltype(x), length(x))
+    diagonal_terms[lik.indices] .= -lik.inv_σ²
+    return Diagonal(diagonal_terms)
 end
 
 """
@@ -126,10 +180,20 @@ end
 
 Compute Hessian of Poisson likelihood with canonical log link w.r.t. latent field x.
 """
-function loghessian(lik::PoissonLikelihood{LogLink}, x)
+# Non-indexed case
+function loghessian(lik::PoissonLikelihood{LogLink, Nothing}, x)
     η = x
     μ = exp.(η)  # Canonical log link: μ = exp(η)
     return Diagonal(-μ)
+end
+
+# Indexed case
+function loghessian(lik::PoissonLikelihood{LogLink}, x)
+    diagonal_terms = zeros(eltype(x), length(x))
+    η = view(x, lik.indices)
+    μ = exp.(η)
+    diagonal_terms[lik.indices] .= -μ
+    return Diagonal(diagonal_terms)
 end
 
 """
@@ -137,10 +201,20 @@ end
 
 Compute Hessian of Bernoulli likelihood with canonical logit link w.r.t. latent field x.
 """
-function loghessian(lik::BernoulliLikelihood{LogitLink}, x)
+# Non-indexed case
+function loghessian(lik::BernoulliLikelihood{LogitLink, Nothing}, x)
     η = x
     μ = logistic.(η)  # Canonical logit link: μ = logistic(η)
     return Diagonal(-μ .* (1 .- μ))
+end
+
+# Indexed case
+function loghessian(lik::BernoulliLikelihood{LogitLink}, x)
+    diagonal_terms = zeros(eltype(x), length(x))
+    η = view(x, lik.indices)
+    μ = logistic.(η)
+    diagonal_terms[lik.indices] .= -μ .* (1 .- μ)
+    return Diagonal(diagonal_terms)
 end
 
 """
@@ -148,9 +222,20 @@ end
 
 Compute Hessian of Binomial likelihood with canonical logit link w.r.t. latent field x.
 """
-function loghessian(lik::BinomialLikelihood{LogitLink}, x)
+# Non-indexed case
+function loghessian(lik::BinomialLikelihood{LogitLink, Nothing}, x)
     n = lik.n
     η = x
     μ = logistic.(η)  # Canonical logit link: μ = logistic(η)
     return Diagonal(-n .* μ .* (1 .- μ))
+end
+
+# Indexed case
+function loghessian(lik::BinomialLikelihood{LogitLink}, x)
+    n = lik.n
+    diagonal_terms = zeros(eltype(x), length(x))
+    η = view(x, lik.indices)
+    μ = logistic.(η)
+    diagonal_terms[lik.indices] .= -n .* μ .* (1 .- μ)
+    return Diagonal(diagonal_terms)
 end

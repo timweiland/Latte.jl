@@ -183,6 +183,100 @@ prob = logpdf(dist, y)              # Evaluate data probability
 prob2 = loglik(obs_lik, x)  # prob ≈ prob2
 ```
 
+## Composite Observation Models
+
+Composite observation models allow you to combine multiple observation models to handle heterogeneous data within a single INLA inference. This is useful when you have different types of observations (e.g., continuous and count data) that should be modeled together.
+
+### Basic Usage
+
+```julia
+using IntegratedNestedLaplace
+using Distributions
+
+# Create individual observation models
+gaussian_model = ExponentialFamily(Normal, indices = 1:3)    # First 3 elements
+poisson_model = ExponentialFamily(Poisson, indices = 4:6)    # Next 3 elements
+
+# Create composite model
+composite_model = CompositeObservationModel((gaussian_model, poisson_model))
+
+# Prepare observation data
+y_gaussian = [1.0, 2.0, 1.5]  # 3 Gaussian observations
+y_poisson = [2, 3, 1]         # 3 Poisson observations
+y_composite = CompositeObservations((y_gaussian, y_poisson))
+
+# Materialize with hyperparameters
+composite_lik = composite_model(y_composite; σ = 0.5)  # σ for Gaussian component
+
+# Evaluate (automatically sums contributions from all components)
+x = [0.5, 1.2, 0.8, 1.1, 0.9, 0.3]  # 6 latent field values
+ll = loglik(composite_lik, x)
+grad = loggrad(composite_lik, x)
+hess = loghessian(composite_lik, x)
+```
+
+### Composite Data Structure
+
+The `CompositeObservations` type combines multiple observation vectors while maintaining an `AbstractVector` interface:
+
+```julia
+# Create composite observations
+y1 = [1.0, 2.0, 3.0]  # First component (3 observations)
+y2 = [4.0, 5.0]       # Second component (2 observations)
+y_composite = CompositeObservations((y1, y2))
+
+# Acts like a regular vector
+length(y_composite)    # 5
+y_composite[1]         # 1.0
+y_composite[4]         # 4.0
+collect(y_composite)   # [1.0, 2.0, 3.0, 4.0, 5.0]
+```
+
+### Hyperparameter Handling
+
+Each component observation model can have different hyperparameters. The composite model passes all provided hyperparameters to each component, and each component extracts what it needs:
+
+```julia
+# Multiple hyperparameters for different components
+gaussian_model = ExponentialFamily(Normal, indices = 1:2)
+binomial_model = ExponentialFamily(Binomial, indices = 3:4)
+composite_model = CompositeObservationModel((gaussian_model, binomial_model))
+
+y_composite = CompositeObservations(([1.0, 2.0], [7, 8]))
+
+# Pass hyperparameters for both components
+composite_lik = composite_model(y_composite; σ = 0.5, n = 10.0)
+# σ is used by Gaussian component, n is used by Binomial component
+```
+
+### Advanced Example: Mixed Model Types
+
+```julia
+# Create a complex composite model with different distributions
+normal_model = ExponentialFamily(Normal, IdentityLink(), indices = 1:2)
+poisson_model = ExponentialFamily(Poisson, LogLink(), indices = 3:4) 
+bernoulli_model = ExponentialFamily(Bernoulli, LogitLink(), indices = 5:6)
+
+composite_model = CompositeObservationModel((normal_model, poisson_model, bernoulli_model))
+
+# Heterogeneous observation data
+y_normal = [0.5, -1.2]      # Continuous data
+y_poisson = [3, 7]          # Count data  
+y_bernoulli = [1, 0]        # Binary data
+y_composite = CompositeObservations((y_normal, y_poisson, y_bernoulli))
+
+# Materialize with appropriate hyperparameters
+composite_lik = composite_model(y_composite; σ = 0.8)  # Only Normal needs σ
+
+# Latent field values (different scales due to different link functions)
+x = [0.5, -1.0,           # Identity scale for Normal
+     log(4.0), log(8.0),  # Log scale for Poisson
+     0.0, -1.0]            # Logit scale for Bernoulli
+
+# Evaluate composite likelihood
+ll = loglik(composite_lik, x)  # Sum of all component log-likelihoods
+```
+
 ## Custom Observation Models
 
 For specialized applications, you can implement custom observation models:
