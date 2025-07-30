@@ -79,8 +79,8 @@ docs-deps:
 	@echo "Done!"
 
 docs-server:
-	@echo "Starting docs server..."
-	@julia -e 'using LiveServer; serve(dir="docs/build")'
+	@echo "Starting VitePress docs server..."
+	@cd docs && julia --project -e 'using DocumenterVitepress; DocumenterVitepress.dev_docs("build")'
 
 # Generate logo
 logo:
