@@ -74,9 +74,10 @@ Non-canonical links use general chain rule formulations which may be slower.
 
 See also: [`LinkFunction`](@ref), [`loglik`](@ref), [`data_distribution`](@ref)
 """
-struct ExponentialFamily{F <: Distribution, L <: LinkFunction} <: ObservationModel
+struct ExponentialFamily{F <: Distribution, L <: LinkFunction, I} <: ObservationModel
     family::Type{F}
     link::L
+    indices::I  # Can be Nothing, UnitRange, or Vector{Int}
 end
 
 """
@@ -106,7 +107,11 @@ bernoulli_model = ExponentialFamily(Bernoulli) # Uses LogitLink
 
 See also: [`ExponentialFamily`](@ref)
 """
-ExponentialFamily(family::Type{<:Distribution}) = ExponentialFamily(family, _default_link(family))
+# Main constructor with optional indices
+ExponentialFamily(family::Type{<:Distribution}; indices = nothing) = ExponentialFamily(family, _default_link(family), indices)
+
+# Constructor with explicit link function and optional indices
+ExponentialFamily(family::Type{<:Distribution}, link::LinkFunction; indices = nothing) = ExponentialFamily(family, link, indices)
 
 _default_link(::Type{<:Normal}) = IdentityLink()
 _default_link(::Type{<:Poisson}) = LogLink()
@@ -187,8 +192,8 @@ Create a materialized Normal likelihood with precomputed hyperparameters.
 # Returns
 A `NormalLikelihood` with the same link function as the factory model.
 """
-function (obs_model::ExponentialFamily{Normal, L})(y; σ, kwargs...) where {L}
-    return NormalLikelihood(obs_model.link, Float64.(y), Float64(σ), 1.0 / (σ^2), log(σ))
+function (obs_model::ExponentialFamily{Normal, L, I})(y; σ, kwargs...) where {L, I}
+    return NormalLikelihood(obs_model.link, Float64.(y), Float64(σ), 1.0 / (σ^2), log(σ), obs_model.indices)
 end
 
 """
@@ -203,8 +208,8 @@ Create a materialized Poisson likelihood.
 # Returns
 A `PoissonLikelihood` with the same link function as the factory model.
 """
-function (obs_model::ExponentialFamily{Poisson, L})(y; kwargs...) where {L}
-    return PoissonLikelihood(obs_model.link, Int.(y))
+function (obs_model::ExponentialFamily{Poisson, L, I})(y; kwargs...) where {L, I}
+    return PoissonLikelihood(obs_model.link, Int.(y), obs_model.indices)
 end
 
 """
@@ -219,8 +224,8 @@ Create a materialized Bernoulli likelihood.
 # Returns  
 A `BernoulliLikelihood` with the same link function as the factory model.
 """
-function (obs_model::ExponentialFamily{Bernoulli, L})(y; kwargs...) where {L}
-    return BernoulliLikelihood(obs_model.link, Int.(y))
+function (obs_model::ExponentialFamily{Bernoulli, L, I})(y; kwargs...) where {L, I}
+    return BernoulliLikelihood(obs_model.link, Int.(y), obs_model.indices)
 end
 
 """
@@ -236,8 +241,8 @@ Create a materialized Binomial likelihood.
 # Returns
 A `BinomialLikelihood` with the same link function as the factory model.
 """
-function (obs_model::ExponentialFamily{Binomial, L})(y; n, kwargs...) where {L}
-    return BinomialLikelihood(obs_model.link, Int.(y), Int(n))
+function (obs_model::ExponentialFamily{Binomial, L, I})(y; n, kwargs...) where {L, I}
+    return BinomialLikelihood(obs_model.link, Int.(y), Int(n), obs_model.indices)
 end
 
 # Hyperparameter interface implementations

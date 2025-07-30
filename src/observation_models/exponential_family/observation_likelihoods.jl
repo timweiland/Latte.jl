@@ -1,15 +1,19 @@
 export ExponentialFamilyLikelihood, NormalLikelihood, PoissonLikelihood, BernoulliLikelihood, BinomialLikelihood
 
 """
-    ExponentialFamilyLikelihood <: ObservationLikelihood
+    ExponentialFamilyLikelihood{L, I} <: ObservationLikelihood
 
 Abstract type for exponential family observation likelihoods.
 
 This intermediate type allows for generic implementations that work across all 
 exponential family distributions while still allowing specialized methods for 
 specific combinations.
+
+# Type Parameters
+- `L`: Link function type
+- `I`: Index type (Nothing for non-indexed, UnitRange or Vector for indexed)
 """
-abstract type ExponentialFamilyLikelihood <: ObservationLikelihood end
+abstract type ExponentialFamilyLikelihood{L, I} <: ObservationLikelihood end
 
 """
     NormalLikelihood{L<:LinkFunction} <: ObservationLikelihood
@@ -30,12 +34,13 @@ obs_lik = obs_model([1.0, 2.0, 1.5]; σ=0.5)  # NormalLikelihood{IdentityLink}
 ll = loglik(obs_lik, [0.9, 2.1, 1.4])
 ```
 """
-struct NormalLikelihood{L <: LinkFunction} <: ExponentialFamilyLikelihood
+struct NormalLikelihood{L <: LinkFunction, I} <: ExponentialFamilyLikelihood{L, I}
     link::L
     y::Vector{Float64}
     σ::Float64
     inv_σ²::Float64
     log_σ::Float64
+    indices::I  # Can be Nothing, UnitRange, or Vector{Int}
 end
 
 """
@@ -54,9 +59,10 @@ obs_lik = obs_model([1, 3, 0, 2])      # PoissonLikelihood{LogLink}
 ll = loglik(obs_lik, [0.0, 1.1, -2.0, 0.7])  # x values on log scale
 ```
 """
-struct PoissonLikelihood{L <: LinkFunction} <: ExponentialFamilyLikelihood
+struct PoissonLikelihood{L <: LinkFunction, I} <: ExponentialFamilyLikelihood{L, I}
     link::L
     y::Vector{Int}
+    indices::I  # Can be Nothing, UnitRange, or Vector{Int}
 end
 
 """
@@ -75,9 +81,10 @@ obs_lik = obs_model([1, 0, 1, 0])        # BernoulliLikelihood{LogitLink}
 ll = loglik(obs_lik, [0.5, -0.2, 1.1, -0.8])  # x values on logit scale
 ```
 """
-struct BernoulliLikelihood{L <: LinkFunction} <: ExponentialFamilyLikelihood
+struct BernoulliLikelihood{L <: LinkFunction, I} <: ExponentialFamilyLikelihood{L, I}
     link::L
     y::Vector{Int}
+    indices::I  # Can be Nothing, UnitRange, or Vector{Int}
 end
 
 """
@@ -97,8 +104,9 @@ obs_lik = obs_model([3, 1, 4]; n=5)     # BinomialLikelihood{LogitLink}
 ll = loglik(obs_lik, [0.2, -1.0, 0.8])  # x values on logit scale
 ```
 """
-struct BinomialLikelihood{L <: LinkFunction} <: ExponentialFamilyLikelihood
+struct BinomialLikelihood{L <: LinkFunction, I} <: ExponentialFamilyLikelihood{L, I}
     link::L
     y::Vector{Int}
     n::Int
+    indices::I  # Can be Nothing, UnitRange, or Vector{Int}
 end

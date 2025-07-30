@@ -86,8 +86,8 @@ using Distributions
 
     @testset "Parametric Type Consistency" begin
         # Test that parametric types work as expected
-        poisson_log = ExponentialFamily{Poisson, LogLink}(Poisson, LogLink())
-        poisson_identity = ExponentialFamily{Poisson, IdentityLink}(Poisson, IdentityLink())
+        poisson_log = ExponentialFamily(Poisson, LogLink())
+        poisson_identity = ExponentialFamily(Poisson, IdentityLink())
 
         @test typeof(poisson_log) != typeof(poisson_identity)
         @test poisson_log.family == poisson_identity.family

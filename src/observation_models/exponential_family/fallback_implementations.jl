@@ -15,7 +15,8 @@ using Distributions: product_distribution
 
 Optimized chain rule implementation for exponential family likelihoods.
 """
-function loggrad(lik::ExponentialFamilyLikelihood, x)
+# Non-indexed case
+function loggrad(lik::T, x) where {L, T <: ExponentialFamilyLikelihood{L, Nothing}}
     η = x
     μ = apply_invlink.(Ref(lik.link), η)
     dμ_dη = derivative_invlink.(Ref(lik.link), η)
@@ -23,18 +24,42 @@ function loggrad(lik::ExponentialFamilyLikelihood, x)
     return _loggrad_family(lik, μ, dμ_dη)
 end
 
+# Indexed case
+function loggrad(lik::ExponentialFamilyLikelihood, x)
+    grad = zeros(eltype(x), length(x))
+    η = view(x, lik.indices)
+    μ = apply_invlink.(Ref(lik.link), η)
+    dμ_dη = derivative_invlink.(Ref(lik.link), η)
+
+    grad[lik.indices] .= _loggrad_family(lik, μ, dμ_dη)
+    return grad
+end
+
 """
     loghessian(lik::ExponentialFamilyLikelihood, x) -> Diagonal{Float64}
 
 Optimized chain rule implementation for exponential family likelihoods.
 """
-function loghessian(lik::ExponentialFamilyLikelihood, x)
+# Non-indexed case
+function loghessian(lik::T, x) where {L, T <: ExponentialFamilyLikelihood{L, Nothing}}
     η = x
     μ = apply_invlink.(Ref(lik.link), η)
     dμ_dη = derivative_invlink.(Ref(lik.link), η)
     d2μ_dη² = second_derivative_invlink.(Ref(lik.link), η)
 
     diagonal_terms = _loghessian_diagonal_family(lik, μ, dμ_dη, d2μ_dη²)
+    return Diagonal(diagonal_terms)
+end
+
+# Indexed case
+function loghessian(lik::ExponentialFamilyLikelihood, x)
+    diagonal_terms = zeros(eltype(x), length(x))
+    η = view(x, lik.indices)
+    μ = apply_invlink.(Ref(lik.link), η)
+    dμ_dη = derivative_invlink.(Ref(lik.link), η)
+    d2μ_dη² = second_derivative_invlink.(Ref(lik.link), η)
+
+    diagonal_terms[lik.indices] .= _loghessian_diagonal_family(lik, μ, dμ_dη, d2μ_dη²)
     return Diagonal(diagonal_terms)
 end
 
