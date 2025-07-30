@@ -1,6 +1,6 @@
 # IntegratedNestedLaplace.jl Development Makefile
 
-.PHONY: help setup test test-fast test-full generate-reference clean docs
+.PHONY: help setup test test-fast test-full generate-reference clean docs logo
 
 # Default target
 help:
@@ -24,6 +24,7 @@ help:
 	@echo "  make clean           - Clean generated files"
 	@echo "  make format          - Format code with Runic"
 	@echo "  make docs            - Build documentation"
+	@echo "  make logo            - Generate logo"
 
 # Setup development environment
 setup: deps
@@ -80,6 +81,12 @@ docs-deps:
 docs-server:
 	@echo "Starting docs server..."
 	@julia -e 'using LiveServer; serve(dir="docs/build")'
+
+# Generate logo
+logo:
+	@echo "Generating logo..."
+	@cd docs/logo-generation && julia --project -e 'include("draw_logo.jl")'
+	@echo "Logo generated at docs/src/assets/logo.svg"
 
 # Clean generated files
 clean:
