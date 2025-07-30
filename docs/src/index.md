@@ -1,21 +1,56 @@
+```@raw html
+---
+layout: home
+
+hero:
+  name: "IntegratedNestedLaplace.jl"
+  text: "Fast Bayesian Inference with INLA"
+  tagline: A Julia package for Integrated Nested Laplace Approximation, providing fast Bayesian inference for latent Gaussian models.
+  image:
+    src: /logo.svg
+    alt: IntegratedNestedLaplace.jl
+  actions:
+    - theme: brand
+      text: Get Started
+      link: /main_interface
+    - theme: alt
+      text: View on GitHub
+      link: https://github.com/timweiland/IntegratedNestedLaplace.jl
+
+features:
+  - icon: 🔗
+    title: Observation Models
+    details: Flexible interface supporting exponential family distributions with link functions for connecting observations to latent fields.
+  
+  - icon: 🧮
+    title: Gaussian Approximation
+    details: Fast Newton-Raphson optimization with Fisher scoring for finding posterior modes and automatic differentiation.
+  
+  - icon: 📊
+    title: GMRF Integration
+    details: Native support for Gaussian Markov Random Fields as priors with efficient sparse matrix operations.
+  
+  - icon: ⚡
+    title: High Performance
+    details: Efficient gradient and Hessian computation with automatic sparsity detection and optimized linear algebra.
+  
+  - icon: 🔄
+    title: Automatic Differentiation
+    details: Seamless AD integration with ForwardDiff.jl and SparseDiffTools.jl for fast and accurate derivatives.
+  
+  - icon: 📈
+    title: Progress Tracking
+    details: Built-in progress monitoring with ProgressMeter.jl integration for long-running inference tasks.
+---
+```
+
 ```@meta
 CurrentModule = IntegratedNestedLaplace
 ```
 
-# IntegratedNestedLaplace.jl
-
-A Julia package for Integrated Nested Laplace Approximation (INLA), providing fast Bayesian inference for latent Gaussian models.
-
 ## Overview
 
 IntegratedNestedLaplace.jl implements the INLA methodology for approximate Bayesian inference in models with Gaussian latent fields. The package is designed to work seamlessly with [GaussianMarkovRandomFields.jl](https://github.com/JuliaGaussianMarkovRandomFields/GaussianMarkovRandomFields.jl) for efficient handling of structured priors.
-
-### Key Features
-
-- **Observation Models**: Flexible interface supporting exponential family distributions with link functions
-- **Gaussian Approximation**: Fast Newton-Raphson optimization with Fisher scoring for finding posterior modes  
-- **Automatic Differentiation**: Efficient gradient and Hessian computation with sparsity detection
-- **GMRF Integration**: Native support for Gaussian Markov Random Fields as priors
 
 ## Quick Start
 

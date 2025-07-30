@@ -1,15 +1,16 @@
 using IntegratedNestedLaplace
 using Documenter
+using DocumenterVitepress
 
 DocMeta.setdocmeta!(IntegratedNestedLaplace, :DocTestSetup, :(using IntegratedNestedLaplace); recursive = true)
 
 makedocs(;
     authors = "Tim Weiland <hello@timwei.land> and contributors",
     sitename = "IntegratedNestedLaplace.jl",
-    format = Documenter.HTML(;
-        canonical = "https://timweiland.github.io/IntegratedNestedLaplace.jl",
-        edit_link = "main",
-        assets = String[],
+    format = DocumenterVitepress.MarkdownVitepress(
+        repo = "github.com/timweiland/IntegratedNestedLaplace.jl",
+        devbranch = "main",
+        devurl = "dev"
     ),
     pages = [
         "Home" => "index.md",
@@ -25,7 +26,7 @@ makedocs(;
     ],
 )
 
-deploydocs(;
+DocumenterVitepress.deploydocs(;
     repo = "github.com/timweiland/IntegratedNestedLaplace.jl",
     devbranch = "main",
 )
