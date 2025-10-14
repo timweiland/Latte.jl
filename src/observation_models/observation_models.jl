@@ -1,4 +1,5 @@
 include("base.jl")
+include("binomial_observations.jl")
 include("exponential_family/base.jl")
 include("composite/composite.jl")
 include("linearly_transformed.jl")

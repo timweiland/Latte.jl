@@ -229,27 +229,43 @@ function (obs_model::ExponentialFamily{Bernoulli, L, I})(y; kwargs...) where {L,
 end
 
 """
-    (obs_model::ExponentialFamily{Binomial, L})(y; n, kwargs...) -> BinomialLikelihood{L}
+    (obs_model::ExponentialFamily{Binomial, L})(y::BinomialObservations; kwargs...) -> BinomialLikelihood{L}
 
-Create a materialized Binomial likelihood.
+Create a materialized Binomial likelihood from BinomialObservations.
 
 # Arguments
-- `y`: Number of successes for each trial
-- `n`: Number of trials (constant across observations)
+- `y::BinomialObservations`: Combined successes and trials data
 - `kwargs...`: Additional keyword arguments (ignored)
 
 # Returns
 A `BinomialLikelihood` with the same link function as the factory model.
+
+# Example
+```julia
+# Create BinomialObservations and use with model
+y = BinomialObservations([3, 1, 4], [5, 8, 6])
+obs_lik = obs_model(y)
+```
 """
-function (obs_model::ExponentialFamily{Binomial, L, I})(y; n, kwargs...) where {L, I}
-    return BinomialLikelihood(obs_model.link, Int.(y), Int(n), obs_model.indices)
+function (obs_model::ExponentialFamily{Binomial, L, I})(y::BinomialObservations; kwargs...) where {L, I}
+    return BinomialLikelihood(obs_model.link, successes(y), trials(y), obs_model.indices)
 end
 
 # Hyperparameter interface implementations
 hyperparameters(::ExponentialFamily{<:Normal}) = (:σ,)
 hyperparameters(::ExponentialFamily{<:Bernoulli}) = ()
-hyperparameters(::ExponentialFamily{<:Binomial}) = (:n,)
+hyperparameters(::ExponentialFamily{<:Binomial}) = ()  # No hyperparameters - trials are data
 hyperparameters(::ExponentialFamily{<:Poisson}) = ()
+
+"""
+    latent_dimension(ef::ExponentialFamily, y::AbstractVector) -> Int
+
+Return the latent field dimension for exponential family models.
+
+For ExponentialFamily models, there is a direct 1:1 mapping between observations
+and latent field components, so the latent dimension equals the observation dimension.
+"""
+latent_dimension(ef::ExponentialFamily, y::AbstractVector) = length(y)
 
 # Sampling interface implementation
 function Random.rand(rng::AbstractRNG, obs_model::ExponentialFamily; x, θ_named)
