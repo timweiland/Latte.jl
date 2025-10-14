@@ -146,6 +146,16 @@ the base observation model.
 """
 hyperparameters(ltom::LinearlyTransformedObservationModel) = hyperparameters(ltom.base_model)
 
+"""
+    latent_dimension(ltom::LinearlyTransformedObservationModel, y::AbstractVector) -> Int
+
+Return the latent field dimension for a linearly transformed observation model.
+
+The latent dimension is the number of columns in the design matrix, representing
+the dimension of the full latent field (not the linear predictors).
+"""
+latent_dimension(ltom::LinearlyTransformedObservationModel, y::AbstractVector) = size(ltom.design_matrix, 2)
+
 # =======================================================================================
 # CORE LIKELIHOOD EVALUATION METHODS
 # =======================================================================================
