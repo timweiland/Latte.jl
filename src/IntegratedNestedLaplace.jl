@@ -8,5 +8,6 @@ include("latent_marginalization/marginalization_module.jl")
 include("hyperparameter_posterior/hyperparameter_posterior.jl")
 include("distributions/distributions.jl")
 include("main_interface/main_interface.jl")
+include("formula_interface/formula_interface.jl")
 
 end
