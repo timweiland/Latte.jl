@@ -95,18 +95,18 @@ Materialized Binomial observation likelihood.
 # Fields
 - `link::L`: Link function connecting latent field to probability parameter
 - `y::Vector{Int}`: Number of successes for each trial
-- `n::Int`: Number of trials (assumed constant across observations)
+- `n::Vector{Int}`: Number of trials per observation (can vary across observations)
 
 # Example  
 ```julia
 obs_model = ExponentialFamily(Binomial)  # Uses LogitLink by default
-obs_lik = obs_model([3, 1, 4]; n=5)     # BinomialLikelihood{LogitLink}
+obs_lik = obs_model([3, 1, 4]; trials=[5, 8, 6])  # BinomialLikelihood{LogitLink}
 ll = loglik(obs_lik, [0.2, -1.0, 0.8])  # x values on logit scale
 ```
 """
 struct BinomialLikelihood{L <: LinkFunction, I} <: ExponentialFamilyLikelihood{L, I}
     link::L
     y::Vector{Int}
-    n::Int
+    n::Vector{Int}  # Changed from Int to Vector{Int}
     indices::I  # Can be Nothing, UnitRange, or Vector{Int}
 end
