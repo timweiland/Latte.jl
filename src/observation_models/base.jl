@@ -4,7 +4,7 @@ using Symbolics
 using SparseArrays
 using Random
 
-export ObservationModel, ObservationLikelihood, loglik, loggrad, loghessian, hyperparameters
+export ObservationModel, ObservationLikelihood, loglik, loggrad, loghessian, hyperparameters, latent_dimension
 
 """
     ObservationModel
@@ -83,6 +83,32 @@ hyperparameters(ExponentialFamily(Bernoulli)) == ()
 All observation models should implement this method. The default returns an empty tuple.
 """
 hyperparameters(obs_model::ObservationModel) = ()
+
+"""
+    latent_dimension(obs_model::ObservationModel, y::AbstractVector) -> Union{Int, Nothing}
+
+Return the latent field dimension for this observation model given observations y.
+
+For most observation models, this will be `length(y)` (1:1 mapping). 
+For transformed observation models like `LinearlyTransformedObservationModel`, 
+this will be the dimension of the design matrix.
+
+Returns `nothing` if the latent dimension cannot be determined automatically.
+
+# Arguments  
+- `obs_model`: An observation model implementing the `ObservationModel` interface
+- `y`: Vector of observations
+
+# Returns
+- `Int`: The latent field dimension, or `nothing` if unknown
+
+# Example
+```julia
+latent_dimension(ExponentialFamily(Normal), y) == length(y)
+latent_dimension(LinearlyTransformedObservationModel(base, A), y) == size(A, 2)
+```
+"""
+latent_dimension(obs_model::ObservationModel, y::AbstractVector) = nothing
 
 
 # =======================================================================================

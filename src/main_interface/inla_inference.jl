@@ -68,7 +68,12 @@ function inla(
 
     # Auto-detect latent indices if not provided
     if latent_indices === nothing
-        latent_indices = collect(1:length(y))
+        latent_dim = latent_dimension(model.observation_model, y)
+        if latent_dim !== nothing
+            latent_indices = collect(1:latent_dim)
+        else
+            error("Cannot infer latent dimension. Please specify latent_indices explicitly.")
+        end
     end
 
     # Initialize progress tracking
