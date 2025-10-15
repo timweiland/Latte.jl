@@ -15,7 +15,7 @@ using SparseArrays
             τ_scale = θ_named.τ_scale
             n = 2
             Q = spdiagm(0 => fill(τ_scale, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)
@@ -42,7 +42,7 @@ using SparseArrays
             σ = θ_named.σ
             n = 5
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -76,7 +76,7 @@ using SparseArrays
             τ = θ_named.τ
             n = 3
             Q = spdiagm(0 => fill(τ, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)
@@ -93,7 +93,7 @@ using SparseArrays
             α, β = θ_named.α, θ_named.β
             n = 4
             Q = spdiagm(0 => [α, α, β, β])
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         model_2d = INLAModel(hp_prior_2d, latent_2d, obs_model)
@@ -109,7 +109,7 @@ using SparseArrays
             γ₁, γ₂, γ₃ = θ_named.γ₁, θ_named.γ₂, θ_named.γ₃
             n = 6
             Q = spdiagm(0 => [γ₁, γ₁, γ₂, γ₂, γ₃, γ₃])
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         model_3d = INLAModel(hp_prior_3d, latent_3d, obs_model)
@@ -132,7 +132,7 @@ using SparseArrays
             σ = θ_named.σ
             n = 3
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -167,7 +167,7 @@ using SparseArrays
             for i in 2:(n - 1)
                 Q[i, i] = 1 + 2 * ρ^2
             end
-            return GMRF(zeros(n), Symmetric(Q), CholeskySolverBlueprint())
+            return GMRF(zeros(n), Symmetric(Q))
         end
 
         obs_model = ExponentialFamily(Bernoulli)

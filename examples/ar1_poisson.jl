@@ -5,6 +5,7 @@ using LinearAlgebra
 using StatsFuns
 using Plots
 using SparseArrays
+using Random
 
 function ar_precision(ρ, k)
     return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k) .+ ρ^2, 1 => -ρ * ones(k - 1))
@@ -37,7 +38,7 @@ function latent_gmrf(θ)
 
     #@show (τ, ρ)
 
-    return GMRF(μ, Q, CholeskySolverBlueprint())
+    return GMRF(μ, Q)
 end
 
 obs_model = ExponentialFamily(Poisson)
@@ -50,7 +51,7 @@ Random.seed!(83498)
 η_true = atanh(ρ_true)
 θ_named = (τ_gmrf_log = τ_gmrf_log_true, η = η_true)
 x_gt = rand(latent_gmrf(θ_named))
-y_gt = rand(data_distribution(obs_model, x_gt, θ_named))
+y_gt = rand(conditional_distribution(obs_model, x_gt))
 
 res = inla(model, y_gt)
 
@@ -80,7 +81,7 @@ function latent_gmrf_ad(θ)
     μ₀ = log(1000.0)
     μ = μ₀ .* [ρ^i for i in 1:k]
 
-    return GMRF(μ, Q, CholeskySolverBlueprint{:autodiffable}())
+    return GMRF(μ, Q)
 end
 
 @model function my_inla(y)

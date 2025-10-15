@@ -42,13 +42,6 @@ make format
   - `types.jl`: INLAResult and related types
   - `progress.jl`: Progress tracking system with ProgressMeter.jl integration
   - `validation.jl`: Input validation and error handling
-- **Observation Models**: `src/observation_models/` - Flexible interface for connecting observations to latent fields
-  - `base.jl`: Abstract ObservationModel interface with AD fallbacks
-  - `exponential_family.jl`: ExponentialFamily implementation with link functions
-- **Gaussian Approximation**: `src/gaussian_approximation/` - Newton-Raphson optimization for posterior modes
-  - `gaussian_approximation.jl`: Main interface for Gaussian approximation
-  - `fisher_scoring.jl`: Fisher scoring algorithm implementation
-  - `newton_types.jl`: Types for Newton-Raphson methods
 - **Latent Marginalization**: `src/latent_marginalization/` - Marginalization over latent field variables
   - `gaussian_marginal.jl`: Gaussian marginal computations
   - `laplace/`: Laplace approximation methods for marginals with spline augmentation
@@ -63,25 +56,26 @@ make format
 - **Distributions**: `src/distributions/` - Custom distributions including WeightedMixture
 - **Tests**: Comprehensive test suite with end-to-end validation
   - `test/end_to_end/`: Integration tests with MCMC reference data via Git LFS
-  - `test/hyperparameter_posterior/`, `test/observation_models/`: Unit tests
+  - `test/hyperparameter_posterior/`: Unit tests for hyperparameter posterior methods
 - **Documentation**: `docs/` with Documenter.jl setup, includes main interface documentation
 - **Examples**: `examples/` contains clean, documented examples for various model types
+
+**Note**: Observation models, Gaussian approximation, and link functions are provided by GaussianMarkovRandomFields.jl v0.4+ and re-exported by this package for user convenience.
 
 ## Key Dependencies
 
 The package relies on several specialized Julia packages:
-- **GaussianMarkovRandomFields.jl**: Core GMRF functionality 
+- **GaussianMarkovRandomFields.jl** (v0.4+): Core GMRF functionality including observation models, Gaussian approximation, link functions, and automatic differentiation support
 - **Distributions.jl**, **StatsFuns.jl**: Statistical distributions and functions
-- **ForwardDiff.jl**: Automatic differentiation for gradients/Hessians
-- **SparseDiffTools.jl**, **Symbolics.jl**: Sparse automatic differentiation with pattern detection
-- **LDLFactorizations.jl**: Matrix factorizations for precision matrices
+- **FiniteDiff.jl**: Finite difference methods for numerical differentiation
+- **LinearSolve.jl**: Linear system solvers for sparse and dense systems
 - **ProgressMeter.jl**: Progress tracking with rich callbacks
 - **Optim.jl**: Optimization algorithms for mode finding
 - **DataInterpolations.jl**: 1D interpolation (CubicSpline, LinearInterpolation, ConstantInterpolation)
 - **ScatteredInterpolation.jl**: Multidimensional RBF interpolation
 - **HCubature.jl**: Numerical integration for marginal computation
-- **Turing.jl**: Probabilistic programming framework for validation and comparisons
-- **JLD2.jl**: Serialization for reference data storage in tests
+- **Turing.jl**: Probabilistic programming framework for validation and comparisons (test dependency)
+- **JLD2.jl**: Serialization for reference data storage in tests (test dependency)
 
 ## Development Notes
 
@@ -94,19 +88,17 @@ The package relies on several specialized Julia packages:
 
 ## Implementation Insights
 
-### Observation Models Design
-- **Type stability**: Uses parametric types `ExponentialFamily{F,L}` for compile-time optimization
-- **Link functions**: Separate types (IdentityLink, LogLink, LogitLink) enable method specialization
-- **Performance**: Canonical links have specialized fast-path implementations that avoid chain rule overhead
-- **AD fallbacks**: Automatic sparsity detection with graceful fallback to dense computation
-- **Interface**: Single `loglik` method requirement with optional `loggrad`/`loghessian` for performance
+### GMRF v0.4 Integration
+- **Observation models**: This package re-exports observation model types from GaussianMarkovRandomFields.jl v0.4+, including `ExponentialFamily`, `LinearlyTransformedObservationModel`, `CompositeObservationModel`, and link functions
+- **Gaussian approximation**: The `gaussian_approximation` function is provided by GMRF and re-exported for convenience
+- **API compatibility**: All GMRF types are re-exported with the same names to preserve user-facing API compatibility
 
 ### Testing Strategy
-- **Modular**: Separate test files per component (link functions, exponential family, custom models, etc.)
-- **Mathematical verification**: Compare specialized implementations against ForwardDiff for correctness
+- **Modular**: Separate test files per component (INLA model, latent marginalization, hyperparameter methods, etc.)
+- **End-to-end validation**: Integration tests against MCMC reference data using Turing.jl
 - **Type stability**: Use `@inferred` with anonymous functions for broadcasting type checks
-- **Edge cases**: Test both canonical and non-canonical link combinations
-- **Custom models**: Verify AD fallbacks work for user-defined observation models
+- **Deterministic tests**: Use `Random.seed!` to ensure reproducibility of randomized tests
+- **GMRF integration**: Tests verify correct usage of GMRF v0.4 observation models and gaussian approximation
 
 ### Documentation Structure
 - **Reference organization**: Separate pages per major component with custom IDs

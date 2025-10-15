@@ -10,6 +10,40 @@ export LaplaceApproximationCache, fit_density_correction_spline, evaluate_correc
 export setup_conditional_computation, conditional_gmrf, evaluate_laplace_logpdf
 
 """
+    submatrix(A, idcs)
+
+Extract A[idcs, idcs] while preserving matrix structure (Diagonal, Sparse, etc.).
+
+This function avoids accidental densification when indexing structured matrices.
+
+# Arguments
+- `A`: Input matrix (can be Diagonal, Sparse, or dense)
+- `idcs`: Row and column indices to extract
+
+# Returns
+A matrix of the same structure type as `A`, containing A[idcs, idcs]
+
+# Examples
+```julia
+# Diagonal stays diagonal
+D = Diagonal([1.0, 2.0, 3.0, 4.0])
+submatrix(D, [1, 3])  # Returns Diagonal([1.0, 3.0])
+
+# Sparse stays sparse
+S = spdiagm(0 => [1.0, 2.0, 3.0])
+submatrix(S, [1, 2])  # Returns 2x2 SparseMatrixCSC
+```
+"""
+function submatrix(A::Diagonal, idcs)
+    return Diagonal(A.diag[idcs])
+end
+
+function submatrix(A::AbstractMatrix, idcs)
+    # Generic fallback: keep sparse to avoid densification
+    return sparse(A[idcs, idcs])
+end
+
+"""
     LaplaceApproximationCache
 
 Cache for efficient evaluation of Laplace approximation marginals.
@@ -145,17 +179,21 @@ function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{I
 
     # Extract conditional mean and prior precision for active set
     μ_cond_active = μ_conditional[active_set]
-    Q_prior_block = Q_prior[active_set, active_set]
+    # Use structure-preserving indexing to avoid densification
+    Q_prior_block = submatrix(Q_prior, active_set)
 
     # Compute observation Hessian at conditional configuration
-    H_obs = loghessian(cache.obs_lik, μ_conditional)
-    H_obs_block = H_obs[active_set, active_set]
+    H_obs = loghessian(μ_conditional, cache.obs_lik)
+    # Use structure-preserving indexing (H_obs is typically Diagonal for exponential family)
+    H_obs_block = submatrix(H_obs, active_set)
 
     # Build conditional precision matrix: Q_prior - H_obs (correct formula)
+    # Result stays sparse since both blocks are sparse
     Q_conditional = Symmetric(Q_prior_block - H_obs_block)
 
     # Return GMRF with proper mean and precision
-    return GMRF(μ_cond_active, Q_conditional, CholeskySolverBlueprint())
+    # GMRF v0.4: no longer needs solver blueprint in constructor
+    return GMRF(μ_cond_active, Q_conditional)
 end
 
 """
@@ -194,7 +232,7 @@ function evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i::Real, lo
     # IMPORTANT: Use PRIOR GMRF for latent part, not the Gaussian approximation
     hyperparameter_logpdf = log_prior_θ
     latent_logpdf = logpdf(cache.prior_gmrf, μ_conditional)
-    obs_logpdf = loglik(cache.obs_lik, μ_conditional)
+    obs_logpdf = loglik(μ_conditional, cache.obs_lik)
     joint_logpdf = hyperparameter_logpdf + latent_logpdf + obs_logpdf
 
     # Conditional log-density π̃_GG(x_{active_set} | x_i, θ, y)

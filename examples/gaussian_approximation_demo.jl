@@ -20,7 +20,7 @@ Q_prior = spdiagm(0 => diag_main, -1 => diag_off, 1 => diag_off)
 
 # Prior GMRF
 μ_prior = zeros(n)
-prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+prior_gmrf = GMRF(μ_prior, Q_prior)
 
 println("Prior GMRF created with dimension: ", length(μ_prior))
 

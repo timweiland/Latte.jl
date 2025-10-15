@@ -28,7 +28,7 @@ using SparseArrays
             α = θ_named.α
             n = 3
             Q = spdiagm(0 => fill(α, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)
@@ -62,7 +62,7 @@ using SparseArrays
             σ_latent = θ_named.σ_latent  # For latent field
             n = 6  # More data points
             Q = spdiagm(0 => fill(1 / σ_latent^2 + 1.0e-6, n))  # Add small regularization
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)  # Uses σ hyperparameter
@@ -118,7 +118,7 @@ using SparseArrays
             μ, σ = θ_named.μ, θ_named.σ
             n = 5  # More data points
             Q = spdiagm(0 => fill(1 / σ^2 + 1.0e-6, n))  # Add small regularization
-            return GMRF(fill(μ, n), Q, CholeskySolverBlueprint())
+            return GMRF(fill(μ, n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -176,7 +176,7 @@ using SparseArrays
             k = 1000  # Large k for numerical stability
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
             μ = zeros(k)
-            return GMRF(μ, Q, CholeskySolverBlueprint())
+            return GMRF(μ, Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -186,7 +186,7 @@ using SparseArrays
         σ_gmrf_true = 2.5
         ρ_true = 0.4
         x_gt = rand(stable_2d_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_test = rand(data_distribution(obs_model, x_gt, (σ = 1.0e-6,)))
+        y_test = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
 
         # Get posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
@@ -219,7 +219,7 @@ using SparseArrays
             k = 1000  # Large k for numerical stability
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
             μ = zeros(k)
-            return GMRF(μ, Q, CholeskySolverBlueprint())
+            return GMRF(μ, Q)
         end
 
         obs_model = ExponentialFamily(Normal)  # Use Normal for stability
@@ -229,7 +229,7 @@ using SparseArrays
         σ_gmrf_true = 2.5
         ρ_true = 0.4
         x_gt = rand(tolerance_test_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_test = rand(data_distribution(obs_model, x_gt, (σ = 1.0e-6,)))
+        y_test = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
 
         # Get posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)

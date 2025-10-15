@@ -29,7 +29,7 @@ function ar1_latent(θ_named)
     diag_off = fill(-ϕ, n-1) ./ σ^2
     Q = spdiagm(0 => diag_main, -1 => diag_off, 1 => diag_off)
     
-    return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+    return GMRF(zeros(n), Q)
 end
 
 # Define observation model

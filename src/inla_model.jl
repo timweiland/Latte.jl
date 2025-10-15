@@ -30,7 +30,7 @@ function latent_gmrf(θ_named)
     n = 100
     Q = spdiagm(0 => fill(1/σ^2, n))  # Simple white noise
     μ = zeros(n)
-    return GMRF(μ, Q, CholeskySolverBlueprint())
+    return GMRF(μ, Q)
 end
 
 # Define observation model
@@ -65,7 +65,7 @@ end
 Get the latent field GMRF for given hyperparameters θ_named.
 """
 function latent_gmrf(model::INLAModel, θ_named)
-    return model.latent_prior(θ_named)
+    return model.latent_prior(; θ_named...)
 end
 
 """
@@ -118,7 +118,7 @@ function log_joint_density(model::INLAModel, x, θ, latent_gmrf, obs_lik)
     log_prior_x = logpdf(latent_gmrf, x)
 
     # Observation model contribution
-    log_likelihood = loglik(obs_lik, x)
+    log_likelihood = loglik(x, obs_lik)
 
     return log_prior_θ + log_prior_x + log_likelihood
 end
@@ -166,8 +166,9 @@ function Random.rand(rng::AbstractRNG, model::INLAModel)
     gmrf = latent_gmrf(model, θ_named)
     x = rand(rng, gmrf)
 
-    # Sample observations given latent field
-    y = rand(rng, model.observation_model; x = x, θ_named = θ_named)
+    # Sample observations given latent field using GMRF's conditional_distribution
+    y_dist = GaussianMarkovRandomFields.conditional_distribution(model.observation_model, x; θ_named...)
+    y = rand(rng, y_dist)
 
     return (θ = θ_free, x = x, y = y)
 end
