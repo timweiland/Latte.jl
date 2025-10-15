@@ -41,7 +41,7 @@ function latent_gmrf(θ)
     μ₀ = log(1000.0)             # Log-scale for Poisson rates
     μ = μ₀ .* [ρ^i for i in 1:k] # Exponential decay
     
-    return GMRF(μ, Q, CholeskySolverBlueprint())
+    return GMRF(μ, Q)
 end
 
 # Observation model: Poisson with log-link
@@ -153,7 +153,7 @@ function latent_gmrf(θ)
     μ₀ = log(1000.0)             # Base log-rate  
     μ = μ₀ .* [ρ^i for i in 1:k] # Exponential decay
     
-    return GMRF(μ, Q, CholeskySolverBlueprint())
+    return GMRF(μ, Q)
 end
 
 # Poisson observations with log-link (canonical)

@@ -33,8 +33,9 @@ function _marginalize_impl(
     end
 
     # Compute μ and σ once outside the loop
+    # Note: GMRF's std() returns SparseVector, convert to Vector for cache compatibility
     μ = mean(ga)
-    σ = std(ga)
+    σ = Vector(std(ga))
 
     marginals = SplineAugmentedGaussian{Float64}[]
 

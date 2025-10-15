@@ -40,7 +40,7 @@ using LDLFactorizations
         μ₀ = log(1000.0)
         μ = μ₀ .* [ρ^i for i in 1:k]
 
-        return GMRF(μ, Q, CholeskySolverBlueprint())
+        return GMRF(μ, Q)
     end
 
     obs_model = ExponentialFamily(Poisson)
@@ -62,7 +62,7 @@ using LDLFactorizations
         Q = ar_precision(ρ, k) .* τ
         μ₀ = log(1000.0)
         μ = μ₀ .* [ρ^i for i in 1:k]
-        return GMRF(μ, Q, CholeskySolverBlueprint{:autodiffable}())
+        return GMRF(μ, Q)
     end
 
     @model function mcmc_model(y)

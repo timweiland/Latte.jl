@@ -21,7 +21,7 @@ function create_test_model(k = 10)
         ρ = θ.ρ
         Q = ar_precision(ρ, k) ./ σ^2
         μ = zeros(k)
-        return GMRF(μ, Q, CholeskySolverBlueprint())
+        return GMRF(μ, Q)
     end
 
     # Observation model

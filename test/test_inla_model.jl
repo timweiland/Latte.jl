@@ -18,7 +18,7 @@ using Random
             n = 10
             Q = spdiagm(0 => fill(1 / σ^2, n))
             μ = zeros(n)
-            return GMRF(μ, Q, CholeskySolverBlueprint())
+            return GMRF(μ, Q)
         end
 
         obs_model = ExponentialFamily(Normal)  # Requires σ hyperparameter
@@ -40,7 +40,7 @@ using Random
         function latent_gmrf(θ_named)
             n = 5
             Q = spdiagm(0 => ones(n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)  # Requires σ
@@ -56,7 +56,7 @@ using Random
             σ = θ_named.σ
             n = 8
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -86,7 +86,7 @@ using Random
             σ = θ_named.σ
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -126,7 +126,7 @@ using Random
             σ_latent = θ_named.σ_latent
             n = 5
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)  # Uses σ
@@ -155,7 +155,7 @@ using Random
             diag_main = [τ; fill(τ * (1 + ϕ^2), n - 2); τ]
             diag_off = fill(-τ * ϕ, n - 1)
             Q = spdiagm(0 => diag_main, -1 => diag_off, 1 => diag_off)
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model_bernoulli = ExponentialFamily(Bernoulli)
@@ -177,7 +177,7 @@ using Random
             σ = θ_named.σ
             n = 4
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -199,7 +199,7 @@ using Random
         function latent_gmrf_func(θ_named)
             σ = θ_named.σ
             Q = spdiagm(0 => fill(1 / σ^2, 3))
-            return GMRF(zeros(3), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(3), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -224,7 +224,7 @@ using Random
             # df = θ_named.df  # Could use fixed parameter if needed
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         # Custom observation model that uses both parameters
@@ -241,7 +241,7 @@ using Random
             σ::Float64
         end
 
-        IntegratedNestedLaplace.loglik(obs_lik::MaterializedTestObsModel, x) = -0.5 * sum((obs_lik.y - x) .^ 2) / obs_lik.σ^2 - length(obs_lik.y) * log(obs_lik.σ) / 2
+        IntegratedNestedLaplace.loglik(x, obs_lik::MaterializedTestObsModel) = -0.5 * sum((obs_lik.y - x) .^ 2) / obs_lik.σ^2 - length(obs_lik.y) * log(obs_lik.σ) / 2
 
         obs_model = TestObsModel()
         model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
@@ -262,7 +262,7 @@ using Random
             σ = θ_named.σ
             n = 5
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -295,7 +295,7 @@ using Random
             σ_latent = θ_named.σ_latent
             n = 3
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         model_fixed = INLAModel(hp_prior_fixed, latent_gmrf_fixed, obs_model)

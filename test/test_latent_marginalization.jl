@@ -26,7 +26,7 @@ using Random
         ρ = 0.3
         Q_prior = ar_precision(ρ, n) ./ σ_prior^2
         μ_prior = zeros(n)
-        prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+        prior_gmrf = GMRF(μ_prior, Q_prior)
 
         # Gaussian observation model (canonical link)
         obs_model = ExponentialFamily(Normal)
@@ -77,7 +77,7 @@ using Random
         Q_prior = spdiagm(0 => fill(1 / σ_prior^2, n))
 
         μ_prior = zeros(n)
-        prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+        prior_gmrf = GMRF(μ_prior, Q_prior)
 
         # Bernoulli observation model with logit link (canonical)
         obs_model = ExponentialFamily(Bernoulli)
@@ -138,7 +138,7 @@ using Random
         σ_prior = 1.2
         Q_prior = spdiagm(0 => fill(1 / σ_prior^2, n))
         μ_prior = zeros(n)
-        prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+        prior_gmrf = GMRF(μ_prior, Q_prior)
 
         # Poisson observation model with log link (canonical)
         obs_model = ExponentialFamily(Poisson)
@@ -177,7 +177,7 @@ using Random
         n = 4
         Q_prior = spdiagm(0 => fill(2.0, n), -1 => fill(-1.0, n - 1), 1 => fill(-1.0, n - 1))
         μ_prior = zeros(n)
-        prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+        prior_gmrf = GMRF(μ_prior, Q_prior)
 
         obs_model = ExponentialFamily(Bernoulli)
         θ = NamedTuple()
@@ -210,7 +210,7 @@ using Random
         n = 3
         Q_prior = spdiagm(0 => fill(1.0, n))
         μ_prior = zeros(n)
-        prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+        prior_gmrf = GMRF(μ_prior, Q_prior)
 
         obs_model = ExponentialFamily(Normal)
         θ = (σ = 1.0,)

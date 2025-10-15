@@ -21,7 +21,7 @@ using GaussianMarkovRandomFields
 using Distributions
 
 # Set up INLA model components
-prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+prior_gmrf = GMRF(μ_prior, Q_prior)
 obs_model = ExponentialFamily(Bernoulli)  # Non-Gaussian likelihood
 θ = NamedTuple()  # Hyperparameters
 y = [1, 0, 1, 0]  # Observed data

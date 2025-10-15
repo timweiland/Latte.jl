@@ -34,7 +34,7 @@ using Random
             ρ = θ.ρ
             Q = ar_precision(ρ, k) ./ σ^2
             μ = zeros(k)
-            return GMRF(μ, Q, CholeskySolverBlueprint())
+            return GMRF(μ, Q)
         end
 
         # Observation model
@@ -46,7 +46,7 @@ using Random
         # Generate synthetic data
         Random.seed!(123)
         x_gt = rand(latent_gmrf((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_gt = rand(data_distribution(obs_model, x_gt, (σ = 1.0e-6,)))
+        y_gt = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
 
         return inla_model, y_gt, k
     end

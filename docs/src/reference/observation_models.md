@@ -1,5 +1,8 @@
 # [Observation Models](@id observation-models)
 
+!!! note "Provided by GaussianMarkovRandomFields.jl"
+    Observation models are implemented in [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl) v0.4+ and re-exported by IntegratedNestedLaplace.jl for user convenience. This documentation describes the re-exported functionality.
+
 Observation models define the relationship between observations and the latent field in INLA. They specify how observations `y` are generated from latent field values `x` through probability distributions and link functions.
 
 ## Overview
@@ -36,7 +39,7 @@ grad = loggrad(obs_lik, x)   # Gradient w.r.t. x
 hess = loghessian(obs_lik, x) # Hessian w.r.t. x
 
 # Get data distribution as Distribution object
-dist = data_distribution(obs_lik, x)
+dist = conditional_distribution(obs_model, x)
 samples = rand(dist, 100)    # Generate synthetic data
 ```
 
@@ -160,27 +163,24 @@ logit = LogitLink()
 
 ## Data Distributions
 
-The [`data_distribution`](@ref) function returns Distribution objects compatible with Distributions.jl:
+The [`conditional_distribution`](@ref) function returns Distribution objects compatible with Distributions.jl:
 
 ```julia
 obs_model = ExponentialFamily(Poisson)
-y = [2, 7]  # Observations 
+y = [2, 7]  # Observations
 x = [1.0, 2.0]  # Latent field values
 
-# Materialize observation likelihood
-obs_lik = obs_model(y)
-
 # Get data distribution given latent field
-dist = data_distribution(obs_lik, x)
+dist = conditional_distribution(obs_model, x)
 
 # Use with Distributions.jl
 synthetic_data = rand(dist, 100)    # Generate samples
-mean_val = mean(dist)               # Compute moments  
+mean_val = mean(dist)               # Compute moments
 var_val = var(dist)
-prob = logpdf(dist, y)              # Evaluate data probability
 
-# Equivalent to direct loglik call
-prob2 = loglik(obs_lik, x)  # prob ≈ prob2
+# For log-likelihood evaluation, use the materialized likelihood
+obs_lik = obs_model(y)
+prob = loglik(obs_lik, x)
 ```
 
 ## Composite Observation Models
@@ -391,7 +391,7 @@ loghessian
 
 ```@docs
 ExponentialFamily
-data_distribution
+conditional_distribution
 ```
 
 ### Link Functions

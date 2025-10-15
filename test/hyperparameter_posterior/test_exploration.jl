@@ -21,7 +21,7 @@ using FiniteDiff
             Q_off = fill(-ρ, n - 1)
             Q = spdiagm(0 => Q_diag, 1 => Q_off, -1 => Q_off)
             Q[1, 1] = 1.0; Q[n, n] = 1.0  # Boundary conditions
-            return GMRF(zeros(n), Symmetric(Q), CholeskySolverBlueprint())
+            return GMRF(zeros(n), Symmetric(Q))
         end
 
         obs_model = ExponentialFamily(Bernoulli)
@@ -57,7 +57,7 @@ using FiniteDiff
             σ = θ_named.σ
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -111,7 +111,7 @@ using FiniteDiff
             σ_latent = θ_named.σ_latent
             n = 4
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)  # Uses σ

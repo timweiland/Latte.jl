@@ -19,7 +19,7 @@ using FiniteDiff
             function simple_latent(θ_named)
                 τ = θ_named.τ
                 Q = spdiagm(0 => fill(τ, n))  # White noise precision
-                return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+                return GMRF(zeros(n), Q)
             end
 
             obs_model = ExponentialFamily(Bernoulli)  # No hyperparameters
@@ -48,7 +48,7 @@ using FiniteDiff
             σ = θ_named.σ
             n = 8
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -91,7 +91,7 @@ using FiniteDiff
             τ = θ_named.τ
             n = 6
             Q = spdiagm(0 => fill(τ, n))
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)
@@ -119,7 +119,7 @@ using FiniteDiff
             λ = θ_named.λ
             n = 3
             Q = spdiagm(0 => fill(λ + 1.0e-6, n))  # Add small regularization
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)

@@ -55,7 +55,7 @@ function latent_gmrf(θ)
     # Zero mean (simpler than the example which used μ*ones(k))
     μ = zeros(k)
 
-    return GMRF(μ, Q, CholeskySolverBlueprint())
+    return GMRF(μ, Q)
 end
 
 # Observation model (Normal with identity link)

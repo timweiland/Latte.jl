@@ -80,7 +80,7 @@ function latent_gmrf(θ)
     Q = ar1_precision(ρ, k) .* τ
     μ = log(1000.0) .* [ρ^i for i in 1:k]  # Exponential decay
     
-    return GMRF(μ, Q, CholeskySolverBlueprint())
+    return GMRF(μ, Q)
 end
 
 # Poisson observations with log-link

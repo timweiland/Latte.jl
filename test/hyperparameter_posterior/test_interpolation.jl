@@ -5,8 +5,11 @@ using LDLFactorizations
 using Distributions
 using LinearAlgebra
 using SparseArrays
+using Random
 
 @testset "Interpolation" begin
+
+    Random.seed!(123)
 
     @testset "1D Interpolation" begin
         # Test building interpolant for 1D case using stable AR-1 GMRF
@@ -21,7 +24,7 @@ using SparseArrays
             ρ = 0.3  # Fixed correlation for 1D test
             k = 100
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
-            return GMRF(zeros(k), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(k), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -30,7 +33,7 @@ using SparseArrays
         # Generate stable test data
         σ_gmrf_true = 2.5
         x_gt = rand(stable_1d_latent((σ_gmrf = σ_gmrf_true,)))
-        y_test = rand(data_distribution(obs_model, x_gt, (σ = 1.0e-6,)))
+        y_test = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
 
         # Get exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
@@ -69,7 +72,7 @@ using SparseArrays
             σ_gmrf, ρ = θ_named.σ_gmrf, θ_named.ρ
             k = 100
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
-            return GMRF(zeros(k), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(k), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
@@ -79,7 +82,7 @@ using SparseArrays
         σ_gmrf_true = 2.5
         ρ_true = 0.4
         x_gt = rand(stable_2d_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_test = rand(data_distribution(obs_model, x_gt, (σ = 1.0e-6,)))
+        y_test = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
 
         # Get exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
@@ -143,7 +146,7 @@ using SparseArrays
             x = θ_named.x
             n = 2
             Q = spdiagm(0 => fill(exp(x), n))  # Smooth function of x
-            return GMRF(zeros(n), Q, CholeskySolverBlueprint())
+            return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)

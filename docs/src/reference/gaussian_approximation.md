@@ -1,5 +1,8 @@
 # [Gaussian Approximation](@id gaussian-approximation)
 
+!!! note "Provided by GaussianMarkovRandomFields.jl"
+    The `gaussian_approximation` function is implemented in [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl) v0.4+ and re-exported by IntegratedNestedLaplace.jl for user convenience. This documentation describes the re-exported functionality.
+
 The Gaussian approximation functionality provides efficient Newton-Raphson optimization for finding posterior modes in INLA. This is the core computational engine for constructing Gaussian approximations to non-Gaussian posteriors.
 
 ## Overview
@@ -26,7 +29,7 @@ using Distributions
 # Set up prior GMRF
 μ_prior = zeros(10)
 Q_prior = spdiagm(0 => ones(10))
-prior_gmrf = GMRF(μ_prior, Q_prior, CholeskySolverBlueprint())
+prior_gmrf = GMRF(μ_prior, Q_prior)
 
 # Set up observation model
 obs_model = ExponentialFamily(Poisson)
@@ -34,7 +37,7 @@ obs_model = ExponentialFamily(Poisson)
 
 # Generate synthetic data
 x_true = rand(prior_gmrf)
-data_dist = data_distribution(obs_model, x_true, θ_named)
+data_dist = conditional_distribution(obs_model, x_true; θ_named...)
 y_obs = rand(data_dist)
 
 # Find Gaussian approximation
