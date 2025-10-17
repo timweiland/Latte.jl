@@ -9,17 +9,18 @@ using SparseArrays
 @testset "Type Stability and Performance" begin
 
     @testset "Type Stability" begin
-        hp_prior = HyperparameterPrior((τ_scale = Gamma(3, 2),))
+        spec = @hyperparams begin
+            (τ_scale ~ Gamma(3, 2), transform = log, space = natural)
+        end
 
-        function beta_latent(θ_named)
-            τ_scale = θ_named.τ_scale
+        function beta_latent(; τ_scale, kwargs...)
             n = 2
             Q = spdiagm(0 => fill(τ_scale, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(hp_prior, beta_latent, obs_model)
+        model = INLAModel(spec, beta_latent, obs_model)
 
         y_test = [true, true]  # Biased data to avoid boundary issues
         θ_test = [1.0]
@@ -30,23 +31,23 @@ using SparseArrays
         θ_star, _, _ = find_hyperparameter_mode(model, y_test; collect_points = false)
         @inferred Vector{Float64} find_hyperparameter_mode(model, y_test; collect_points = false)[1]
 
-        # Test initial hyperparameter guess function
-        prior_product = product_distribution([Gamma(3, 2)])
-        @inferred Vector{Float64} IntegratedNestedLaplace.initial_hyperparameter_guess(prior_product)
+        # Test initial hyperparameter guess function with spec
+        @inferred Vector{Float64} IntegratedNestedLaplace.initial_hyperparameter_guess(spec)
     end
 
     @testset "Memory Allocation" begin
-        hp_prior = HyperparameterPrior((σ = InverseGamma(4, 3),))
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(4, 3), transform = log, space = natural)
+        end
 
-        function allocation_test_latent(θ_named)
-            σ = θ_named.σ
+        function allocation_test_latent(; σ, kwargs...)
             n = 5
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, allocation_test_latent, obs_model)
+        model = INLAModel(spec, allocation_test_latent, obs_model)
 
         y_test = randn(5)
         θ_test = [1.5]
@@ -70,49 +71,55 @@ using SparseArrays
         # Test that algorithms work correctly across different dimensions
 
         # 1D case
-        hp_prior_1d = HyperparameterPrior((τ = Gamma(2, 1),))
+        spec_1d = @hyperparams begin
+            (τ ~ Gamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_1d(θ_named)
-            τ = θ_named.τ
+        function latent_1d(; τ, kwargs...)
             n = 3
             Q = spdiagm(0 => fill(τ, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model_1d = INLAModel(hp_prior_1d, latent_1d, obs_model)
+        model_1d = INLAModel(spec_1d, latent_1d, obs_model)
         y_test_1d = [true, false, true]
 
         θ_star_1d, _, _ = find_hyperparameter_mode(model_1d, y_test_1d)
         @test length(θ_star_1d) == 1
 
         # 2D case
-        hp_prior_2d = HyperparameterPrior((α = Gamma(2, 1), β = Gamma(2, 1)))
+        spec_2d = @hyperparams begin
+            (α ~ Gamma(2, 1), transform = log, space = natural)
+            (β ~ Gamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_2d(θ_named)
-            α, β = θ_named.α, θ_named.β
+        function latent_2d(; α, β, kwargs...)
             n = 4
             Q = spdiagm(0 => [α, α, β, β])
             return GMRF(zeros(n), Q)
         end
 
-        model_2d = INLAModel(hp_prior_2d, latent_2d, obs_model)
+        model_2d = INLAModel(spec_2d, latent_2d, obs_model)
         y_test_2d = [true, false, true, false]
 
         θ_star_2d, _, _ = find_hyperparameter_mode(model_2d, y_test_2d)
         @test length(θ_star_2d) == 2
 
         # 3D case
-        hp_prior_3d = HyperparameterPrior((γ₁ = Gamma(2, 1), γ₂ = Gamma(2, 1), γ₃ = Gamma(2, 1)))
+        spec_3d = @hyperparams begin
+            (γ₁ ~ Gamma(2, 1), transform = log, space = natural)
+            (γ₂ ~ Gamma(2, 1), transform = log, space = natural)
+            (γ₃ ~ Gamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_3d(θ_named)
-            γ₁, γ₂, γ₃ = θ_named.γ₁, θ_named.γ₂, θ_named.γ₃
+        function latent_3d(; γ₁, γ₂, γ₃, kwargs...)
             n = 6
             Q = spdiagm(0 => [γ₁, γ₁, γ₂, γ₂, γ₃, γ₃])
             return GMRF(zeros(n), Q)
         end
 
-        model_3d = INLAModel(hp_prior_3d, latent_3d, obs_model)
+        model_3d = INLAModel(spec_3d, latent_3d, obs_model)
         y_test_3d = [true, false, true, false, true, false]
 
         θ_star_3d, _, _ = find_hyperparameter_mode(model_3d, y_test_3d)
@@ -126,17 +133,18 @@ using SparseArrays
 
     @testset "Numerical Stability" begin
         # Test with extreme parameter values
-        hp_prior = HyperparameterPrior((σ = InverseGamma(0.1, 0.1),))  # Very peaked prior
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(0.1, 0.1), transform = log, space = natural)  # Very peaked prior
+        end
 
-        function extreme_latent(θ_named)
-            σ = θ_named.σ
+        function extreme_latent(; σ, kwargs...)
             n = 3
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, extreme_latent, obs_model)
+        model = INLAModel(spec, extreme_latent, obs_model)
 
         # Test with extreme data
         y_extreme_large = [10.0, 12.0, 15.0]  # Large values
@@ -146,10 +154,9 @@ using SparseArrays
         θ_star_large, _, _ = find_hyperparameter_mode(model, y_extreme_large)
         θ_star_small, _, _ = find_hyperparameter_mode(model, y_extreme_small)
 
+
         @test isfinite(θ_star_large[1])
         @test isfinite(θ_star_small[1])
-        @test θ_star_large[1] > 0
-        @test θ_star_small[1] > 0
 
         # The different data should lead to different posterior modes
         @test θ_star_large[1] != θ_star_small[1]
@@ -157,10 +164,11 @@ using SparseArrays
 
     @testset "Consistency Across Runs" begin
         # Test that results are consistent across multiple runs
-        hp_prior = HyperparameterPrior((ρ = Beta(2, 2),))
+        spec = @hyperparams begin
+            (ρ ~ Beta(2, 2), transform = logit, space = natural)
+        end
 
-        function consistent_latent(θ_named)
-            ρ = θ_named.ρ
+        function consistent_latent(; ρ, kwargs...)
             n = 4
             Q = spdiagm(0 => ones(n), 1 => fill(-ρ, n - 1), -1 => fill(-ρ, n - 1))
             Q[1, 1] = 1 + ρ^2; Q[n, n] = 1 + ρ^2
@@ -171,7 +179,7 @@ using SparseArrays
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(hp_prior, consistent_latent, obs_model)
+        model = INLAModel(spec, consistent_latent, obs_model)
 
         y_test = [true, false, true, false]
 

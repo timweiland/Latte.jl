@@ -22,10 +22,15 @@ function evaluate_logpdf_and_marginals(
         model::INLAModel, y, θ::Vector{Float64};
         compute_marginals::Bool = false, marginalization_method = nothing, marginalization_indices = nothing
     )
+    spec = model.hyperparameter_spec
+
+    # Convert θ vector to natural space
+    θ_working = to_named_tuple(θ, spec)
+    θ_natural = to_natural(θ_working, spec)
+
     # Perform the expensive Gaussian Approximation once
-    θ_named = to_named(θ, model.hyperparameter_prior)
-    prior_gmrf = latent_gmrf(model, θ_named)
-    obs_lik = model.observation_model(y; θ_named...)
+    prior_gmrf = latent_gmrf(model, θ_natural)
+    obs_lik = model.observation_model(y; θ_natural...)
     ga = gaussian_approximation(prior_gmrf, obs_lik)
 
     # Compute log posterior density using the pre-computed GA
@@ -34,9 +39,9 @@ function evaluate_logpdf_and_marginals(
     marginal_result = nothing
     if compute_marginals
         # Reuse the GA for marginalization
-        log_prior_θ = logpdf(model.hyperparameter_prior.free_distribution, θ)
+        log_prior_θ = logpdf_prior(θ_working, spec)
         # Materialize observation likelihood with data and hyperparameters
-        obs_lik = model.observation_model(y; θ_named...)
+        obs_lik = model.observation_model(y; θ_natural...)
         marginal_result = marginalize(
             ga, obs_lik,
             log_prior_θ, marginalization_method, marginalization_indices;

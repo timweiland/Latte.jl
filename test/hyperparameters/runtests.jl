@@ -1,2 +1,2 @@
-include("test_hyperparameter_prior.jl")
-include("test_hyperparameter_integration.jl")
+include("test_hyperparameter_types.jl")
+include("test_hyperparams_macro.jl")

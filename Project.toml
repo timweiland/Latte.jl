@@ -4,8 +4,8 @@ authors = ["Tim Weiland <tim@weiland-lahnstein.de> and contributors"]
 version = "1.0.0-DEV"
 
 [deps]
+Bijectors = "76274a88-744f-5084-9051-94815aaf08c4"
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DataInterpolations = "82cc6244-b520-54b8-b5a6-8a565e85f1d0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
@@ -24,10 +24,10 @@ SelectedInversion = "043bf095-3f01-458a-9f1c-8cf4448fe908"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 StatsFuns = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
-StatsModels = "3eaba693-59b7-5ba5-a881-562e759f1c8d"
 
 [compat]
 Aqua = "0.8"
+Bijectors = "0.15"
 ChainRulesCore = "1"
 DataInterpolations = "8"
 Distributions = "0.25"

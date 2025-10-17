@@ -14,22 +14,16 @@ end
 # Model parameters
 k = 300   # number of time points
 
-#θ_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0.90, 0.99)))
-# \rho --- atanh ---> \eta
-# \eta --- tanh ---> \rho
-desired_std_dev = 0.5 * (atanh(0.98) - atanh(0.95))
-#θ_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), η = Normal(atanh(0.95), desired_std_dev)))
-θ_prior = HyperparameterPrior((τ_gmrf_log = Normal(0, 1), η = Normal(atanh(0.95), desired_std_dev)))
+# Note: Using the new HyperparameterSpec API with @hyperparams macro
+# Prior specification below
 
-function latent_gmrf(θ)
-    τ = exp(θ.τ_gmrf_log)
+function latent_gmrf(; τ_gmrf, ρ)
     #σ = θ.σ_gmrf
     #ρ = θ.ρ
-    ρ = tanh(θ.η)
 
     # Create AR-1 precision matrix (from the example)
     #Q = ar_precision(ρ, k) ./ σ^2
-    Q = ar_precision(ρ, k) .* τ
+    Q = ar_precision(ρ, k) .* τ_gmrf
 
     # Zero mean (simpler than the example which used μ*ones(k))
 
@@ -41,31 +35,45 @@ function latent_gmrf(θ)
     return GMRF(μ, Q)
 end
 
+spec = @hyperparams begin
+    (τ_gmrf ~ Exponential(50.0), transform = log, space = natural)
+    (ρ ~ Normal(2.9444, 1.0), transform = logit, space = working)
+end
+
 obs_model = ExponentialFamily(Poisson)
-model = INLAModel(θ_prior, latent_gmrf, obs_model)
+#model = INLAModel(θ_prior, latent_gmrf, obs_model)
+model = INLAModel(spec, latent_gmrf, obs_model)
 
 Random.seed!(83498)
-σ_gmrf_true = 0.1   # marginal standard deviation
-τ_gmrf_log_true = log(1 / σ_gmrf_true^2)
+τ_gmrf_true = 100.0
+
 ρ_true = 0.98   # autocorrelation coefficient
-η_true = atanh(ρ_true)
-θ_named = (τ_gmrf_log = τ_gmrf_log_true, η = η_true)
-x_gt = rand(latent_gmrf(θ_named))
+θ_true_named = (τ_gmrf = τ_gmrf_true, ρ = ρ_true)
+
+x_gt = rand(latent_gmrf(; θ_true_named...))
 y_gt = rand(conditional_distribution(obs_model, x_gt))
 
 res = inla(model, y_gt)
 
-θ_test = to_named([4.0, 2.0], model.hyperparameter_prior)
-x_test = latent_gmrf(θ_test)
+# Convert test parameters from vector to working/natural space using new API
+θ_test_working = to_named_tuple([4.0, 2.0], model.hyperparameter_spec)
+θ_test_natural = to_natural(θ_test_working, model.hyperparameter_spec)
+θ_test = merge(θ_test_natural, model.hyperparameter_spec.fixed)
+
+x_test = latent_gmrf(; θ_test...)
 obs_lik = obs_model(y_gt; θ_test...)
 
 ga = gaussian_approximation(x_test, obs_lik)
 
 function la(θ)
-    θ_named = to_named(θ, model.hyperparameter_prior)
-    latent_gmrf = model.latent_prior(θ_named)
+    # Convert vector parameters to working/natural space
+    θ_working = to_named_tuple(θ, model.hyperparameter_spec)
+    θ_natural = to_natural(θ_working, model.hyperparameter_spec)
+    θ_named = merge(θ_natural, model.hyperparameter_spec.fixed)
+
+    latent_gmrf = model.latent_prior(; θ_named...)
     obs_lik = model.observation_model(y_gt; θ_named...)
-    ga = gaussian_approximation_new(latent_gmrf, obs_lik)
+    ga = gaussian_approximation(latent_gmrf, obs_lik)
     return logpdf(ga, mean(ga))
 end
 

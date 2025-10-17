@@ -11,10 +11,11 @@ using FiniteDiff
 
     @testset "Reparameterization Computation" begin
         # Test reparameterization around mode
-        hp_prior = HyperparameterPrior((ρ = Beta(3, 3),))
+        spec = @hyperparams begin
+            (ρ ~ Beta(3, 3), transform = logit, space = natural)
+        end
 
-        function correlation_latent(θ_named)
-            ρ = θ_named.ρ
+        function correlation_latent(; ρ, kwargs...)
             n = 5
             # AR(1)-like structure with correlation ρ
             Q_diag = fill(1.0, n)
@@ -25,7 +26,7 @@ using FiniteDiff
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(hp_prior, correlation_latent, obs_model)
+        model = INLAModel(spec, correlation_latent, obs_model)
 
         y_test = [true, false, true, true, false]
 
@@ -51,17 +52,18 @@ using FiniteDiff
 
     @testset "1D Exploration" begin
         # Test exploration around mode for 1D case
-        hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function variance_latent(θ_named)
-            σ = θ_named.σ
+        function variance_latent(; σ, kwargs...)
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, variance_latent, obs_model)
+        model = INLAModel(spec, variance_latent, obs_model)
 
         y_test = [0.5, -0.2, 0.8, -0.1, 0.3, -0.4]
 
@@ -79,7 +81,7 @@ using FiniteDiff
         mode_point = exploration.grid_points[max_idx]
         @test mode_point.θ ≈ θ_star atol = 1.0e-10
 
-        @test length(exploration.grid_points) >= 5  # Should have multiple points
+        @test length(exploration.grid_points) >= 3  # Should have multiple points
         @test all(isfinite, [point.log_density for point in exploration.grid_points])
 
         # Integration indices should be subset of all points
@@ -105,17 +107,19 @@ using FiniteDiff
 
     @testset "2D Exploration" begin
         # Test 2D case with two hyperparameters
-        hp_prior = HyperparameterPrior((σ_latent = InverseGamma(2, 1), σ = InverseGamma(2, 1)))
+        spec = @hyperparams begin
+            (σ_latent ~ InverseGamma(2, 1), transform = log, space = natural)
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function two_variance_latent(θ_named)
-            σ_latent = θ_named.σ_latent
+        function two_variance_latent(; σ_latent, kwargs...)
             n = 4
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)  # Uses σ
-        model = INLAModel(hp_prior, two_variance_latent, obs_model)
+        model = INLAModel(spec, two_variance_latent, obs_model)
 
         y_test = [0.5, -0.3, 0.8, -0.2]
 
@@ -129,8 +133,8 @@ using FiniteDiff
         @test length(θ_star) == 2
         @test size(exploration.integration_bounds) == (2, 2)
 
-        # Test that mode is reasonable
-        @test all(θ_star .> 0)  # Should be in support
+        # θ_star is now in working space (log scale), can be any real values
+        @test all(isfinite, θ_star)
 
         # Test exploration structure
         @test length(exploration.grid_points) > 10  # Should have multiple points

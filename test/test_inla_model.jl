@@ -11,10 +11,11 @@ using Random
 
     @testset "Construction and Validation" begin
         # Set up components
-        hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_gmrf(θ_named)
-            σ = θ_named.σ
+        function latent_gmrf(; σ, kwargs...)
             n = 10
             Q = spdiagm(0 => fill(1 / σ^2, n))
             μ = zeros(n)
@@ -24,20 +25,22 @@ using Random
         obs_model = ExponentialFamily(Normal)  # Requires σ hyperparameter
 
         # Test successful construction
-        model = INLAModel(hp_prior, latent_gmrf, obs_model)
-        @test model.hyperparameter_prior == hp_prior
+        model = INLAModel(spec, latent_gmrf, obs_model)
+        @test model.hyperparameter_spec == spec
         @test model.latent_prior == latent_gmrf
         @test model.observation_model == obs_model
 
         # Test type parameters
-        @test model isa INLAModel{typeof(hp_prior), typeof(latent_gmrf), typeof(obs_model)}
+        @test model isa INLAModel{typeof(spec), typeof(latent_gmrf), typeof(obs_model)}
     end
 
     @testset "Parameter Validation" begin
         # Missing required hyperparameter
-        hp_prior_incomplete = HyperparameterPrior((μ = Normal(0, 1),))  # Missing σ
+        spec_incomplete = @hyperparams begin
+            μ ~ Normal(0, 1)  # Missing σ
+        end
 
-        function latent_gmrf(θ_named)
+        function latent_gmrf(; kwargs...)
             n = 5
             Q = spdiagm(0 => ones(n))
             return GMRF(zeros(n), Q)
@@ -46,21 +49,22 @@ using Random
         obs_model = ExponentialFamily(Normal)  # Requires σ
 
         # Should error due to missing σ
-        @test_throws ErrorException INLAModel(hp_prior_incomplete, latent_gmrf, obs_model)
+        @test_throws ErrorException INLAModel(spec_incomplete, latent_gmrf, obs_model)
     end
 
     @testset "latent_gmrf Function" begin
-        hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_gmrf_func(θ_named)
-            σ = θ_named.σ
+        function latent_gmrf_func(; σ, kwargs...)
             n = 8
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, latent_gmrf_func, obs_model)
 
         # Test latent GMRF generation
         θ_named = (σ = 2.0,)
@@ -80,20 +84,21 @@ using Random
 
     @testset "log_joint_density" begin
         # Set up model
-        hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_gmrf_func(θ_named)
-            σ = θ_named.σ
+        function latent_gmrf_func(; σ, kwargs...)
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, latent_gmrf_func, obs_model)
 
         # Test data
-        θ = [1.5]  # σ² = 1.5
+        θ = [log(1.5)]  # σ = 1.5 in natural space, log(1.5) in working space
         x = randn(6)
         y = x + 0.1 * randn(6)  # Noisy observations
 
@@ -103,7 +108,7 @@ using Random
         @test isfinite(log_joint)
 
         # Test that different parameters give different densities
-        θ2 = [0.8]
+        θ2 = [log(0.8)]
         log_joint2 = log_joint_density(model, x, θ2, y)
         @test log_joint != log_joint2
 
@@ -115,15 +120,12 @@ using Random
 
     @testset "Multiple Hyperparameters" begin
         # Model with multiple hyperparameters
-        hp_prior = HyperparameterPrior(
-            (
-                σ_latent = InverseGamma(2, 1),
-                σ = InverseGamma(2, 1),
-            )
-        )
+        spec = @hyperparams begin
+            (σ_latent ~ InverseGamma(2, 1), transform = log, space = natural)
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_gmrf_func(θ_named)
-            σ_latent = θ_named.σ_latent
+        function latent_gmrf_func(; σ_latent, kwargs...)
             n = 5
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
             return GMRF(zeros(n), Q)
@@ -132,10 +134,10 @@ using Random
         obs_model = ExponentialFamily(Normal)  # Uses σ
 
         # Test construction with parameter name matching
-        model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, latent_gmrf_func, obs_model)
 
         # Test joint density with multiple parameters
-        θ = [1.2, 0.8]  # [σ_latent, σ]
+        θ = [log(1.2), log(0.8)]  # [σ_latent, σ] in working space
         x = randn(5)
         y = x + 0.1 * randn(5)
 
@@ -145,10 +147,12 @@ using Random
 
     @testset "Different Observation Models" begin
         # Test with Bernoulli observation model (no hyperparameters)
-        hp_prior_simple = HyperparameterPrior((τ = Gamma(2, 1),))
+        # Use Gamma for positive parameters (alternative to InverseGamma)
+        spec = @hyperparams begin
+            (τ ~ Gamma(2, 1), transform = log, space = natural)
+        end
 
-        function ar1_latent(θ_named)
-            τ = θ_named.τ
+        function ar1_latent(; τ, kwargs...)
             n = 8
             # AR(1) precision matrix
             ϕ = 0.7
@@ -159,10 +163,10 @@ using Random
         end
 
         obs_model_bernoulli = ExponentialFamily(Bernoulli)
-        model_bernoulli = INLAModel(hp_prior_simple, ar1_latent, obs_model_bernoulli)
+        model_bernoulli = INLAModel(spec, ar1_latent, obs_model_bernoulli)
 
         # Test with binary data
-        θ = [2.0]  # τ = 2.0
+        θ = [log(2.0)]  # τ = 2.0 in natural space
         x = randn(8)
         y = rand(8) .> 0.5  # Binary data
 
@@ -171,22 +175,23 @@ using Random
     end
 
     @testset "Type Stability" begin
-        hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_gmrf_func(θ_named)
-            σ = θ_named.σ
+        function latent_gmrf_func(; σ, kwargs...)
             n = 4
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, latent_gmrf_func, obs_model)
 
-        θ = [1.0]
+        θ = [log(1.0)]  # Working space
         x = randn(4)
         y = randn(4)
-        θ_named = (σ = 1.0,)
+        θ_named = (σ = 1.0,)  # Natural space
 
         # Test type stability
         @inferred Float64 log_joint_density(model, x, θ, y)
@@ -194,34 +199,34 @@ using Random
     end
 
     @testset "Pretty Printing" begin
-        hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_gmrf_func(θ_named)
-            σ = θ_named.σ
+        function latent_gmrf_func(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, 3))
             return GMRF(zeros(3), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, latent_gmrf_func, obs_model)
 
         # Test that show doesn't error
         str = string(model)
         @test occursin("INLAModel", str)
-        @test occursin("Hyperparameter prior", str)
+        @test occursin("Hyperparameter spec", str)
         @test occursin("Observation model", str)
     end
 
     @testset "Integration with Mixed Parameters" begin
         # Test with both free and fixed hyperparameters
-        hp_prior = HyperparameterPrior(
-            (σ = InverseGamma(2, 1),);  # Free parameter
-            fixed = (df = 3.0,)        # Fixed parameter
-        )
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)  # Free parameter
+            df = 3.0  # Fixed parameter
+        end
 
-        function latent_gmrf_func(θ_named)
-            σ = θ_named.σ
-            # df = θ_named.df  # Could use fixed parameter if needed
+        function latent_gmrf_func(; σ, df, kwargs...)
+            # Can use both free (σ) and fixed (df) parameters
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return GMRF(zeros(n), Q)
@@ -244,9 +249,9 @@ using Random
         IntegratedNestedLaplace.loglik(x, obs_lik::MaterializedTestObsModel) = -0.5 * sum((obs_lik.y - x) .^ 2) / obs_lik.σ^2 - length(obs_lik.y) * log(obs_lik.σ) / 2
 
         obs_model = TestObsModel()
-        model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, latent_gmrf_func, obs_model)
 
-        θ = [1.5]  # Only free parameter
+        θ = [log(1.5)]  # Only free parameter in working space
         x = randn(6)
         y = x + 0.1 * randn(6)
 
@@ -256,24 +261,27 @@ using Random
 
     @testset "Random Sampling" begin
         # Simple model
-        hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+        spec = @hyperparams begin
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
 
-        function latent_gmrf_func(θ_named)
-            σ = θ_named.σ
+        function latent_gmrf_func(; σ, kwargs...)
             n = 5
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, latent_gmrf_func, obs_model)
 
         # Test basic sampling
         sample = rand(model)
         @test sample isa NamedTuple{(:θ, :x, :y)}
-        @test length(sample.θ) == 1 && sample.θ[1] > 0
+        # θ is now a NamedTuple in natural space
+        @test sample.θ isa NamedTuple
+        @test sample.θ.σ > 0
         @test length(sample.x) == length(sample.y) == 5
-        @test all(isfinite, sample.θ) && all(isfinite, sample.x) && all(isfinite, sample.y)
+        @test all(isfinite, values(sample.θ)) && all(isfinite, sample.x) && all(isfinite, sample.y)
 
         # Test with explicit RNG
         rng = MersenneTwister(123)
@@ -286,21 +294,24 @@ using Random
         @test rand(model) != rand(model)
 
         # Test with fixed parameters
-        hp_prior_fixed = HyperparameterPrior(
-            (σ_latent = InverseGamma(2, 1),);
-            fixed = (σ = 0.5,)
-        )
+        spec_fixed = @hyperparams begin
+            (σ_latent ~ InverseGamma(2, 1), transform = log, space = natural)
+            σ = 0.5  # Fixed parameter
+        end
 
-        function latent_gmrf_fixed(θ_named)
-            σ_latent = θ_named.σ_latent
+        function latent_gmrf_fixed(; σ_latent, kwargs...)
             n = 3
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
             return GMRF(zeros(n), Q)
         end
 
-        model_fixed = INLAModel(hp_prior_fixed, latent_gmrf_fixed, obs_model)
+        model_fixed = INLAModel(spec_fixed, latent_gmrf_fixed, obs_model)
         sample_fixed = rand(model_fixed)
-        @test length(sample_fixed.θ) == 1  # Only one free parameter
+        # θ should include both free and fixed parameters in natural space
+        @test sample_fixed.θ isa NamedTuple
+        @test haskey(sample_fixed.θ, :σ_latent)  # Free parameter
+        @test haskey(sample_fixed.θ, :σ)         # Fixed parameter
+        @test sample_fixed.θ.σ == 0.5            # Fixed value
         @test length(sample_fixed.x) == length(sample_fixed.y) == 3
     end
 

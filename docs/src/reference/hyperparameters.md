@@ -1,15 +1,16 @@
 # [Hyperparameters](@id hyperparameters)
 
-The hyperparameter system in IntegratedNestedLaplace.jl provides type-safe management of model parameters with support for both free (optimized) and fixed parameters.
+The hyperparameter system in IntegratedNestedLaplace.jl provides type-safe management of model parameters with support for both free (optimized) and fixed parameters, including automatic parameter transformations between constrained and unconstrained spaces.
 
 ## Overview
 
 INLA models typically have hyperparameters that control the latent field prior (e.g., smoothness, variance) and observation model (e.g., noise level). The hyperparameter system provides:
 
+- **Declarative specification** using the `@hyperparams` macro for readable model definitions
+- **Automatic transformations** between natural (constrained) and working (unconstrained) spaces with Jacobian corrections
 - **Type-safe parameter access** using NamedTuples instead of positional vectors
 - **Mixed free/fixed parameters** for flexible model specification
-- **Automatic validation** ensuring all required parameters are provided
-- **Efficient parameter transformations** between vectors and named representations
+- **Built-in bijector support** for common transformations (log, logit) and custom transformations
 
 ## Basic Usage
 
@@ -20,34 +21,54 @@ using IntegratedNestedLaplace
 using Distributions
 
 # Define prior over a single hyperparameter
-hp_prior = HyperparameterPrior((σ = Gamma(2, 3),))
+spec = @hyperparams begin
+    (σ ~ Gamma(2, 3), transform = log, space = natural)
+end
 
 # Work with parameter vectors and named tuples
-θ_vec = [1.5]                           # Parameter vector
-θ_named = to_named(θ_vec, hp_prior)     # Convert to NamedTuple: (σ = 1.5,)
-θ_back = to_vector(θ_named, hp_prior)   # Convert back: [1.5]
-
-# Access individual parameters
-σ_value = get_hyperparameter(θ_vec, hp_prior, :σ)  # Extract σ = 1.5
-set_hyperparameter!(θ_vec, hp_prior, :σ, 2.0)      # Set σ = 2.0
+θ_vec = [1.5]  # Parameter in working space (log(σ))
+θ_working = to_named_tuple(θ_vec, spec)  # Convert to working-space NamedTuple
+θ_natural = to_natural(θ_working, spec)  # Transform to natural space: (σ = exp(1.5),)
+θ_back = to_vector(θ_natural, spec)      # Convert back to vector
 ```
 
-### Multiple Parameters
+### Multiple Parameters with Transformations
 
 ```julia
-# Multiple free parameters
-hp_prior = HyperparameterPrior((
-    σ = Gamma(2, 3),      # Noise standard deviation
-    ρ = Beta(2, 2),       # Spatial correlation
-    τ = InverseGamma(1, 1) # Precision parameter
-))
+# Multiple free parameters with different transformations
+spec = @hyperparams begin
+    (σ ~ Gamma(2, 3), transform = log, space = natural)          # PC prior on σ in natural space
+    (ρ ~ Beta(2, 2), transform = logit, space = natural)        # Logit transform for correlation
+    (τ ~ InverseGamma(1, 1), transform = log, space = natural) # Log transform for precision
+end
 
-θ_vec = [1.2, 0.7, 0.8]
-θ_named = to_named(θ_vec, hp_prior)  # (ρ = 0.7, σ = 1.2, τ = 0.8)
-
-# Extract subset of parameters
-subset = extract_hyperparameters(θ_vec, hp_prior, (:σ, :τ))  # (σ = 1.2, τ = 0.8)
+θ_vec = [0.5, -1.2, 0.8]  # Parameters in working space
+θ_natural = to_natural(to_named_tuple(θ_vec, spec), spec)
+# Result: (ρ = logistic(-1.2), σ = exp(0.5), τ = exp(0.8))
 ```
+
+## Transformation and Space Specification
+
+The `@hyperparams` macro supports flexible parameter transformations:
+
+```julia
+spec = @hyperparams begin
+    # Identity transform (working space = natural space)
+    (μ ~ Normal(0, 1), transform = identity, space = working)
+
+    # Log transform for positive parameters
+    (σ ~ LogNormal(0, 1), transform = log, space = working)
+
+    # Custom bijector for bounded parameters
+    (ρ ~ Uniform(0, 1), transform = Bijectors.Logit(0.0, 1.0), space = natural)
+end
+```
+
+**Parameters:**
+- `transform`: Bijector mapping natural → working space. Common options: `log`, `logit`, `identity`, or custom bijectors
+- `space`: Where the prior is specified: `natural` (user-space) or `working` (optimization space)
+
+The system automatically handles Jacobian corrections when the prior is specified in natural space.
 
 ## Mixed Free and Fixed Parameters
 
@@ -55,164 +76,148 @@ A powerful feature is the ability to fix some parameters while optimizing others
 
 ```julia
 # Fix some parameters, optimize others
-hp_prior = HyperparameterPrior(
-    (ρ = Beta(1, 1), τ = Gamma(2, 1)),  # Free parameters
-    fixed = (σ = 0.5, μ = 0.0)          # Fixed parameters
-)
+spec = @hyperparams begin
+    (ρ ~ Beta(1, 1), transform = logit, space = natural)           # Free: correlation
+    (τ ~ Gamma(2, 1), transform = log, space = natural)            # Free: precision
+    σ = 0.5                                                         # Fixed: observation noise
+end
 
 # Only free parameters go in the vector
-θ_free = [0.3, 1.2]  # [ρ, τ]
+θ_vec = [1.2, -0.5]  # [transformed ρ, transformed τ]
 
-# But named tuples include all parameters
-θ_named = to_named(θ_free, hp_prior)
-# Result: (μ = 0.0, ρ = 0.3, σ = 0.5, τ = 1.2)
+# To_natural converts and includes fixed parameters
+θ_natural = to_natural(to_named_tuple(θ_vec, spec), spec)
+# Result: (ρ = logistic(1.2), σ = 0.5, τ = exp(-0.5))
 
-# Access works for both free and fixed parameters
-ρ_val = get_hyperparameter(θ_free, hp_prior, :ρ)  # 0.3 (free)
-σ_val = get_hyperparameter(θ_free, hp_prior, :σ)  # 0.5 (fixed)
-
-# Can only modify free parameters
-set_hyperparameter!(θ_free, hp_prior, :ρ, 0.8)  # ✓ Works
-set_hyperparameter!(θ_free, hp_prior, :σ, 1.0)  # ✗ Error: σ is fixed
+# Access fixed parameters via spec.fixed
+σ_fixed = spec.fixed.σ  # 0.5
 ```
 
-## Advanced Construction
+## Integrating with INLA Models
 
-### Correlated Parameters
-
-For parameters that should be modeled jointly:
+The `@hyperparams` macro integrates seamlessly with `INLAModel`:
 
 ```julia
-using LinearAlgebra
+using GaussianMarkovRandomFields
 
-# Define correlated prior for two parameters
-corr_matrix = [1.0 0.5; 0.5 1.0]
-joint_dist = MvNormal([0.0, 0.0], corr_matrix)
+# Define hyperparameters
+spec = @hyperparams begin
+    (σ ~ Gamma(2, 3), transform = log, space = natural)
+    (ρ ~ Beta(2, 2), transform = logit, space = natural)
+end
 
-hp_prior = HyperparameterPrior{(:ρ, :τ)}(
-    joint_dist,
-    fixed = (σ = 0.5,)
-)
+# Define latent model using keyword arguments
+function spatial_gmrf(; σ, ρ, kwargs...)
+    n = 50
+    # Simple AR(1) precision matrix scaled by σ
+    Q = spdiagm(-1 => -ρ*ones(n-1), 0 => (1+ρ^2)*ones(n), 1 => -ρ*ones(n-1))
+    return GMRF(zeros(n), Q / σ^2)
+end
 
-# The free parameters are now correlated
-θ_sample = rand(hp_prior.free_distribution)  # Correlated [ρ, τ] sample
-```
-
-### Integration with Observation Models
-
-Hyperparameter priors automatically validate against observation model requirements:
-
-```julia
-# Normal observation model requires σ parameter
+# Observation model
 obs_model = ExponentialFamily(Normal)
-required_params = hyperparameters(obs_model)  # (:σ,)
 
-# Valid: provides required σ
-hp_prior_valid = HyperparameterPrior((σ = Gamma(2, 3), ρ = Beta(1, 1)))
+# Create INLA model
+model = INLAModel(spec, spatial_gmrf, obs_model)
 
-# Valid: σ is fixed but provided
-hp_prior_fixed = HyperparameterPrior(
-    (ρ = Beta(1, 1),),
-    fixed = (σ = 0.5,)
-)
-
-# Invalid: missing required σ
-hp_prior_invalid = HyperparameterPrior((ρ = Beta(1, 1),))
-
-# Create INLA model with validation
-latent_gmrf = θ_named -> GMRF(zeros(10), I)  # Dummy latent prior
-
-model_valid = INLAModel(hp_prior_valid, latent_gmrf, obs_model)     # ✓ Works
-model_fixed = INLAModel(hp_prior_fixed, latent_gmrf, obs_model)     # ✓ Works  
-model_invalid = INLAModel(hp_prior_invalid, latent_gmrf, obs_model) # ✗ Error
+# Sample from model to generate synthetic data
+θ, x, y = rand(model)  # Sample hyperparameters, latent field, and observations
 ```
 
-## Performance Considerations
+**Key insight:** Model functions receive parameters in **natural space** via keyword arguments, even though optimization happens in working space. The system automatically handles all conversions.
 
-### Type Stability
+## Prior Space Transformation
+
+When you specify a prior in natural space, the system automatically transforms it to working space with Jacobian correction:
+
+```julia
+# This prior on σ in natural space (PC prior):
+spec = @hyperparams begin
+    (σ ~ Exponential(1.0), transform = log, space = natural)
+end
+
+# Is equivalent to a prior on log(σ) in working space:
+# p(log_σ) = p(σ=exp(log_σ)) * |dσ/d(log_σ)| = Exponential(1) * σ = Exponential(1) * exp(log_σ)
+```
+
+This Jacobian correction is handled automatically.
+
+## Complete Example: Spatial Model with Transformations
+
+Here's a complete example showing AR(1) model with mixed parameters and transformations:
+
+```julia
+using IntegratedNestedLaplace
+using GaussianMarkovRandomFields
+using Distributions
+using LinearAlgebra
+using SparseArrays
+
+# Define hyperparameters with transformations
+spec = @hyperparams begin
+    (σ ~ Exponential(1.0), transform = log, space = natural)      # Marginal std dev (log scale)
+    (ρ ~ Beta(2, 2), transform = logit, space = natural)         # Autocorrelation (logit scale)
+end
+
+# Define latent GMRF using keyword arguments
+function ar1_gmrf(; σ, ρ, kwargs...)
+    k = 100
+    # AR(1) precision matrix
+    Q = spdiagm(
+        -1 => -ρ*ones(k-1),
+         0 => (1 + ρ^2)*ones(k),
+         1 => -ρ*ones(k-1)
+    )
+    return GMRF(zeros(k), Q / σ^2)
+end
+
+# Observation model (Normal with unknown σ parameter)
+obs_model = ExponentialFamily(Normal)
+
+# Create INLA model
+model = INLAModel(spec, ar1_gmrf, obs_model)
+
+# Generate synthetic data
+θ_true = (σ = 2.0, ρ = 0.8)  # Natural space
+x_true = rand(ar1_gmrf(; σ = θ_true.σ, ρ = θ_true.ρ))
+y_obs = rand(conditional_distribution(obs_model, x_true; σ = 0.1))
+
+# Run INLA inference
+result = inla(model, y_obs)
+
+# Results are in natural space
+println("Posterior mode for σ: ", result.hyperparameter_mode[1])  # In natural space
+```
+
+## Type Stability and Performance
 
 The hyperparameter system is designed for type stability:
 
 ```julia
-hp_prior = HyperparameterPrior((σ = Gamma(2, 3), ρ = Beta(1, 1)))
-θ = [1.5, 0.3]
-
-# These operations are type-stable
-@inferred get_hyperparameter(θ, hp_prior, :σ)
-@inferred to_named(θ, hp_prior)
-@inferred to_vector((σ = 1.5, ρ = 0.3), hp_prior)
-```
-
-### Parameter Name Encoding
-
-Parameter names are encoded in the type signature for compile-time optimization:
-
-```julia
-hp_prior = HyperparameterPrior((σ = Gamma(2, 3), ρ = Beta(1, 1)))
-
-# Type encodes parameter information
-typeof(hp_prior)  # HyperparameterPrior{(:σ, :ρ), (:ρ, :σ), ...}
-```
-
-## Working with Distributions
-
-The hyperparameter prior integrates seamlessly with Distributions.jl:
-
-```julia
-hp_prior = HyperparameterPrior((σ = Gamma(2, 3), ρ = Beta(1, 1)))
-
-# Standard distribution operations work on free parameters
-θ_mode = mode(hp_prior.free_distribution)      # Modal values
-θ_sample = rand(hp_prior.free_distribution)    # Random sample
-log_dens = logpdf(hp_prior.free_distribution, θ_sample)  # Log density
-```
-
-## Complete Example
-
-Here's a complete example showing a spatial model with mixed free and fixed parameters:
-
-```julia
-using IntegratedNestedLaplace
-using Distributions
-using LinearAlgebra
-
-# Define hyperparameter prior: optimize correlation, fix observation noise
-hp_prior = HyperparameterPrior(
-    (ρ = Beta(2, 2), τ = Gamma(2, 1)),     # Free: correlation and latent precision
-    fixed = (σ = 0.1,)                     # Fixed: observation noise
-)
-
-# Define latent GMRF that uses all parameters
-function spatial_gmrf(θ_named)
-    ρ, τ = θ_named.ρ, θ_named.τ  # Extract free parameters
-    
-    # Simple AR(1) precision matrix scaled by τ
-    n = 50
-    Q = τ * spdiagm(-1 => fill(-ρ, n-1), 0 => ones(n), 1 => fill(-ρ, n-1))
-    return GMRF(zeros(n), Q)
+spec = @hyperparams begin
+    (σ ~ Gamma(2, 3), transform = log, space = natural)
+    (ρ ~ Beta(1, 1), transform = logit, space = natural)
 end
 
-# Normal observation model (requires σ parameter)
-obs_model = ExponentialFamily(Normal)
+θ_working = to_named_tuple([1.5, 0.3], spec)
 
-# Create complete INLA model
-model = INLAModel(hp_prior, spatial_gmrf, obs_model)
-
-# Example parameter vector and conversion
-θ_free = [0.7, 2.5]  # [ρ, τ] values
-θ_named = to_named(θ_free, hp_prior)  # (ρ = 0.7, σ = 0.1, τ = 2.5)
-
-# Get latent GMRF for these parameters
-latent_prior = spatial_gmrf(θ_named)
+# These operations are type-stable
+@inferred to_natural(θ_working, spec)
+@inferred to_vector(to_natural(θ_working, spec), spec)
+@inferred logpdf_prior(θ_working, spec)  # Includes Jacobian
 ```
+
+All conversions and prior evaluations have concrete return types determined at compile time.
 
 ## API Reference
 
 ```@docs
-HyperparameterPrior
-get_hyperparameter
-set_hyperparameter!
-to_named
+@hyperparams
+HyperparameterSpec
+Hyperparameter
+to_natural
+to_working
+to_named_tuple
 to_vector
-extract_hyperparameters
+logpdf_prior
 ```

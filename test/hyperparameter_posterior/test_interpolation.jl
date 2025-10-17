@@ -13,14 +13,16 @@ using Random
 
     @testset "1D Interpolation" begin
         # Test building interpolant for 1D case using stable AR-1 GMRF
-        hp_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3),), fixed = (σ = 1.0e-6,))
+        spec = @hyperparams begin
+            (σ_gmrf ~ Gamma(2, 3), transform = log, space = natural)
+            σ = 1.0e-6
+        end
 
         function ar_precision(ρ, k)
             return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
         end
 
-        function stable_1d_latent(θ_named)
-            σ_gmrf = θ_named.σ_gmrf
+        function stable_1d_latent(; σ_gmrf, kwargs...)
             ρ = 0.3  # Fixed correlation for 1D test
             k = 100
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
@@ -28,11 +30,11 @@ using Random
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, stable_1d_latent, obs_model)
+        model = INLAModel(spec, stable_1d_latent, obs_model)
 
         # Generate stable test data
         σ_gmrf_true = 2.5
-        x_gt = rand(stable_1d_latent((σ_gmrf = σ_gmrf_true,)))
+        x_gt = rand(stable_1d_latent(; σ_gmrf = σ_gmrf_true))
         y_test = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
 
         # Get exploration
@@ -62,26 +64,29 @@ using Random
 
     @testset "2D Interpolation" begin
         # Test building interpolant for 2D case using stable AR-1 GMRF
-        hp_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
+        spec = @hyperparams begin
+            (σ_gmrf ~ Gamma(2, 3), transform = log, space = natural)
+            (ρ ~ Uniform(0, 0.5), transform = logit, space = natural)
+            σ = 1.0e-6
+        end
 
         function ar_precision(ρ, k)
             return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
         end
 
-        function stable_2d_latent(θ_named)
-            σ_gmrf, ρ = θ_named.σ_gmrf, θ_named.ρ
+        function stable_2d_latent(; σ_gmrf, ρ, kwargs...)
             k = 100
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
             return GMRF(zeros(k), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, stable_2d_latent, obs_model)
+        model = INLAModel(spec, stable_2d_latent, obs_model)
 
         # Generate stable test data
         σ_gmrf_true = 2.5
         ρ_true = 0.4
-        x_gt = rand(stable_2d_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
+        x_gt = rand(stable_2d_latent(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
         y_test = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
 
         # Get exploration
@@ -140,17 +145,18 @@ using Random
 
     @testset "Interpolation Quality" begin
         # Test interpolation quality - compare interpolated values with stored exploration values
-        hp_prior = HyperparameterPrior((x = Normal(0, 1),))
+        spec = @hyperparams begin
+            x ~ Normal(0, 1)
+        end
 
-        function smooth_latent(θ_named)
-            x = θ_named.x
+        function smooth_latent(; x, kwargs...)
             n = 2
             Q = spdiagm(0 => fill(exp(x), n))  # Smooth function of x
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(hp_prior, smooth_latent, obs_model)
+        model = INLAModel(spec, smooth_latent, obs_model)
 
         y_test = [true, false]
 

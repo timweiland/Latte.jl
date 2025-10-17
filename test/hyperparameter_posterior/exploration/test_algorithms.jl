@@ -12,14 +12,16 @@ function create_test_model(k = 100)  # Smaller than example but still stable
         return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
     end
 
-    # Hyperparameter prior (exactly from the example)
-    θ_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
+    # Hyperparameter prior (using new @hyperparams API)
+    spec = @hyperparams begin
+        (σ_gmrf ~ Gamma(2, 3), transform = log, space = natural)
+        (ρ ~ Uniform(0, 0.5), transform = logit, space = natural)
+        σ = 1.0e-6  # Fixed parameter
+    end
 
-    # Function to create latent GMRF (exactly from the example)
-    function latent_gmrf(θ)
-        σ = θ.σ_gmrf
-        ρ = θ.ρ
-        Q = ar_precision(ρ, k) ./ σ^2
+    # Function to create latent GMRF (updated for new API with keyword arguments)
+    function latent_gmrf(; σ_gmrf, ρ, kwargs...)
+        Q = ar_precision(ρ, k) ./ σ_gmrf^2
         μ = zeros(k)
         return GMRF(μ, Q)
     end
@@ -28,7 +30,7 @@ function create_test_model(k = 100)  # Smaller than example but still stable
     obs_model = ExponentialFamily(Normal)
 
     # Create INLA model
-    return INLAModel(θ_prior, latent_gmrf, obs_model), k
+    return INLAModel(spec, latent_gmrf, obs_model), k
 end
 
 # Generate test data using the exact same method as the working example
@@ -38,8 +40,8 @@ function generate_stable_test_data(model, k)
     ρ_true = 0.4        # autocorrelation coefficient
 
     # Generate synthetic data (exactly from the example)
-    x_gt = rand(latent_gmrf(model, (σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-    y_gt = rand(likelihood(model.observation_model, x_gt, (σ = 1.0e-6,)))
+    x_gt = rand(model.latent_prior(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
+    y_gt = rand(conditional_distribution(model.observation_model, x_gt))
 
     return y_gt, [σ_gmrf_true, ρ_true]
 end
@@ -303,9 +305,10 @@ end
 
         # Check that exploration respects parameter bounds
         for point in exploration.grid_points
-            θ_named = to_named(point.θ, model.hyperparameter_prior)
-            @test θ_named.σ > 0      # Sigma should be positive
-            @test 0 <= θ_named.ρ <= 0.5  # Rho should be in [0, 0.5]
+            θ_working = to_named_tuple(point.θ, model.hyperparameter_spec)
+            θ_natural = to_natural(θ_working, model.hyperparameter_spec)
+            @test θ_natural.σ_gmrf > 0      # Sigma should be positive
+            @test 0 <= θ_natural.ρ <= 0.5   # Rho should be in [0, 0.5]
         end
     end
 end

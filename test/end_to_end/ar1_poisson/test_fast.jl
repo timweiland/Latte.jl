@@ -38,20 +38,22 @@ using JLD2
         return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k) .+ ρ^2, 1 => -ρ * ones(k - 1))
     end
 
-    # Model setup (same as reference generation)
-    θ_prior = HyperparameterPrior((τ_gmrf_log = Normal(0, 1), η = Normal(atanh(0.95), desired_std_dev)))
+    # Model setup (same as reference generation, using new API)
+    spec = @hyperparams begin
+        (τ_gmrf ~ Normal(0, 1), transform = log, space = working)
+        (η ~ Normal(atanh(0.95), desired_std_dev), transform = identity, space = working)
+    end
 
-    function latent_gmrf(θ)
-        τ = exp(θ.τ_gmrf_log)
-        ρ = tanh(θ.η)
-        Q = ar_precision(ρ, k) .* τ
+    function latent_gmrf(; τ_gmrf, η, kwargs...)
+        ρ = tanh(η)
+        Q = ar_precision(ρ, k) .* τ_gmrf
         μ₀ = log(1000.0)
         μ = μ₀ .* [ρ^i for i in 1:k]
         return GMRF(μ, Q)
     end
 
     obs_model = ExponentialFamily(Poisson)
-    model = INLAModel(θ_prior, latent_gmrf, obs_model)
+    model = INLAModel(spec, latent_gmrf, obs_model)
 
     # Run INLA inference (fast!)
     inla_start_time = time()
