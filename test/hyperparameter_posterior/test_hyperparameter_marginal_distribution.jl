@@ -22,17 +22,16 @@ using Random
         σ_gmrf_true = 2.0
         ρ_true = 0.3
 
-        # Hyperparameter prior
-        θ_prior = HyperparameterPrior(
-            (σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)),
-            fixed = (σ = 1.0e-6,)
-        )
+        # Hyperparameter prior using new API
+        spec = @hyperparams begin
+            (σ_gmrf ~ Gamma(2, 3), transform = log, space = natural)
+            (ρ ~ Uniform(0, 0.5), transform = logit, space = natural)
+            σ = 1.0e-6  # Fixed parameter
+        end
 
         # Function to create latent GMRF
-        function latent_gmrf(θ)
-            σ = θ.σ_gmrf
-            ρ = θ.ρ
-            Q = ar_precision(ρ, k) ./ σ^2
+        function latent_gmrf(; σ_gmrf, ρ, kwargs...)
+            Q = ar_precision(ρ, k) ./ σ_gmrf^2
             μ = zeros(k)
             return GMRF(μ, Q)
         end
@@ -41,12 +40,12 @@ using Random
         obs_model = ExponentialFamily(Normal)
 
         # Create INLA model
-        inla_model = INLAModel(θ_prior, latent_gmrf, obs_model)
+        inla_model = INLAModel(spec, latent_gmrf, obs_model)
 
         # Generate synthetic data
         Random.seed!(123)
-        x_gt = rand(latent_gmrf((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_gt = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
+        x_gt = rand(latent_gmrf(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
+        y_gt = rand(conditional_distribution(obs_model, x_gt; σ = spec.fixed.σ))
 
         return inla_model, y_gt, k
     end

@@ -21,11 +21,17 @@ using IntegratedNestedLaplace
 using Distributions
 using GaussianMarkovRandomFields
 
-# Set up model
-hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
-latent_gmrf(θ) = GMRF(zeros(5), spdiagm(0 => fill(1/θ.σ^2, 5)))
+# Set up model with new @hyperparams macro
+spec = @hyperparams begin
+    (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+end
+
+function latent_gmrf(; σ, kwargs...)
+    GMRF(zeros(5), spdiagm(0 => fill(1/σ^2, 5)))
+end
+
 obs_model = ExponentialFamily(Normal)
-model = INLAModel(hp_prior, latent_gmrf, obs_model)
+model = INLAModel(spec, latent_gmrf, obs_model)
 
 # Observed data
 y = [0.5, -0.2, 0.8, -0.1, 0.3]
@@ -38,21 +44,26 @@ y = [0.5, -0.2, 0.8, -0.1, 0.3]
 
 ```julia
 # Explore posterior around the mode
-exploration = explore_hyperparameter_posterior(model, y, θ_star, mode_points, mode_logdensities)
+exploration = explore_hyperparameter_posterior(
+    model, y, θ_star, GaussianMarginal(), 1:5
+)
 
 # Build interpolant for fast evaluation
 posterior_approx = build_posterior_interpolant(exploration)
 
-# Evaluate posterior at arbitrary points
-test_θ = [2.0]
-logpdf_val = posterior_approx(test_θ)
+# Evaluate posterior at arbitrary points (in working space)
+test_θ_working = [2.0]
+logpdf_val = posterior_approx(test_θ_working)
 ```
 
 ### Marginal Computation
 
 ```julia
 # For multidimensional hyperparameter space
-hp_prior_2d = HyperparameterPrior((μ = Normal(0, 1), σ = InverseGamma(2, 1)))
+spec_2d = @hyperparams begin
+    (μ ~ Normal(0, 1), transform = identity, space = working)
+    (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+end
 # ... set up 2D model ...
 
 # Compute marginal posterior for first dimension
@@ -68,23 +79,29 @@ marginal_logpdf = hyperparameter_marginal_logpdf(posterior_approx, 1, test_value
 using Optim
 
 # Use different optimization method
-θ_star = find_hyperparameter_mode(model, y; method=LBFGS(), collect_points=false)[1]
+θ_star = find_hyperparameter_mode(
+    model, y;
+    method = LBFGS(),
+    collect_points = false
+)[1]
 ```
 
 ### Integration Tolerances
 
 ```julia
-# Control exploration resolution
+# Control exploration resolution and accuracy
 exploration = explore_hyperparameter_posterior(
-    model, y, θ_star, mode_points, mode_logdensities;
-    δ_π=3.0,                    # Log-density tolerance for exploration
-    interpolation_factor=3      # Denser interpolation grid
+    model, y, θ_star,
+    GaussianMarginal(), 1:length(y);
+    integration_step_z = 0.5,        # Step size for exploration
+    max_log_drop = 2.5,              # Log-density tolerance
+    interpolation_subdivisions = 2   # Interpolation refinement
 )
 
 # Control marginal integration accuracy
 marginal_logpdf = hyperparameter_marginal_logpdf(
     posterior_approx, 1, test_value;
-    rtol=1e-6, atol=1e-10      # Tighter integration tolerances
+    rtol = 1e-6, atol = 1e-10  # Tighter integration tolerances
 )
 ```
 

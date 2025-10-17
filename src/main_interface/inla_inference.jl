@@ -127,7 +127,7 @@ function inla(
     finish_progress!(progress_state)
 
     # Create hyperparameter marginals (lazy - instantaneous)
-    n_hyperparams = length(model.hyperparameter_prior.free_distribution)
+    n_hyperparams = length(keys(model.hyperparameter_spec.free))
     hyperparameter_marginals = [
         HyperparameterMarginalDistribution(posterior_approx, i)
             for i in 1:n_hyperparams

@@ -31,26 +31,22 @@ k = 1000   # number of time points
 σ_gmrf_true = 2.5   # marginal standard deviation
 ρ_true = 0.4   # autocorrelation coefficient
 
-# Priors for hyperparameters (matching the Turing example)
-#σ_prior = Gamma(2, 3)
-#ρ_prior = Uniform(0, 0.5)
-
-θ_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
-# Joint hyperparameter prior
-#θ_prior = product_distribution([σ_prior, ρ_prior])
+# Priors for hyperparameters (using new @hyperparams API)
+spec = @hyperparams begin
+    (σ_gmrf ~ Gamma(2, 3), transform = log, space = natural)
+    (ρ ~ Uniform(0, 0.5), transform = logit, space = natural)
+    σ = 1.0e-6  # Fixed parameter
+end
 
 println("True hyperparameters:")
 println("  σ = $(σ_gmrf_true)")
 println("  ρ = $(ρ_true)")
 println("  Time series length: $(k)")
 
-# Function to create latent GMRF given hyperparameters θ = [σ, ρ]
-function latent_gmrf(θ)
-    σ = θ.σ_gmrf
-    ρ = θ.ρ
-
+# Function to create latent GMRF given hyperparameters (using new keyword argument API)
+function latent_gmrf(; σ_gmrf, ρ, kwargs...)
     # Create AR-1 precision matrix (from the example)
-    Q = ar_precision(ρ, k) ./ σ^2
+    Q = ar_precision(ρ, k) ./ σ_gmrf^2
 
     # Zero mean (simpler than the example which used μ*ones(k))
     μ = zeros(k)
@@ -62,13 +58,13 @@ end
 obs_model = ExponentialFamily(Normal)
 
 # Create INLA model
-inla_model = INLAModel(θ_prior, latent_gmrf, obs_model)
+inla_model = INLAModel(spec, latent_gmrf, obs_model)
 
 println("\nGenerating synthetic data...")
 
 # Generate synthetic data
-x_gt = rand(latent_gmrf((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-y_gt = rand(likelihood(obs_model, x_gt, (σ = 1.0e-6,)))
+x_gt = rand(latent_gmrf(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
+y_gt = rand(conditional_distribution(obs_model, x_gt))
 
 println("Generated $(length(y_gt)) observations")
 
@@ -117,7 +113,11 @@ println("\n" * "="^60)
 println("Analyzing 2D Results")
 println("="^60)
 
-named_interpolation_points = to_named.(exploration.interpolation_points, Ref(inla_model.hyperparameter_prior))
+# Convert interpolation points from working to natural space
+named_interpolation_points = map(exploration.grid_points) do point
+    θ_working = to_named_tuple(point.θ, inla_model.hyperparameter_spec)
+    to_natural(θ_working, inla_model.hyperparameter_spec)
+end
 
 # Extract θ values for analysis
 σ_vals = [θ.σ_gmrf for θ in named_interpolation_points]

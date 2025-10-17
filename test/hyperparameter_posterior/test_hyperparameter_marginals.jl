@@ -7,32 +7,33 @@ using LinearAlgebra
 using SparseArrays
 
 @testset "Marginal Posterior Computation" begin
-    hp_prior = HyperparameterPrior((μ = Uniform(0.0, 2.0), σ = LogNormal(log(0.02), 0.1)))
+    spec = @hyperparams begin
+        (μ ~ Uniform(0.0, 2.0), transform = Bijectors.Logit(0.0, 2.0), space = natural)
+        (σ ~ LogNormal(log(0.02), 0.1), transform = log, space = natural)
+    end
     n = 10
     Q = sparse(1.0e6 * I, (n, n))
-    function latent_gmrf(θ_named)
-        μ = θ_named.μ
+    function latent_gmrf(; μ, kwargs...)
         return GMRF(μ .* ones(n), Q)
     end
     obs_model = ExponentialFamily(Normal)
-    model = INLAModel(hp_prior, latent_gmrf, obs_model)
-    μ_gt, σ_gt = rand(hp_prior.free_distribution)
-    x_gt = rand(latent_gmrf((μ = μ_gt,)))
-    y_gt = rand(MvNormal(x_gt, σ_gt^2 * Array(1.0 * I, (n, n))))
+    model = INLAModel(spec, latent_gmrf, obs_model)
+    θ_gt, x_gt, y_gt = rand(model)
 
     @testset "1D Marginals (Identity Case)" begin
         # For 1D case, marginal should equal the full posterior
-        hp_prior = HyperparameterPrior((α = Gamma(2, 1),))
+        spec = @hyperparams begin
+            (α ~ Gamma(2, 1), transform = log, space = natural)
+        end
 
-        function alpha_latent(θ_named)
-            α = θ_named.α
+        function alpha_latent(; α, kwargs...)
             n = 3
             Q = spdiagm(0 => fill(α, n))
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(hp_prior, alpha_latent, obs_model)
+        model = INLAModel(spec, alpha_latent, obs_model)
 
         y_test = [true, false, true]
 
@@ -42,7 +43,6 @@ using SparseArrays
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test marginal computation
-        test_values = rand(hp_prior.free_distribution, 3)[1, :]
         test_values = [θ_star[1], θ_star[1] + 0.1, θ_star[1] - 0.1]
 
         for test_val in test_values
@@ -56,17 +56,19 @@ using SparseArrays
 
     @testset "2D Marginal Consistency" begin
         # Test 2D case with marginal consistency checks - use more informative priors
-        hp_prior = HyperparameterPrior((σ_latent = InverseGamma(3, 2), σ = InverseGamma(3, 2)))
+        spec = @hyperparams begin
+            (σ_latent ~ InverseGamma(3, 2), transform = log, space = natural)
+            (σ ~ InverseGamma(3, 2), transform = log, space = natural)
+        end
 
-        function two_variance_latent(θ_named)
-            σ_latent = θ_named.σ_latent  # For latent field
+        function two_variance_latent(; σ_latent, kwargs...)
             n = 6  # More data points
             Q = spdiagm(0 => fill(1 / σ_latent^2 + 1.0e-6, n))  # Add small regularization
             return GMRF(zeros(n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)  # Uses σ hyperparameter
-        model = INLAModel(hp_prior, two_variance_latent, obs_model)
+        model = INLAModel(spec, two_variance_latent, obs_model)
 
         # Use data that's not too extreme to avoid boundary modes
         y_test = [0.2, -0.1, 0.3, -0.2, 0.1, -0.15]
@@ -112,17 +114,19 @@ using SparseArrays
 
     @testset "Marginal Integration Properties" begin
         # Test mathematical properties of marginal integration - use balanced data and informative priors
-        hp_prior = HyperparameterPrior((μ = Normal(0, 0.5), σ = InverseGamma(4, 3)))
+        spec = @hyperparams begin
+            (μ ~ Normal(0, 0.5), transform = identity, space = working)
+            (σ ~ InverseGamma(4, 3), transform = log, space = natural)
+        end
 
-        function location_scale_latent(θ_named)
-            μ, σ = θ_named.μ, θ_named.σ
+        function location_scale_latent(; μ, σ, kwargs...)
             n = 5  # More data points
             Q = spdiagm(0 => fill(1 / σ^2 + 1.0e-6, n))  # Add small regularization
             return GMRF(fill(μ, n), Q)
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, location_scale_latent, obs_model)
+        model = INLAModel(spec, location_scale_latent, obs_model)
 
         # Use balanced data that should give interior mode
         y_test = [0.1, -0.05, 0.15, -0.08, 0.12]
@@ -165,14 +169,17 @@ using SparseArrays
 
     @testset "Bounds Checking and Error Handling" begin
         # Create stable 2D model using AR-1 GMRF pattern with proper regularization
-        hp_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
+        spec = @hyperparams begin
+            (σ_gmrf ~ Gamma(2, 3), transform = log, space = natural)
+            (ρ ~ Uniform(0, 0.5), transform = logit, space = natural)
+            σ = 1.0e-6  # Fixed parameter
+        end
 
         function ar_precision(ρ, k)
             return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
         end
 
-        function stable_2d_latent(θ_named)
-            σ_gmrf, ρ = θ_named.σ_gmrf, θ_named.ρ
+        function stable_2d_latent(; σ_gmrf, ρ, kwargs...)
             k = 1000  # Large k for numerical stability
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
             μ = zeros(k)
@@ -180,13 +187,13 @@ using SparseArrays
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(hp_prior, stable_2d_latent, obs_model)
+        model = INLAModel(spec, stable_2d_latent, obs_model)
 
         # Generate stable test data using the same method as the working example
         σ_gmrf_true = 2.5
         ρ_true = 0.4
-        x_gt = rand(stable_2d_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_test = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
+        x_gt = rand(stable_2d_latent(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
+        y_test = rand(conditional_distribution(obs_model, x_gt; σ = spec.fixed.σ))
 
         # Get posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
@@ -208,14 +215,17 @@ using SparseArrays
 
     @testset "Integration Tolerance Effects" begin
         # Test effect of integration tolerances using stable AR-1 GMRF pattern
-        hp_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
+        spec = @hyperparams begin
+            (σ_gmrf ~ Gamma(2, 3), transform = log, space = natural)
+            (ρ ~ Uniform(0, 0.5), transform = logit, space = natural)
+            σ = 1.0e-6  # Fixed parameter
+        end
 
         function ar_precision(ρ, k)
             return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
         end
 
-        function tolerance_test_latent(θ_named)
-            σ_gmrf, ρ = θ_named.σ_gmrf, θ_named.ρ
+        function tolerance_test_latent(; σ_gmrf, ρ, kwargs...)
             k = 1000  # Large k for numerical stability
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
             μ = zeros(k)
@@ -223,13 +233,13 @@ using SparseArrays
         end
 
         obs_model = ExponentialFamily(Normal)  # Use Normal for stability
-        model = INLAModel(hp_prior, tolerance_test_latent, obs_model)
+        model = INLAModel(spec, tolerance_test_latent, obs_model)
 
         # Generate stable test data using the same method as the working example
         σ_gmrf_true = 2.5
         ρ_true = 0.4
-        x_gt = rand(tolerance_test_latent((σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-        y_test = rand(conditional_distribution(obs_model, x_gt; σ = 1.0e-6))
+        x_gt = rand(tolerance_test_latent(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
+        y_test = rand(conditional_distribution(obs_model, x_gt; σ = spec.fixed.σ))
 
         # Get posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)

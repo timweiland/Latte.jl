@@ -1,1 +1,2 @@
-include("hyperparameter_prior.jl")
+include("hyperparameter_types.jl")
+include("hyperparams_macro.jl")
