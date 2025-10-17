@@ -7,6 +7,7 @@ using StatsFuns
 using SparseArrays
 using HCubature
 using Random
+using Bijectors
 
 @testset "HyperparameterMarginalDistribution Tests" begin
 
@@ -69,27 +70,47 @@ using Random
         # Step 3: Build interpolant
         posterior_approx = build_posterior_interpolant(exploration)
 
-        # Create marginal distributions for both dimensions
-        marginal_1 = HyperparameterMarginalDistribution(posterior_approx, 1, rtol = 1.0e-3, atol = 1.0e-6)
-        marginal_2 = HyperparameterMarginalDistribution(posterior_approx, 2, rtol = 1.0e-3, atol = 1.0e-6)
+        # Get spec and free names for use in all tests
+        spec = inla_model.hyperparameter_spec
+        free_names = collect(keys(spec.free))
+
+        # Create marginal distributions for both dimensions (natural space by default)
+        marginal_1 = HyperparameterMarginalDistribution(posterior_approx, 1; spec = spec, rtol = 1.0e-3, atol = 1.0e-6)
+        marginal_2 = HyperparameterMarginalDistribution(posterior_approx, 2; spec = spec, rtol = 1.0e-3, atol = 1.0e-6)
 
         @testset "Basic Properties" begin
-            @test minimum(marginal_1) ≈ exploration.integration_bounds[1, 1]
-            @test maximum(marginal_1) ≈ exploration.integration_bounds[1, 2]
-            @test minimum(marginal_2) ≈ exploration.integration_bounds[2, 1]
-            @test maximum(marginal_2) ≈ exploration.integration_bounds[2, 2]
+            # Natural space bounds should be transformed from working space
 
-            # Test insupport
-            @test insupport(marginal_1, θ_star[1])
-            @test insupport(marginal_2, θ_star[2])
+            # Get working space bounds
+            working_bounds_1 = (exploration.integration_bounds[1, 1], exploration.integration_bounds[1, 2])
+            working_bounds_2 = (exploration.integration_bounds[2, 1], exploration.integration_bounds[2, 2])
+
+            # Transform to natural space
+            transform_1 = spec.free[free_names[1]].transform
+            transform_2 = spec.free[free_names[2]].transform
+            natural_min_1 = inverse(transform_1)(working_bounds_1[1])
+            natural_max_1 = inverse(transform_1)(working_bounds_1[2])
+            natural_min_2 = inverse(transform_2)(working_bounds_2[1])
+            natural_max_2 = inverse(transform_2)(working_bounds_2[2])
+
+            @test minimum(marginal_1) ≈ natural_min_1
+            @test maximum(marginal_1) ≈ natural_max_1
+            @test minimum(marginal_2) ≈ natural_min_2
+            @test maximum(marginal_2) ≈ natural_max_2
+
+            # Test insupport - θ_star is in working space, need to convert
+            θ_star_natural = to_natural(to_named_tuple(θ_star, spec), spec)
+            @test insupport(marginal_1, θ_star_natural[free_names[1]])
+            @test insupport(marginal_2, θ_star_natural[free_names[2]])
             @test !insupport(marginal_1, minimum(marginal_1) - 1)
             @test !insupport(marginal_2, maximum(marginal_2) + 1)
         end
 
         @testset "PDF/LogPDF Consistency" begin
-            # Test several points
-            test_points_1 = [minimum(marginal_1) + 0.1, θ_star[1], maximum(marginal_1) - 0.1]
-            test_points_2 = [minimum(marginal_2) + 0.01, θ_star[2], maximum(marginal_2) - 0.01]
+            # Test several points in natural space
+            θ_star_natural = to_natural(to_named_tuple(θ_star, spec), spec)
+            test_points_1 = [minimum(marginal_1) + 0.1, θ_star_natural[free_names[1]], maximum(marginal_1) - 0.1]
+            test_points_2 = [minimum(marginal_2) + 0.01, θ_star_natural[free_names[2]], maximum(marginal_2) - 0.01]
 
             for x in test_points_1
                 @test pdf(marginal_1, x) ≈ exp(logpdf(marginal_1, x)) rtol = 1.0e-10
@@ -218,7 +239,7 @@ using Random
         @testset "Caching Behavior" begin
 
             # Create a fresh marginal distribution to test caching
-            fresh_marginal = HyperparameterMarginalDistribution(posterior_approx, 1, rtol = 1.0e-3, atol = 1.0e-6)
+            fresh_marginal = HyperparameterMarginalDistribution(posterior_approx, 1; spec = spec, rtol = 1.0e-3, atol = 1.0e-6)
 
             # Test that moments are cached
             @test isnothing(fresh_marginal._moments)
@@ -244,11 +265,38 @@ using Random
 
             # Test constructor validation
             @test_throws ArgumentError HyperparameterMarginalDistribution(
-                posterior_approx, 0  # Invalid dimension
+                posterior_approx, 0; spec = spec  # Invalid dimension
             )
             @test_throws ArgumentError HyperparameterMarginalDistribution(
-                posterior_approx, 3  # Too high dimension for 2D problem
+                posterior_approx, 3; spec = spec  # Too high dimension for 2D problem
             )
+        end
+
+        @testset "Working Space Mode" begin
+            # Create marginal distribution in working space
+            marginal_working = HyperparameterMarginalDistribution(
+                posterior_approx, 1; spec = spec, space = :working
+            )
+
+            # Bounds should be in working space (not transformed)
+            @test minimum(marginal_working) ≈ exploration.integration_bounds[1, 1]
+            @test maximum(marginal_working) ≈ exploration.integration_bounds[1, 2]
+
+            # Test logpdf at mode (in working space)
+            θ_star_working = θ_star[1]
+            logpdf_mode = logpdf(marginal_working, θ_star_working)
+            @test isfinite(logpdf_mode)
+
+            # Working space marginal should differ from natural space marginal
+            θ_star_natural = to_natural(to_named_tuple(θ_star, spec), spec)
+            marginal_natural = marginal_1  # Already created in natural space
+
+            # Evaluate at corresponding points (natural and working)
+            logpdf_nat = logpdf(marginal_natural, θ_star_natural[free_names[1]])
+            logpdf_work = logpdf(marginal_working, θ_star_working)
+
+            # They should differ due to Jacobian correction
+            @test logpdf_nat != logpdf_work
         end
     end
 end
