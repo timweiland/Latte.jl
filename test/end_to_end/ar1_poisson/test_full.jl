@@ -92,10 +92,19 @@ using LDLFactorizations
     end
 
     @testset "Statistical Comparison" begin
-        τ_gmrf_log_marginal = inla_result.hyperparameter_marginals[1]
-        η_marginal = inla_result.hyperparameter_marginals[2]
+        # MCMC samples are in working space (τ_gmrf_log, η)
+        # Default marginals are in natural space, so create working space versions for comparison
+        spec = model.hyperparameter_spec
+        posterior_approx = inla_result.posterior_approximation
 
-        # Compare hyperparameter posterior means in transformed space
+        τ_gmrf_log_marginal = HyperparameterMarginalDistribution(
+            posterior_approx, 1; spec = spec, space = :working
+        )
+        η_marginal = HyperparameterMarginalDistribution(
+            posterior_approx, 2; spec = spec, space = :working
+        )
+
+        # Compare hyperparameter posterior means in working space
         @test mean(τ_gmrf_log_marginal) ≈ mean(τ_gmrf_log_samples) rtol = 0.1
         @test mean(η_marginal) ≈ mean(η_samples) rtol = 0.1
 

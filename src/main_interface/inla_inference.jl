@@ -126,10 +126,10 @@ function inla(
     # Finish progress tracking
     finish_progress!(progress_state)
 
-    # Create hyperparameter marginals (lazy - instantaneous)
+    # Create hyperparameter marginals (lazy - instantaneous, default to natural space)
     n_hyperparams = length(keys(model.hyperparameter_spec.free))
     hyperparameter_marginals = [
-        HyperparameterMarginalDistribution(posterior_approx, i)
+        HyperparameterMarginalDistribution(posterior_approx, i; spec = model.hyperparameter_spec)
             for i in 1:n_hyperparams
     ]
 
@@ -155,10 +155,13 @@ function inla(
         progress = progress,
     )
 
+    # Convert mode to natural space (NamedTuple with both free and fixed parameters)
+    θ_star_natural = to_natural(to_named_tuple(θ_star, model.hyperparameter_spec), model.hyperparameter_spec)
+
     return INLAResult(
         hyperparameter_marginals,
         latent_marginals,
-        θ_star,
+        θ_star_natural,
         exploration,
         posterior_approx,
         convergence,
