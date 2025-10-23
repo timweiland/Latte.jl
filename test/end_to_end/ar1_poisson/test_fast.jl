@@ -79,26 +79,22 @@ using JLD2
 
     @testset "Statistical Comparison" begin
         # MCMC samples are in working space (log scale for τ_gmrf, direct η)
-        # Default marginals are in natural space, so create working space versions for comparison
-        spec = model.hyperparameter_spec
-        posterior_approx = inla_result.posterior_approximation
+        # Transform to natural space for comparison with INLA marginals (which are now in natural space)
+        τ_gmrf_samples_natural = exp.(τ_gmrf_log_samples)  # Transform from log(τ) to τ
+        η_samples_natural = η_samples  # η has identity transform
 
-        τ_gmrf_log_marginal = HyperparameterMarginalDistribution(
-            posterior_approx, 1; spec = spec, space = :working
-        )
-        η_marginal = HyperparameterMarginalDistribution(
-            posterior_approx, 2; spec = spec, space = :working
-        )
+        τ_gmrf_marginal = inla_result.hyperparameter_marginals[1]
+        η_marginal = inla_result.hyperparameter_marginals[2]
 
-        # Compare hyperparameter posterior means in working space
-        @test mean(τ_gmrf_log_marginal) ≈ mean(τ_gmrf_log_samples) rtol = 0.1
+        # Compare hyperparameter posterior means in natural space
+        @test mean(τ_gmrf_marginal) ≈ mean(τ_gmrf_samples_natural) rtol = 0.1
         @test mean(η_marginal) ≈ mean(η_samples) rtol = 0.1
 
-        # Compare hyperparameter credible interval bounds in transformed space
-        inla_τ_ci = quantile(τ_gmrf_log_marginal, [0.025, 0.975])
+        # Compare hyperparameter credible interval bounds in natural space
+        inla_τ_ci = quantile(τ_gmrf_marginal, [0.025, 0.975])
         inla_η_ci = quantile(η_marginal, [0.025, 0.975])
-        mcmc_τ_ci = quantile(τ_gmrf_log_samples, [0.025, 0.975])
-        mcmc_η_ci = quantile(η_samples, [0.025, 0.975])
+        mcmc_τ_ci = quantile(τ_gmrf_samples_natural, [0.025, 0.975])
+        mcmc_η_ci = quantile(η_samples_natural, [0.025, 0.975])
 
         @test inla_τ_ci[1] ≈ mcmc_τ_ci[1] rtol = 0.2  # Lower bound
         @test inla_τ_ci[2] ≈ mcmc_τ_ci[2] rtol = 0.2  # Upper bound

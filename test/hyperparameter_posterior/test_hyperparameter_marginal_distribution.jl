@@ -74,9 +74,9 @@ using Bijectors
         spec = inla_model.hyperparameter_spec
         free_names = collect(keys(spec.free))
 
-        # Create marginal distributions for both dimensions (natural space by default)
-        marginal_1 = HyperparameterMarginalDistribution(posterior_approx, 1; spec = spec, rtol = 1.0e-3, atol = 1.0e-6)
-        marginal_2 = HyperparameterMarginalDistribution(posterior_approx, 2; spec = spec, rtol = 1.0e-3, atol = 1.0e-6)
+        # Create marginal distributions for both dimensions (natural space)
+        marginal_1 = HyperparameterMarginalDistribution(posterior_approx, 1; rtol = 1.0e-3, atol = 1.0e-6)
+        marginal_2 = HyperparameterMarginalDistribution(posterior_approx, 2; rtol = 1.0e-3, atol = 1.0e-6)
 
         @testset "Basic Properties" begin
             # Natural space bounds should be transformed from working space
@@ -239,7 +239,7 @@ using Bijectors
         @testset "Caching Behavior" begin
 
             # Create a fresh marginal distribution to test caching
-            fresh_marginal = HyperparameterMarginalDistribution(posterior_approx, 1; spec = spec, rtol = 1.0e-3, atol = 1.0e-6)
+            fresh_marginal = HyperparameterMarginalDistribution(posterior_approx, 1; rtol = 1.0e-3, atol = 1.0e-6)
 
             # Test that moments are cached
             @test isnothing(fresh_marginal._moments)
@@ -265,38 +265,11 @@ using Bijectors
 
             # Test constructor validation
             @test_throws ArgumentError HyperparameterMarginalDistribution(
-                posterior_approx, 0; spec = spec  # Invalid dimension
+                posterior_approx, 0  # Invalid dimension
             )
             @test_throws ArgumentError HyperparameterMarginalDistribution(
-                posterior_approx, 3; spec = spec  # Too high dimension for 2D problem
+                posterior_approx, 3  # Too high dimension for 2D problem
             )
-        end
-
-        @testset "Working Space Mode" begin
-            # Create marginal distribution in working space
-            marginal_working = HyperparameterMarginalDistribution(
-                posterior_approx, 1; spec = spec, space = :working
-            )
-
-            # Bounds should be in working space (not transformed)
-            @test minimum(marginal_working) ≈ exploration.integration_bounds[1, 1]
-            @test maximum(marginal_working) ≈ exploration.integration_bounds[1, 2]
-
-            # Test logpdf at mode (in working space)
-            θ_star_working = θ_star[1]
-            logpdf_mode = logpdf(marginal_working, θ_star_working)
-            @test isfinite(logpdf_mode)
-
-            # Working space marginal should differ from natural space marginal
-            θ_star_natural = to_natural(to_named_tuple(θ_star, spec), spec)
-            marginal_natural = marginal_1  # Already created in natural space
-
-            # Evaluate at corresponding points (natural and working)
-            logpdf_nat = logpdf(marginal_natural, θ_star_natural[free_names[1]])
-            logpdf_work = logpdf(marginal_working, θ_star_working)
-
-            # They should differ due to Jacobian correction
-            @test logpdf_nat != logpdf_work
         end
     end
 end
