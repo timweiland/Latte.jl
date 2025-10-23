@@ -79,38 +79,26 @@ using Bijectors
         marginal_2 = HyperparameterMarginalDistribution(posterior_approx, 2; rtol = 1.0e-3, atol = 1.0e-6)
 
         @testset "Basic Properties" begin
-            # Natural space bounds should be transformed from working space
+            # Bounds are already in natural space
+            natural_bounds_1 = (exploration.integration_bounds[1, 1], exploration.integration_bounds[1, 2])
+            natural_bounds_2 = (exploration.integration_bounds[2, 1], exploration.integration_bounds[2, 2])
 
-            # Get working space bounds
-            working_bounds_1 = (exploration.integration_bounds[1, 1], exploration.integration_bounds[1, 2])
-            working_bounds_2 = (exploration.integration_bounds[2, 1], exploration.integration_bounds[2, 2])
+            @test minimum(marginal_1) ≈ natural_bounds_1[1]
+            @test maximum(marginal_1) ≈ natural_bounds_1[2]
+            @test minimum(marginal_2) ≈ natural_bounds_2[1]
+            @test maximum(marginal_2) ≈ natural_bounds_2[2]
 
-            # Transform to natural space
-            transform_1 = spec.free[free_names[1]].transform
-            transform_2 = spec.free[free_names[2]].transform
-            natural_min_1 = inverse(transform_1)(working_bounds_1[1])
-            natural_max_1 = inverse(transform_1)(working_bounds_1[2])
-            natural_min_2 = inverse(transform_2)(working_bounds_2[1])
-            natural_max_2 = inverse(transform_2)(working_bounds_2[2])
-
-            @test minimum(marginal_1) ≈ natural_min_1
-            @test maximum(marginal_1) ≈ natural_max_1
-            @test minimum(marginal_2) ≈ natural_min_2
-            @test maximum(marginal_2) ≈ natural_max_2
-
-            # Test insupport - θ_star is in working space, need to convert
-            θ_star_natural = to_natural(to_named_tuple(θ_star, spec), spec)
-            @test insupport(marginal_1, θ_star_natural[free_names[1]])
-            @test insupport(marginal_2, θ_star_natural[free_names[2]])
+            # Test insupport - θ_star is already in natural space NamedTuple
+            @test insupport(marginal_1, θ_star[free_names[1]])
+            @test insupport(marginal_2, θ_star[free_names[2]])
             @test !insupport(marginal_1, minimum(marginal_1) - 1)
             @test !insupport(marginal_2, maximum(marginal_2) + 1)
         end
 
         @testset "PDF/LogPDF Consistency" begin
-            # Test several points in natural space
-            θ_star_natural = to_natural(to_named_tuple(θ_star, spec), spec)
-            test_points_1 = [minimum(marginal_1) + 0.1, θ_star_natural[free_names[1]], maximum(marginal_1) - 0.1]
-            test_points_2 = [minimum(marginal_2) + 0.01, θ_star_natural[free_names[2]], maximum(marginal_2) - 0.01]
+            # Test several points in natural space (θ_star is already in natural space)
+            test_points_1 = [minimum(marginal_1) + 0.1, θ_star[free_names[1]], maximum(marginal_1) - 0.1]
+            test_points_2 = [minimum(marginal_2) + 0.01, θ_star[free_names[2]], maximum(marginal_2) - 0.01]
 
             for x in test_points_1
                 @test pdf(marginal_1, x) ≈ exp(logpdf(marginal_1, x)) rtol = 1.0e-10

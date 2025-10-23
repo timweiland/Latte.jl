@@ -22,8 +22,9 @@ using Bijectors
         hp_ρ = spec.free.ρ
         @test IntegratedNestedLaplace.prior_space(hp_σ) == :natural
         @test IntegratedNestedLaplace.prior_space(hp_ρ) == :natural
-        @test hp_σ.prior isa Bijectors.TransformedDistribution
-        @test hp_ρ.prior isa Bijectors.TransformedDistribution
+        # When space=natural, priors are stored as-is (not wrapped)
+        @test hp_σ.prior isa Exponential
+        @test hp_ρ.prior isa Beta
     end
 
     @testset "Call aliases (Log, Logit, Identity)" begin
@@ -36,9 +37,9 @@ using Bijectors
         @test length(keys(spec.free)) == 3
         @test keys(spec.free) == (:σ, :ρ, :μ)
 
-        # All should be transformed except Identity
-        @test spec.free.σ.prior isa Bijectors.TransformedDistribution
-        @test spec.free.ρ.prior isa Bijectors.TransformedDistribution
+        # When space=natural, priors are stored as-is (not wrapped)
+        @test spec.free.σ.prior isa Exponential
+        @test spec.free.ρ.prior isa Beta
         @test spec.free.μ.prior isa Normal  # Identity doesn't transform
     end
 
@@ -48,7 +49,8 @@ using Bijectors
         end
 
         @test length(keys(spec.free)) == 1
-        @test spec.free.τ.prior isa Bijectors.TransformedDistribution
+        # When space=natural, priors are stored as-is (not wrapped)
+        @test spec.free.τ.prior isa Gamma
     end
 
     @testset "Identity transform (default)" begin
@@ -92,7 +94,8 @@ using Bijectors
 
         @test length(keys(spec.free)) == 1
         @test IntegratedNestedLaplace.prior_space(spec.free.σ) == :natural
-        @test spec.free.σ.prior isa Bijectors.TransformedDistribution
+        # When prior_space=natural, priors are stored as-is (not wrapped)
+        @test spec.free.σ.prior isa Exponential
     end
 
     @testset "Equivalence with manual construction" begin
@@ -120,8 +123,8 @@ using Bijectors
         # Test that they behave the same
         θ_working = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
 
-        θ_natural_macro = to_natural(θ_working, spec_macro)
-        θ_natural_manual = to_natural(θ_working, spec_manual)
+        θ_natural_macro = working_to_natural(θ_working, spec_macro)
+        θ_natural_manual = working_to_natural(θ_working, spec_manual)
 
         @test θ_natural_macro.σ ≈ θ_natural_manual.σ atol = 1.0e-10
         @test θ_natural_macro.ρ ≈ θ_natural_manual.ρ atol = 1.0e-10
@@ -245,7 +248,7 @@ using Bijectors
 
         # Test transformations
         θ_working = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
-        θ_natural = to_natural(θ_working, spec)
+        θ_natural = working_to_natural(θ_working, spec)
 
         @test θ_natural.σ ≈ 2.0 atol = 1.0e-10
         @test θ_natural.ρ ≈ 0.7 atol = 1.0e-10
@@ -261,13 +264,12 @@ using Bijectors
             (σ ~ Exponential(1.0), transform = log, space = natural)
         end
 
-        # Evaluate prior in working space
-        θ_working = (σ = log(2.0),)
-        log_p = logpdf_prior(θ_working, spec)
+        # logpdf_prior evaluates in natural space (no Jacobian needed when space=natural)
+        θ_natural = (σ = 2.0,)
+        log_p = logpdf_prior(θ_natural, spec)
 
-        # Should equal: log[p(σ) * |dσ/d(log σ)|] = log[p(σ) * σ]
-        σ_natural = 2.0
-        log_p_expected = logpdf(Exponential(1.0), σ_natural) + log(σ_natural)
+        # Should equal: log p(σ) in natural space (no Jacobian)
+        log_p_expected = logpdf(Exponential(1.0), 2.0)
 
         @test log_p ≈ log_p_expected atol = 1.0e-10
     end
@@ -282,14 +284,15 @@ using Bijectors
         θ_working = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
 
         # Test type stability of key functions with the macro-generated spec
-        @test @inferred(to_natural(θ_working, spec)) isa NamedTuple
+        @test @inferred(working_to_natural(θ_working, spec)) isa NamedTuple
         @test @inferred(logpdf_prior(θ_working, spec)) isa Float64
 
         θ_vec = [log(2.0), Bijectors.Logit(0.0, 1.0)(0.7)]
         result_nt = to_named_tuple(θ_vec, spec)
-        @test result_nt isa NamedTuple{(:σ, :ρ)}
+        @test result_nt isa NamedTuple{(:σ, :ρ, :μ)}
         @test result_nt.σ ≈ θ_vec[1]
         @test result_nt.ρ ≈ θ_vec[2]
+        @test result_nt.μ == 0.0  # Fixed parameter
 
         @test @inferred(to_vector(θ_working, spec)) isa Vector{Float64}
     end

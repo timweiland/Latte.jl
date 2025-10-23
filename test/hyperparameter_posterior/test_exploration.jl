@@ -33,8 +33,9 @@ using FiniteDiff
         # Find mode
         θ_star, _, _ = find_hyperparameter_mode(model, y_test)
 
-        # Compute reparameterization
-        transform = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star)
+        # Compute reparameterization (convert NamedTuple to vector, staying in natural space)
+        θ_star_vec = to_vector(θ_star, model.hyperparameter_spec)
+        transform = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star_vec)
 
         @test size(transform.H) == (1, 1)
         @test size(transform.V) == (1, 1)
@@ -79,7 +80,9 @@ using FiniteDiff
         # Find mode (point with highest log density)
         max_idx = argmax([point.log_density for point in exploration.grid_points])
         mode_point = exploration.grid_points[max_idx]
-        @test mode_point.θ ≈ θ_star atol = 1.0e-10
+        # Convert θ_star to vector for comparison (exploration stores vectors in natural space)
+        θ_star_vec = to_vector(θ_star, spec)
+        @test mode_point.θ ≈ θ_star_vec atol = 1.0e-10
 
         @test length(exploration.grid_points) >= 3  # Should have multiple points
         @test all(isfinite, [point.log_density for point in exploration.grid_points])
@@ -91,7 +94,7 @@ using FiniteDiff
         # Mode should be included in integration points
         mode_found = false
         for idx in exploration.integration_indices
-            if exploration.grid_points[idx].θ ≈ θ_star
+            if exploration.grid_points[idx].θ ≈ to_vector(θ_star, spec)
                 mode_found = true
                 break
             end

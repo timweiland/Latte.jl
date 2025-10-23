@@ -9,24 +9,27 @@ using LinearAlgebra
     @testset "Hyperparameter Construction" begin
         # Test basic construction with identity transform
         hp1 = Hyperparameter(Normal(0, 10), transform = identity, prior_space = :working)
+        # Identity transform with working space → prior stored as-is (no wrapping)
         @test hp1.prior isa Normal
         @test hp1.transform == identity
         @test IntegratedNestedLaplace.prior_space(hp1) == :working
 
         # Test construction with log transform in working space
-        hp2 = Hyperparameter(Normal(0, 1), transform = elementwise(exp), prior_space = :working)
-        @test hp2.prior isa Normal
+        hp2 = Hyperparameter(Normal(0, 1), transform = elementwise(log), prior_space = :working)
+        # Prior specified in working space → transformed back to natural space
+        @test hp2.prior isa Bijectors.TransformedDistribution
         @test IntegratedNestedLaplace.prior_space(hp2) == :working
 
         # Test construction with log transform in natural space (PC prior)
         hp3 = Hyperparameter(Exponential(1.0), transform = elementwise(log), prior_space = :natural)
-        # Prior should be transformed to working space
-        @test hp3.prior isa Bijectors.TransformedDistribution
+        # Prior specified in natural space → stored as-is
+        @test hp3.prior isa Exponential
         @test IntegratedNestedLaplace.prior_space(hp3) == :natural
 
         # Test construction with logit transform
         hp4 = Hyperparameter(Beta(2, 2), transform = Bijectors.Logit(0.0, 1.0), prior_space = :natural)
-        @test hp4.prior isa Bijectors.TransformedDistribution
+        # Prior specified in natural space → stored as-is
+        @test hp4.prior isa Beta
         @test IntegratedNestedLaplace.prior_space(hp4) == :natural
     end
 
@@ -64,14 +67,14 @@ using LinearAlgebra
         @test_throws ErrorException HyperparameterSpec(free = (σ = hp1,), fixed = (σ = 1.0,))
     end
 
-    @testset "to_natural and to_working transformations" begin
+    @testset "working_to_natural and to_working transformations" begin
         # Test with log transform (natural → working is log)
         hp_σ = Hyperparameter(Exponential(1.0), transform = elementwise(log), prior_space = :natural)
         spec = HyperparameterSpec(free = (σ = hp_σ,), fixed = (μ = 0.0,))
 
         # Working space (log scale)
         θ_working = (σ = -0.5,)
-        θ_natural = to_natural(θ_working, spec)
+        θ_natural = working_to_natural(θ_working, spec)
 
         @test θ_natural.σ ≈ exp(-0.5) atol = 1.0e-10
         @test θ_natural.μ == 0.0  # Fixed parameter included
@@ -80,7 +83,7 @@ using LinearAlgebra
         θ_working_back = to_working(θ_natural, spec)
         @test θ_working_back.σ ≈ θ_working.σ atol = 1.0e-10
 
-        θ_natural_back = to_natural(θ_working_back, spec)
+        θ_natural_back = working_to_natural(θ_working_back, spec)
         @test θ_natural_back.σ ≈ θ_natural.σ atol = 1.0e-10
         @test θ_natural_back.μ == 0.0
 
@@ -89,7 +92,7 @@ using LinearAlgebra
         spec2 = HyperparameterSpec(free = (σ = hp_σ, ρ = hp_ρ), fixed = (μ = 0.0,))
 
         θ_working2 = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
-        θ_natural2 = to_natural(θ_working2, spec2)
+        θ_natural2 = working_to_natural(θ_working2, spec2)
 
         @test θ_natural2.σ ≈ 2.0 atol = 1.0e-10
         @test θ_natural2.ρ ≈ 0.7 atol = 1.0e-10
@@ -105,55 +108,67 @@ using LinearAlgebra
         spec3 = HyperparameterSpec(free = (μ = hp_μ,), fixed = NamedTuple())
 
         θ_working3 = (μ = 5.0,)
-        θ_natural3 = to_natural(θ_working3, spec3)
+        θ_natural3 = working_to_natural(θ_working3, spec3)
         @test θ_natural3.μ == 5.0  # Identity transform
 
         θ_working3_back = to_working(θ_natural3, spec3)
         @test θ_working3_back.μ == 5.0
     end
 
-    @testset "logpdf_prior with Jacobian correction" begin
-        # Test PC prior: Exponential on σ, optimized on log(σ)
-        hp_σ = Hyperparameter(Exponential(1.0), transform = elementwise(log), prior_space = :natural)
-        spec = HyperparameterSpec(free = (σ = hp_σ,), fixed = NamedTuple())
+    @testset "logpdf_prior in natural space" begin
+        # CASE 1: Prior specified in natural space (prior_space=:natural)
+        # Prior is stored as-is, no Jacobian in evaluation
+        hp_σ_nat = Hyperparameter(Exponential(1.0), transform = elementwise(log), prior_space = :natural)
+        spec_nat = HyperparameterSpec(free = (σ = hp_σ_nat,), fixed = NamedTuple())
 
-        # In working space (log σ)
-        θ_working = (σ = log(2.0),)
-        log_p_working = logpdf_prior(θ_working, spec)
+        θ_natural = (σ = 2.0,)
+        log_p_nat = logpdf_prior(θ_natural, spec_nat)
 
-        # Manually compute: log[p(σ) * |dσ/d(log σ)|] = log[p(σ) * σ]
-        σ_natural = 2.0
-        log_p_natural = logpdf(Exponential(1.0), σ_natural)
-        log_jacobian = log(σ_natural)  # Jacobian of exp transformation
-        log_p_expected = log_p_natural + log_jacobian
+        # Expected: just log p(σ) in natural space, no Jacobian
+        log_p_expected_nat = logpdf(Exponential(1.0), 2.0)
+        @test log_p_nat ≈ log_p_expected_nat atol = 1.0e-10
 
-        @test log_p_working ≈ log_p_expected atol = 1.0e-10
+        # CASE 2: Prior specified in working space (prior_space=:working)
+        # Prior is transformed back to natural space, Jacobian included automatically
+        hp_σ_work = Hyperparameter(Normal(0, 1), transform = elementwise(log), prior_space = :working)
+        spec_work = HyperparameterSpec(free = (σ = hp_σ_work,), fixed = NamedTuple())
 
-        # Test with multiple parameters
+        θ_natural2 = (σ = 2.0,)
+        log_p_work = logpdf_prior(θ_natural2, spec_work)
+
+        # Expected: log p(log(σ)) + log|d(log(σ))/dσ|
+        # = log p(log(2)) + log(1/2)
+        # Since hp_σ_work.prior is TransformedDistribution, this is automatic
+        log_p_expected_work = logpdf(Normal(0, 1), log(2.0)) + log(1 / 2.0)
+        @test log_p_work ≈ log_p_expected_work atol = 1.0e-10
+
+        # CASE 3: Multiple parameters, mixed spaces
         hp_ρ = Hyperparameter(Beta(2, 2), transform = Bijectors.Logit(0.0, 1.0), prior_space = :natural)
-        spec2 = HyperparameterSpec(free = (σ = hp_σ, ρ = hp_ρ), fixed = NamedTuple())
+        spec_mixed = HyperparameterSpec(free = (σ = hp_σ_nat, ρ = hp_ρ), fixed = NamedTuple())
 
-        θ_working2 = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
-        log_p_working2 = logpdf_prior(θ_working2, spec2)
+        θ_natural3 = (σ = 2.0, ρ = 0.7)
+        log_p_mixed = logpdf_prior(θ_natural3, spec_mixed)
 
-        # Should be sum of individual log priors (independence)
-        σ_nat = 2.0
-        ρ_nat = 0.7
-        log_p_σ = logpdf(Exponential(1.0), σ_nat) + log(σ_nat)
-        log_p_ρ = logpdf(Beta(2, 2), ρ_nat) + log(ρ_nat * (1 - ρ_nat))
-        log_p_expected2 = log_p_σ + log_p_ρ
+        # Should be sum: σ in natural space (no Jacobian) + ρ in natural space (no Jacobian)
+        log_p_σ = logpdf(Exponential(1.0), 2.0)
+        log_p_ρ = logpdf(Beta(2, 2), 0.7)
+        log_p_expected_mixed = log_p_σ + log_p_ρ
 
-        @test log_p_working2 ≈ log_p_expected2 atol = 1.0e-10
+        @test log_p_mixed ≈ log_p_expected_mixed atol = 1.0e-10
 
-        # Test with identity transform (no Jacobian)
-        hp_μ = Hyperparameter(Normal(0, 10), transform = identity, prior_space = :working)
-        spec3 = HyperparameterSpec(free = (μ = hp_μ,), fixed = NamedTuple())
+        # CASE 4: Identity transform (both spaces should give same result)
+        hp_μ_work = Hyperparameter(Normal(0, 10), transform = identity, prior_space = :working)
+        hp_μ_nat = Hyperparameter(Normal(0, 10), transform = identity, prior_space = :natural)
+        spec_work_id = HyperparameterSpec(free = (μ = hp_μ_work,), fixed = NamedTuple())
+        spec_nat_id = HyperparameterSpec(free = (μ = hp_μ_nat,), fixed = NamedTuple())
 
-        θ_working3 = (μ = 5.0,)
-        log_p_working3 = logpdf_prior(θ_working3, spec3)
-        log_p_expected3 = logpdf(Normal(0, 10), 5.0)
+        θ_natural4 = (μ = 5.0,)
+        log_p_work_id = logpdf_prior(θ_natural4, spec_work_id)
+        log_p_nat_id = logpdf_prior(θ_natural4, spec_nat_id)
+        log_p_expected4 = logpdf(Normal(0, 10), 5.0)
 
-        @test log_p_working3 ≈ log_p_expected3 atol = 1.0e-10
+        @test log_p_work_id ≈ log_p_expected4 atol = 1.0e-10
+        @test log_p_nat_id ≈ log_p_expected4 atol = 1.0e-10
     end
 
     @testset "to_named_tuple and to_vector conversions" begin
@@ -185,17 +200,19 @@ using LinearAlgebra
         spec = HyperparameterSpec(free = (σ = hp_σ, ρ = hp_ρ), fixed = (μ = 0.0,))
 
         θ_working = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
+        θ_natural = working_to_natural(θ_working, spec)
 
         # Test type stability of key functions
-        @test @inferred(to_natural(θ_working, spec)) isa NamedTuple
-        @test @inferred(logpdf_prior(θ_working, spec)) isa Float64
+        @test @inferred(working_to_natural(θ_working, spec)) isa NamedTuple
+        @test @inferred(logpdf_prior(θ_natural, spec)) isa Float64
 
         θ_vec = [log(2.0), Bijectors.Logit(0.0, 1.0)(0.7)]
-        # Test that to_named_tuple returns correct concrete type (fieldnames extraction ensures type stability)
+        # Test that to_named_tuple returns correct concrete type including fixed parameters
         result_nt = to_named_tuple(θ_vec, spec)
-        @test result_nt isa NamedTuple{(:σ, :ρ)}
+        @test result_nt isa NamedTuple{(:σ, :ρ, :μ)}
         @test result_nt.σ ≈ θ_vec[1]
         @test result_nt.ρ ≈ θ_vec[2]
+        @test result_nt.μ == 0.0  # Fixed parameter
 
         @test @inferred(to_vector(θ_working, spec)) isa Vector{Float64}
 
@@ -229,13 +246,13 @@ using LinearAlgebra
 
         # Very small σ
         θ_working_small = (σ = -10.0,)  # σ ≈ 4.5e-5
-        θ_natural_small = to_natural(θ_working_small, spec)
+        θ_natural_small = working_to_natural(θ_working_small, spec)
         @test θ_natural_small.σ ≈ exp(-10.0) atol = 1.0e-15
         @test θ_natural_small.σ > 0
 
         # Very large σ
         θ_working_large = (σ = 10.0,)  # σ ≈ 22026
-        θ_natural_large = to_natural(θ_working_large, spec)
+        θ_natural_large = working_to_natural(θ_working_large, spec)
         @test θ_natural_large.σ ≈ exp(10.0) atol = 1.0e-10
         @test isfinite(θ_natural_large.σ)
 
@@ -245,13 +262,13 @@ using LinearAlgebra
 
         # Near 0
         θ_working_low = (ρ = -5.0,)  # ρ ≈ 0.0067
-        θ_natural_low = to_natural(θ_working_low, spec2)
+        θ_natural_low = working_to_natural(θ_working_low, spec2)
         @test θ_natural_low.ρ ≈ inverse(Bijectors.Logit(0.0, 1.0))(-5.0) atol = 1.0e-10
         @test 0 < θ_natural_low.ρ < 1
 
         # Near 1
         θ_working_high = (ρ = 5.0,)  # ρ ≈ 0.9933
-        θ_natural_high = to_natural(θ_working_high, spec2)
+        θ_natural_high = working_to_natural(θ_working_high, spec2)
         @test θ_natural_high.ρ ≈ inverse(Bijectors.Logit(0.0, 1.0))(5.0) atol = 1.0e-10
         @test 0 < θ_natural_high.ρ < 1
     end

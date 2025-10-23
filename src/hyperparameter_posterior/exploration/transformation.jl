@@ -44,8 +44,16 @@ end
 
 Computes the reparameterization around the mode and returns it as a
 `ReparameterizationTransform` object.
+
+# Arguments
+- `model::INLAModel`: The INLA model
+- `y`: Observed data
+- `θ_star::AbstractVector`: Hyperparameter mode in natural space (as vector)
+
+# Returns
+- `ReparameterizationTransform`: Transform object containing eigendecomposition
 """
-function compute_reparameterization(model::INLAModel, y, θ_star)
+function compute_reparameterization(model::INLAModel, y, θ_star::AbstractVector)
     # Compute the positive-definite negative Hessian of the log-posterior at the mode
     H = -FiniteDiff.finite_difference_hessian(θ -> hyperparameter_logpdf(model, to_named_tuple(θ, model.hyperparameter_spec), y), θ_star)
 

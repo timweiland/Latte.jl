@@ -208,8 +208,9 @@ function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{I
 
     base_gmrf = GMRF(μ_cond_active, Q_conditional)
     constraint_mat = zeros(1, length(base_gmrf))
-    constraint_mat[1, cache.conditioning_index] = 1.0
-    constraint_vec = [μ_conditional[cache.conditioning_index]]
+    c_idx = only(indexin(cache.conditioning_index, active_set))
+    constraint_mat[1, c_idx] = 1.0
+    constraint_vec = [μ_conditional[c_idx]]
     out_gmrf = ConstrainedGMRF(base_gmrf, constraint_mat, constraint_vec)
 
     return out_gmrf

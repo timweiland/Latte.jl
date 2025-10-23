@@ -95,7 +95,7 @@ using SparseArrays
         @test isfinite(marginal_2)
 
         # Test evaluation at joint mode
-        joint_at_mode = posterior_approx(θ_star)
+        joint_at_mode = posterior_approx(to_vector(θ_star, spec))
         @test isfinite(joint_at_mode)
 
         # Test that marginals are reasonable relative to joint
