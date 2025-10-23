@@ -100,6 +100,10 @@ function Hyperparameter(
         # Prior already in natural space, store as-is
         return Hyperparameter(prior, transform, Val(:natural))
     elseif prior_space == :working
+        # Special case: identity transform means working = natural space
+        if transform === identity
+            return Hyperparameter(prior, transform, Val(:working))
+        end
         # Prior in working space, transform back to natural space
         # working → natural uses inverse(transform)
         natural_prior = transformed(prior, inverse(transform))
@@ -301,7 +305,7 @@ spec = HyperparameterSpec(
 θ_nt = to_named_tuple(θ_vec, spec)  # (σ = -0.5, ρ = 0.2) in working space
 ```
 """
-function to_named_tuple(θ_vec::Vector, spec::HyperparameterSpec{Free}) where {Free}
+function to_named_tuple(θ_vec::Vector, spec::HyperparameterSpec{Free, Fixed}) where {Free, Fixed}
     # Extract names from the Free type parameter at compile time
     free_names = fieldnames(Free)
 
@@ -309,7 +313,10 @@ function to_named_tuple(θ_vec::Vector, spec::HyperparameterSpec{Free}) where {F
         error("Vector length ($(length(θ_vec))) does not match number of free parameters ($(length(free_names)))")
     end
 
-    return NamedTuple{free_names}(θ_vec)
+    θ_free = NamedTuple{free_names}(θ_vec)
+
+    # Merge with fixed parameters
+    return merge(θ_free, spec.fixed)
 end
 
 """
@@ -318,7 +325,7 @@ end
 Convert a NamedTuple of free parameters to a vector.
 
 # Arguments
-- `θ_nt::NamedTuple`: Free parameters with names (in working space)
+- `θ_nt::NamedTuple`: Free parameters with names
 - `spec::HyperparameterSpec`: Hyperparameter specification
 
 # Returns

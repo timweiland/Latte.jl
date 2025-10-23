@@ -104,14 +104,14 @@ function explore_hyperparameter_posterior(
         interpolation_subdivisions::Int = 2,
         progress_callback = nothing
     )
-    n_dim = length(θ_star_nt)
-
     # Handle progress callback
     if progress_callback === nothing
         progress_callback = (; kwargs...) -> nothing
     end
 
     θ_star = to_vector(θ_star_nt, model.hyperparameter_spec)
+
+    n_dim = length(θ_star)
 
     # Step 1: Compute the transformation object
     progress_callback(status = "Computing reparameterization", dimensions = n_dim)

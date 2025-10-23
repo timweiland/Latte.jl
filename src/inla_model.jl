@@ -175,7 +175,7 @@ function Random.rand(rng::AbstractRNG, model::INLAModel)
 
     # Convert to named tuples
     θ_working = to_named_tuple(θ_working_vec, spec)
-    θ_natural = to_natural(θ_working, spec)  # Includes fixed parameters - this is what user sees
+    θ_natural = working_to_natural(θ_working, spec)  # Includes fixed parameters - this is what user sees
 
     # Generate latent GMRF and sample from it
     gmrf = latent_gmrf(model, θ_natural)

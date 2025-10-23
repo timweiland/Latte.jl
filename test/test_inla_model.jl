@@ -103,18 +103,20 @@ using Random
         y = x + 0.1 * randn(6)  # Noisy observations
 
         # Test joint density evaluation
-        log_joint = log_joint_density(model, x, θ, y)
+        θ_natural = working_to_natural(θ, spec)
+        log_joint = log_joint_density(model, x, θ_natural, y)
         @test isa(log_joint, Real)
         @test isfinite(log_joint)
 
         # Test that different parameters give different densities
         θ2 = [log(0.8)]
-        log_joint2 = log_joint_density(model, x, θ2, y)
+        θ2_natural = working_to_natural(θ2, spec)
+        log_joint2 = log_joint_density(model, x, θ2_natural, y)
         @test log_joint != log_joint2
 
         # Test with different latent field
         x2 = 2 * x
-        log_joint3 = log_joint_density(model, x2, θ, y)
+        log_joint3 = log_joint_density(model, x2, θ_natural, y)
         @test log_joint != log_joint3
     end
 
@@ -141,7 +143,9 @@ using Random
         x = randn(5)
         y = x + 0.1 * randn(5)
 
-        log_joint = log_joint_density(model, x, θ, y)
+        # Convert to natural space for log_joint_density
+        θ_natural = working_to_natural(θ, spec)
+        log_joint = log_joint_density(model, x, θ_natural, y)
         @test isfinite(log_joint)
     end
 
@@ -170,7 +174,8 @@ using Random
         x = randn(8)
         y = rand(8) .> 0.5  # Binary data
 
-        log_joint = log_joint_density(model_bernoulli, x, θ, y)
+        θ_natural = working_to_natural(θ, spec)
+        log_joint = log_joint_density(model_bernoulli, x, θ_natural, y)
         @test isfinite(log_joint)
     end
 
@@ -194,7 +199,8 @@ using Random
         θ_named = (σ = 1.0,)  # Natural space
 
         # Test type stability
-        @inferred Float64 log_joint_density(model, x, θ, y)
+        θ_natural = working_to_natural(θ, spec)
+        @inferred Float64 log_joint_density(model, x, θ_natural, y)
         @inferred GMRF latent_gmrf(model, θ_named)
     end
 
@@ -255,7 +261,8 @@ using Random
         x = randn(6)
         y = x + 0.1 * randn(6)
 
-        log_joint = log_joint_density(model, x, θ, y)
+        θ_natural = working_to_natural(θ, spec)
+        log_joint = log_joint_density(model, x, θ_natural, y)
         @test isfinite(log_joint)
     end
 

@@ -45,11 +45,17 @@ function _initial_guess_for_hyperparameter(hp::Hyperparameter{T, S}) where {T, S
         # Transform to working space for optimization
         return hp.transform(initial_natural)
     else
-        # Prior was specified in working space, transformed back to natural space
-        # hp.prior is a TransformedDistribution, extract the base distribution (in working space)
-        base_dist = hp.prior.dist
-        # Initial guess is already in working space, no transform needed
-        return _robust_initial_value(base_dist)
+        # Prior was specified in working space
+        # When transform=identity, prior is stored as-is (not wrapped)
+        # Otherwise, prior is a TransformedDistribution
+        if hp.transform === identity
+            # Identity transform: prior stored directly, already in working space
+            return _robust_initial_value(hp.prior)
+        else
+            # Non-identity transform: prior is TransformedDistribution, extract base
+            base_dist = hp.prior.dist
+            return _robust_initial_value(base_dist)
+        end
     end
 end
 
@@ -62,15 +68,21 @@ This is the INLA approximation to the hyperparameter posterior.
 
 # Arguments
 - `model::INLAModel`: The INLA model specification
-- `θ`: Hyperparameter vector in working space (unconstrained)
+- `θ`: Hyperparameters (as Vector in working space, or NamedTuple in natural space)
 - `y`: Observed data
 - `ga`: Optional pre-computed Gaussian approximation (GMRF object). If `nothing`, will be computed.
 
 # Details
-- `θ` is in working (unconstrained) space for optimization
-- Automatically converts to natural space for model evaluation via `log_joint_density`
+- When `θ` is a vector, it's assumed to be in working (unconstrained) space
+- Automatically converts to natural space for model evaluation
 - Prior includes Jacobian correction for transformations
 """
+function hyperparameter_logpdf(model::INLAModel, θ::AbstractVector, y, ga = nothing)
+    spec = model.hyperparameter_spec
+    θ_natural = working_to_natural(θ, spec)
+    return hyperparameter_logpdf(model, θ_natural, y, ga)
+end
+
 function hyperparameter_logpdf(model::INLAModel, θ_natural::NamedTuple, y, ga = nothing)
     # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
     spec = model.hyperparameter_spec

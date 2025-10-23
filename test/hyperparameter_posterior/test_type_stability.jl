@@ -29,7 +29,7 @@ using SparseArrays
         @inferred Float64 hyperparameter_logpdf(model, θ_test, y_test)
 
         θ_star, _, _ = find_hyperparameter_mode(model, y_test; collect_points = false)
-        @inferred Vector{Float64} find_hyperparameter_mode(model, y_test; collect_points = false)[1]
+        @inferred NamedTuple find_hyperparameter_mode(model, y_test; collect_points = false)[1]
 
         # Test initial hyperparameter guess function with spec
         @inferred Vector{Float64} IntegratedNestedLaplace.initial_hyperparameter_guess(spec)
@@ -125,10 +125,10 @@ using SparseArrays
         θ_star_3d, _, _ = find_hyperparameter_mode(model_3d, y_test_3d)
         @test length(θ_star_3d) == 3
 
-        # All should be in valid range
-        @test all(θ_star_1d .> 0)
-        @test all(θ_star_2d .> 0)
-        @test all(θ_star_3d .> 0)
+        # All should be in valid range (natural space, all positive)
+        @test all(x -> x > 0, values(θ_star_1d))
+        @test all(x -> x > 0, values(θ_star_2d))
+        @test all(x -> x > 0, values(θ_star_3d))
     end
 
     @testset "Numerical Stability" begin
@@ -183,16 +183,17 @@ using SparseArrays
 
         y_test = [true, false, true, false]
 
-        # Run multiple times
-        modes = Vector{Float64}[]
+        # Run multiple times (θ_star is now a NamedTuple in natural space)
+        modes = NamedTuple[]
         for i in 1:3
             θ_star, _, _ = find_hyperparameter_mode(model, y_test)
             push!(modes, θ_star)
         end
 
         # All runs should give same result (within numerical tolerance)
+        # Compare the values in the NamedTuples
         for i in 2:length(modes)
-            @test modes[i] ≈ modes[1] atol = 1.0e-6
+            @test modes[i].ρ ≈ modes[1].ρ atol = 1.0e-6
         end
     end
 

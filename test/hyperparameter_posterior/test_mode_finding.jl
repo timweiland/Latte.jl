@@ -62,20 +62,22 @@ using FiniteDiff
         # Find mode
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
 
-        @test length(θ_star) == 1
-        @test isfinite(θ_star[1])
-        # θ_star is in working space (log scale), so it can be any real number
+        @test length(θ_star) == 1  # NamedTuple with 1 field
+        @test isfinite(θ_star.σ)  # σ should be finite in natural space
+        @test θ_star.σ > 0  # σ must be positive in natural space
 
         # Test optimality condition: gradient should be ≈ 0 at mode
+        # Convert to working space vector for gradient computation
+        θ_star_working = to_vector(to_working(θ_star, spec), spec)
         function objective(θ)
             return hyperparameter_logpdf(model, θ, y_test)
         end
 
-        grad_at_mode = FiniteDiff.finite_difference_gradient(objective, θ_star)
+        grad_at_mode = FiniteDiff.finite_difference_gradient(objective, θ_star_working)
         @test abs(grad_at_mode[1]) < 1.0e-3  # Gradient should be near zero
 
         # Test second-order condition: Hessian should be negative definite
-        hess_at_mode = FiniteDiff.finite_difference_hessian(objective, θ_star)
+        hess_at_mode = FiniteDiff.finite_difference_hessian(objective, θ_star_working)
         @test hess_at_mode[1, 1] < 0  # Negative definite for 1D case
 
         # Test mode collection during optimization
