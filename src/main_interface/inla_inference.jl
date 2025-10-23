@@ -126,10 +126,10 @@ function inla(
     # Finish progress tracking
     finish_progress!(progress_state)
 
-    # Create hyperparameter marginals (lazy - instantaneous, default to natural space)
+    # Create hyperparameter marginals (lazy - instantaneous, in natural space)
     n_hyperparams = length(keys(model.hyperparameter_spec.free))
     hyperparameter_marginals = [
-        HyperparameterMarginalDistribution(posterior_approx, i; spec = model.hyperparameter_spec)
+        HyperparameterMarginalDistribution(posterior_approx, i)
             for i in 1:n_hyperparams
     ]
 
