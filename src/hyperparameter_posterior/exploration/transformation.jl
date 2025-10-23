@@ -47,7 +47,7 @@ Computes the reparameterization around the mode and returns it as a
 """
 function compute_reparameterization(model::INLAModel, y, θ_star)
     # Compute the positive-definite negative Hessian of the log-posterior at the mode
-    H = -FiniteDiff.finite_difference_hessian(θ -> hyperparameter_logpdf(model, θ, y), θ_star)
+    H = -FiniteDiff.finite_difference_hessian(θ -> hyperparameter_logpdf(model, to_named_tuple(θ, model.hyperparameter_spec), y), θ_star)
 
     eigen_result = eigen(H)
 

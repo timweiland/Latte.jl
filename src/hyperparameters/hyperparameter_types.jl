@@ -3,7 +3,7 @@ using Bijectors
 using Printf
 
 export Hyperparameter, HyperparameterSpec
-export to_natural, to_working, logpdf_prior, to_named_tuple, to_vector
+export working_to_natural, to_working, logpdf_prior, to_named_tuple, to_vector
 
 using Bijectors: elementwise
 export elementwise
@@ -50,7 +50,7 @@ spec = HyperparameterSpec(
 ```
 """
 struct Hyperparameter{T, S}
-    prior::Distribution          # Always stored in working space
+    prior::Distribution          # Always stored in natural space
     transform::T                 # natural → working transformation
 
     function Hyperparameter(prior::Distribution, transform::T, ::Val{S}) where {T, S}
@@ -72,8 +72,8 @@ Construct a Hyperparameter with automatic prior space conversion.
 - `prior_space::Symbol`: Space in which prior is specified (`:natural` or `:working`, default: `:working`)
 
 # Details
-When `prior_space=:natural`, the prior is automatically transformed to working space using
-`transformed(prior, transform)`, which includes the appropriate Jacobian correction.
+The prior is always stored internally in natural space. When `prior_space=:working`, the prior
+is automatically transformed back to natural space using `transformed(prior, inverse(transform))`.
 
 # Examples
 ```julia
@@ -97,13 +97,13 @@ function Hyperparameter(
     )
 
     if prior_space == :natural
-        # Convert natural-space prior to working-space prior with Jacobian correction
-        # transform maps natural → working, so we use it directly
-        working_prior = transformed(prior, transform)
-        return Hyperparameter(working_prior, transform, Val(:natural))
+        # Prior already in natural space, store as-is
+        return Hyperparameter(prior, transform, Val(:natural))
     elseif prior_space == :working
-        # Prior already in working space
-        return Hyperparameter(prior, transform, Val(:working))
+        # Prior in working space, transform back to natural space
+        # working → natural uses inverse(transform)
+        natural_prior = transformed(prior, inverse(transform))
+        return Hyperparameter(natural_prior, transform, Val(:working))
     else
         error("prior_space must be :natural or :working, got :$prior_space")
     end
@@ -167,7 +167,7 @@ struct HyperparameterSpec{Free, Fixed}
 end
 
 """
-    to_natural(θ_working::NamedTuple, spec::HyperparameterSpec) -> NamedTuple
+    working_to_natural(θ_working::NamedTuple, spec::HyperparameterSpec) -> NamedTuple
 
 Transform hyperparameters from working space to natural space.
 
@@ -186,10 +186,10 @@ spec = HyperparameterSpec(
 )
 
 θ_working = (σ = -0.5,)  # log(σ) in working space
-θ_natural = to_natural(θ_working, spec)  # (σ = exp(-0.5) ≈ 0.606, μ = 0.0)
+θ_natural = working_to_natural(θ_working, spec)  # (σ = exp(-0.5) ≈ 0.606, μ = 0.0)
 ```
 """
-function to_natural(θ_working::NamedTuple, spec::HyperparameterSpec)
+function working_to_natural(θ_working::NamedTuple, spec::HyperparameterSpec)
     # Transform free parameters from working to natural space
     θ_free_natural = map(keys(spec.free), values(spec.free)) do name, hp
         working_value = θ_working[name]
@@ -200,6 +200,10 @@ function to_natural(θ_working::NamedTuple, spec::HyperparameterSpec)
 
     # Merge with fixed parameters
     return merge(θ_free_natural_nt, spec.fixed)
+end
+
+function working_to_natural(θ_working::AbstractVector, spec::HyperparameterSpec)
+    return working_to_natural(to_named_tuple(θ_working, spec), spec)
 end
 
 """
@@ -237,22 +241,21 @@ function to_working(θ_natural::NamedTuple, spec::HyperparameterSpec)
 end
 
 """
-    logpdf_prior(θ_working::NamedTuple, spec::HyperparameterSpec) -> Float64
+    logpdf_prior(θ_natural::NamedTuple, spec::HyperparameterSpec) -> Float64
 
-Evaluate the log prior density in working space (includes Jacobian correction).
+Evaluate the log prior density in natural space (no Jacobian correction).
 
 # Arguments
-- `θ_working::NamedTuple`: Free parameters in working space
+- `θ_natural::NamedTuple`: Free parameters in natural space
 - `spec::HyperparameterSpec`: Hyperparameter specification
 
 # Returns
-- `Float64`: Log prior density, properly accounting for the transformation Jacobian
+- `Float64`: Log prior density in natural space
 
 # Details
-The prior distributions in `spec.free` are already stored in working space (transformed
-during construction if they were originally specified in natural space using `transformed()`).
+The prior distributions in `spec.free` are stored in natural space.
 This function evaluates the joint log prior density by summing the individual log prior densities.
-The Jacobian correction is baked into the transformed distributions.
+No Jacobian correction is applied - this evaluates π(θ) directly.
 
 # Example
 ```julia
@@ -260,16 +263,16 @@ spec = HyperparameterSpec(
     free = (σ = Hyperparameter(Exponential(1.0), transform=elementwise(log), prior_space=:natural),)
 )
 
-θ_working = (σ = -0.5,)  # log(σ)
-log_p = logpdf_prior(θ_working, spec)  # Includes Jacobian correction
+θ_natural = (σ = 2.0,)  # σ in natural space
+log_p = logpdf_prior(θ_natural, spec)  # Evaluates log π(σ) without Jacobian
 ```
 """
-function logpdf_prior(θ_working::NamedTuple, spec::HyperparameterSpec)
+function logpdf_prior(θ_natural::NamedTuple, spec::HyperparameterSpec)
     # Use mapreduce for better type stability
     return mapreduce(+, pairs(spec.free); init = 0.0) do (name, hp)
-        working_value = θ_working[name]
-        # The prior is already in working space with Jacobian baked in
-        logpdf(hp.prior, working_value)::Float64
+        natural_value = θ_natural[name]
+        # The prior is stored in natural space
+        logpdf(hp.prior, natural_value)::Float64
     end
 end
 
