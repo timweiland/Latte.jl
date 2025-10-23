@@ -105,6 +105,27 @@ function LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index::Int
     return LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index, μ, σ, prior_gmrf; threshold = threshold)
 end
 
+function _compute_conditional_column(base_gmrf::AbstractGMRF, conditioning_index::Int)
+    Q = precision_matrix(base_gmrf)
+    n = size(Q, 1)
+
+    # Solve Q * v = e_i to get Q^{-1}[:,i]
+    e_i = zeros(n)
+    e_i[conditioning_index] = 1.0
+    return Q \ e_i
+end
+
+function _compute_conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int)
+    # Account for existing constraints via a correction term
+    Q = precision_matrix(constrained_gmrf.base_gmrf)
+    n = size(Q, 1)
+    e_i = zeros(n)
+    e_i[conditioning_index] = 1.0
+
+    base = Q \ e_i
+    correction = constrained_gmrf.A_tilde_T * (constrained_gmrf.L_c \ (constrained_gmrf.A_tilde_T' * e_i))
+    return base - correction
+end
 
 """
     setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold=0.001)
@@ -126,18 +147,12 @@ This function performs the expensive computations that are independent of the
 specific value of x_i, allowing efficient evaluation at multiple x_i points.
 """
 function setup_conditional_computation(base_gmrf, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}; threshold = 0.001)
-    Q = precision_matrix(base_gmrf)
-    n = size(Q, 1)
-
-    # Solve Q * v = e_i to get Q^{-1}[:,i]
-    e_i = zeros(n)
-    e_i[conditioning_index] = 1.0
-    conditional_column = Q \ e_i
+    conditional_column = _compute_conditional_column(base_gmrf, conditioning_index)
 
     # Use precomputed standard deviations
     # Compute influence coefficients a_{ij} = -(Q^{-1})_{ji} / (σ_j * σ_i)
     σ_i = σ[conditioning_index]
-    a_coeffs = -conditional_column ./ (σ * σ_i)
+    a_coeffs = conditional_column ./ (σ * σ_i)
 
     # Find active set based on threshold
     active_set = findall(abs.(a_coeffs) .> threshold)
@@ -191,9 +206,13 @@ function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{I
     # Result stays sparse since both blocks are sparse
     Q_conditional = Symmetric(Q_prior_block - H_obs_block)
 
-    # Return GMRF with proper mean and precision
-    # GMRF v0.4: no longer needs solver blueprint in constructor
-    return GMRF(μ_cond_active, Q_conditional)
+    base_gmrf = GMRF(μ_cond_active, Q_conditional)
+    constraint_mat = zeros(1, length(base_gmrf))
+    constraint_mat[1, cache.conditioning_index] = 1.0
+    constraint_vec = [μ_conditional[cache.conditioning_index]]
+    out_gmrf = ConstrainedGMRF(base_gmrf, constraint_mat, constraint_vec)
+
+    return out_gmrf
 end
 
 """
@@ -221,7 +240,7 @@ function evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i::Real, lo
 
     # Compute conditional configuration once
     μ_prior = cache.μ  # Use cached mean
-    σ_i_squared = cache.σ[conditioning_index]^2  # Use cached std deviation
+    σ_i_squared = conditional_column[conditioning_index]
     μ_conditional = μ_prior - conditional_column * (μ_prior[conditioning_index] - x_i) / σ_i_squared
 
     # Build conditional GMRF using the computed conditional mean
