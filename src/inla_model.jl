@@ -88,18 +88,14 @@ This computes: log π(θ) + log π(x | θ) + log π(y | x, θ)
 
 This convenience method creates the latent GMRF and materializes the observation likelihood internally.
 """
-function log_joint_density(model::INLAModel, x, θ, y)
+function log_joint_density(model::INLAModel, x, θ_natural::NamedTuple, y)
     spec = model.hyperparameter_spec
-
-    # Convert θ vector to named tuples
-    θ_working = to_named_tuple(θ, spec)
-    θ_natural = to_natural(θ_working, spec)  # Includes fixed parameters
 
     # Create latent GMRF and materialized observation likelihood in natural space
     latent_prior = latent_gmrf(model, θ_natural)
     obs_lik = model.observation_model(y; θ_natural...)
 
-    return log_joint_density(model, x, θ, latent_prior, obs_lik)
+    return log_joint_density(model, x, θ_natural, latent_prior, obs_lik)
 end
 
 """
@@ -118,12 +114,16 @@ This computes: log π(θ) + log π(x | θ) + log π(y | x, θ)
 
 This method is more efficient when the latent GMRF and observation likelihood are already available.
 """
-function log_joint_density(model::INLAModel, x, θ, latent_gmrf, obs_lik)
+function log_joint_density(model::INLAModel, x, θ_natural::NamedTuple, latent_gmrf, obs_lik)
     spec = model.hyperparameter_spec
 
-    # Hyperparameter prior contribution (in working space with Jacobian)
-    θ_working = to_named_tuple(θ, spec)
-    log_prior_θ = logpdf_prior(θ_working, spec)
+    # Hyperparameter prior contribution
+    log_prior_θ = logpdf_prior(θ_natural, spec)
+
+    if log_prior_θ === -Inf
+        # Early return
+        return -Inf
+    end
 
     # Latent field prior contribution
     log_prior_x = logpdf(latent_gmrf, x)

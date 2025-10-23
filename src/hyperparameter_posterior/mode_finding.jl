@@ -40,15 +40,16 @@ _robust_initial_value(dist::Exponential) = mean(dist)  # mode=0, use mean instea
 
 function _initial_guess_for_hyperparameter(hp::Hyperparameter{T, S}) where {T, S}
     if S == :natural
-        # Prior was specified in natural space and transformed to working space
-        # hp.prior is a TransformedDistribution, extract the base distribution
-        base_dist = hp.prior.dist
-        initial_natural = _robust_initial_value(base_dist)
-        # Transform to working space
+        # Prior was specified in natural space, stored as-is
+        initial_natural = _robust_initial_value(hp.prior)
+        # Transform to working space for optimization
         return hp.transform(initial_natural)
     else
-        # Prior already in working space, use robust initial value
-        return _robust_initial_value(hp.prior)
+        # Prior was specified in working space, transformed back to natural space
+        # hp.prior is a TransformedDistribution, extract the base distribution (in working space)
+        base_dist = hp.prior.dist
+        # Initial guess is already in working space, no transform needed
+        return _robust_initial_value(base_dist)
     end
 end
 
@@ -70,12 +71,18 @@ This is the INLA approximation to the hyperparameter posterior.
 - Automatically converts to natural space for model evaluation via `log_joint_density`
 - Prior includes Jacobian correction for transformations
 """
-function hyperparameter_logpdf(model::INLAModel, θ, y, ga = nothing)
+function hyperparameter_logpdf(model::INLAModel, θ_natural::NamedTuple, y, ga = nothing)
+    # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
     spec = model.hyperparameter_spec
 
-    # Convert θ to natural space for model evaluation
-    θ_working = to_named_tuple(θ, spec)
-    θ_natural = to_natural(θ_working, spec)
+    log_prior_θ = logpdf_prior(θ_natural, spec)
+
+    if log_prior_θ === -Inf
+        return -Inf
+    end
+
+    obs_lik = model.observation_model(y; θ_natural...)
+    latent_prior = latent_gmrf(model, θ_natural)
 
     # Use provided Gaussian approximation or compute it
     if ga === nothing
@@ -83,17 +90,17 @@ function hyperparameter_logpdf(model::INLAModel, θ, y, ga = nothing)
         x_prior = latent_gmrf(model, θ_natural)
 
         # Find Gaussian approximation
-        obs_lik = model.observation_model(y; θ_natural...)
-        x_G = gaussian_approximation(x_prior, obs_lik)
+        x_G = gaussian_approximation(latent_prior, obs_lik)
     else
         x_G = ga
     end
 
     x_star = mean(x_G)
 
-    # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
-    # log_joint_density handles the transformation and Jacobian
-    joint_logpdf = log_joint_density(model, x_star, θ, y)
+    log_prior_x = logpdf(latent_prior, x_star)
+    log_likelihood = loglik(x_star, obs_lik)
+
+    joint_logpdf = log_prior_θ + log_prior_x + log_likelihood
     gaussian_logpdf = logpdf(x_G, x_star)
 
     return joint_logpdf - gaussian_logpdf
@@ -112,7 +119,7 @@ Find the mode θ* of the hyperparameter posterior π(θ | y).
 - `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
 
 # Returns
-- `θ_star`: The posterior mode in working space (for use in exploration/integration)
+- `θ_star`: The posterior mode in natural space (for use in exploration/integration)
 - `mode_points`: Points evaluated during optimization in working space (if collect_points=true)
 - `mode_logdensities`: Log-densities at mode_points (if collect_points=true)
 
@@ -129,9 +136,10 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
 
     # Objective function (negative log-density for minimization)
     function objective(θ)
+        θ_natural = working_to_natural(θ, spec)
         logpdf_val = 0.0
         try
-            logpdf_val = hyperparameter_logpdf(model, θ, y)
+            logpdf_val = hyperparameter_logpdf(model, θ_natural, y)
         catch ZeroPivotException
             return Inf
         end
@@ -181,6 +189,7 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
     end
 
     θ_star = Optim.minimizer(result)
+    θ_star = working_to_natural(θ_star, spec)
 
     if collect_points
         return θ_star, mode_points, mode_logdensities

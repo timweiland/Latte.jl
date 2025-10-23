@@ -155,13 +155,10 @@ function inla(
         progress = progress,
     )
 
-    # Convert mode to natural space (NamedTuple with both free and fixed parameters)
-    θ_star_natural = to_natural(to_named_tuple(θ_star, model.hyperparameter_spec), model.hyperparameter_spec)
-
     return INLAResult(
         hyperparameter_marginals,
         latent_marginals,
-        θ_star_natural,
+        θ_star,
         exploration,
         posterior_approx,
         convergence,

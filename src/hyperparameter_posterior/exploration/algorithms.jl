@@ -98,18 +98,20 @@ integer-based grid construction method.
 - `HyperparameterExploration`: A struct containing the complete, normalized results of the exploration.
 """
 function explore_hyperparameter_posterior(
-        model::INLAModel, y, θ_star, marginalization_method, marginalization_indices;
+        model::INLAModel, y, θ_star_nt::NamedTuple, marginalization_method, marginalization_indices;
         integration_step_z::Float64 = 1.0,
         max_log_drop::Float64 = 2.5,
         interpolation_subdivisions::Int = 2,
         progress_callback = nothing
     )
-    n_dim = length(θ_star)
+    n_dim = length(θ_star_nt)
 
     # Handle progress callback
     if progress_callback === nothing
         progress_callback = (; kwargs...) -> nothing
     end
+
+    θ_star = to_vector(θ_star_nt, model.hyperparameter_spec)
 
     # Step 1: Compute the transformation object
     progress_callback(status = "Computing reparameterization", dimensions = n_dim)
