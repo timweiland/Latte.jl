@@ -15,11 +15,13 @@ export ObservationModel, ObservationLikelihood, ExponentialFamily,
     successes, trials, IdentityLink, LogLink, LogitLink
 
 # Include INLA-specific modules
+include("utils/selinv.jl")
 include("hyperparameters/hyperparameters.jl")
 include("inla_model.jl")
 include("latent_marginalization/marginalization_module.jl")
 include("hyperparameter_posterior/hyperparameter_posterior.jl")
 include("distributions/distributions.jl")
+include("observation_models/observation_models.jl")
 include("main_interface/main_interface.jl")
 
 end
