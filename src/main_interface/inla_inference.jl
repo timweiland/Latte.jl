@@ -17,7 +17,7 @@ selecting sensible defaults while supporting advanced customization.
 # Keyword Arguments
 - `marginalization_method::MarginalApproximation = GaussianMarginal()`: Method for latent marginalization
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
-- `max_log_drop::Float64 = 2.5`: Maximum log-density drop for exploration boundary
+- `max_log_drop::Float64 = 8.0`: Maximum log-density drop for exploration boundary
 - `interpolation_subdivisions::Int = 2`: Subdivision factor for interpolation grid
 - `mode_method = BFGS()`: Optimization method for mode finding
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
@@ -56,7 +56,7 @@ function inla(
         y::AbstractVector;
         marginalization_method = GaussianMarginal(),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
-        max_log_drop::Float64 = 2.5,
+        max_log_drop::Float64 = 8.0,
         interpolation_subdivisions::Int = 2,
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
