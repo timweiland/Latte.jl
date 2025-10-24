@@ -1,403 +1,164 @@
 # [Observation Models](@id observation-models)
 
 !!! note "Provided by GaussianMarkovRandomFields.jl"
-    Observation models are implemented in [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl) v0.4+ and re-exported by IntegratedNestedLaplace.jl for user convenience. This documentation describes the re-exported functionality.
+    Observation models are implemented in [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl) v0.4+ and re-exported by IntegratedNestedLaplace.jl for user convenience. **For detailed API documentation**, see the [GaussianMarkovRandomFields.jl documentation](https://timweiland.github.io/GaussianMarkovRandomFields.jl/).
 
-Observation models define the relationship between observations and the latent field in INLA. They specify how observations `y` are generated from latent field values `x` through probability distributions and link functions.
+This guide shows how to use observation models with INLA. Observation models define the relationship between observations `y` and the latent field `x` through probability distributions and link functions.
 
-## Overview
-
-The observation model interface provides a flexible framework for connecting observations to latent fields. The design uses a **factory pattern** for efficiency:
-
-1. **Create observation model template**: Define the distribution and link function with `ExponentialFamily(Distribution, LinkFunction)`
-2. **Materialize with data**: Create observation likelihood with `obs_lik = obs_model(y; θ_named...)`
-3. **Fast evaluation**: Compute log-likelihood efficiently with `loglik(obs_lik, x)`
-
-This approach eliminates redundant parameter passing and provides significant performance benefits by pre-materializing the observation likelihood with data and hyperparameters.
-
-The package provides built-in support for exponential family distributions through the [`ExponentialFamily`](@ref) struct, which covers most common use cases in statistical modeling.
-
-## Basic Usage
+## Quick Start
 
 ```julia
 using IntegratedNestedLaplace
 using Distributions
 
-# Create a Poisson observation model (canonical link)
+# 1. Create observation model (Poisson with canonical log link)
 obs_model = ExponentialFamily(Poisson)
 
-# Observations and latent field values
-y = [2, 7, 1]  # Count observations  
-x = [1.0, 2.0, 0.5]  # Latent field values (log scale due to LogLink)
+# 2. Use in INLA model
+spec = @hyperparams begin
+    (σ ~ Gamma(2, 1), transform = log, space = natural)
+end
 
-# Materialize observation likelihood with data (no hyperparameters for Poisson)
-obs_lik = obs_model(y)
+model = INLAModel(spec, my_latent_function, obs_model)
 
-# Fast evaluation using materialized likelihood
-ll = loglik(obs_lik, x)      # Log-likelihood
-grad = loggrad(obs_lik, x)   # Gradient w.r.t. x
-hess = loghessian(obs_lik, x) # Hessian w.r.t. x
-
-# Get data distribution as Distribution object
-dist = conditional_distribution(obs_model, x)
-samples = rand(dist, 100)    # Generate synthetic data
+# 3. Run inference
+result = inla(model, y_observed)
 ```
 
-## Exponential Family Models
+## Overview
 
-The [`ExponentialFamily`](@ref) struct provides ready-to-use models for standard distributions:
+Observation models use a **factory pattern** for efficiency:
+1. **Create template**: `obs_model = ExponentialFamily(Distribution)`
+2. **Use in INLA**: Pass to `INLAModel(spec, latent_fn, obs_model)`
+3. **INLA handles the rest**: Automatic materialization with data and hyperparameters
 
-### Supported Distributions
+The `ExponentialFamily` struct supports most common statistical distributions with their canonical link functions.
+
+## Common Observation Models
 
 | Distribution | Canonical Link | Hyperparameters | Use Case |
 |:-------------|:---------------|:----------------|:---------|
-| [`Normal`](https://juliastats.org/Distributions.jl/stable/univariate/#Distributions.Normal) | [`IdentityLink`](@ref) | `θ = [σ]` | Continuous data |
-| [`Poisson`](https://juliastats.org/Distributions.jl/stable/univariate/#Distributions.Poisson) | [`LogLink`](@ref) | `θ = []` | Count data |
-| [`Bernoulli`](https://juliastats.org/Distributions.jl/stable/univariate/#Distributions.Bernoulli) | [`LogitLink`](@ref) | `θ = []` | Binary data |
-| [`Binomial`](https://juliastats.org/Distributions.jl/stable/univariate/#Distributions.Binomial) | [`LogitLink`](@ref) | `θ = [n]` | Binomial data |
+| `Normal` | Identity | `σ` (std dev) | Continuous data |
+| `Poisson` | Log | None | Count data |
+| `Bernoulli` | Logit | None | Binary data |
+| `Binomial` | Logit | `n` (trials) | Binomial trials |
 
-### Examples by Distribution
+### Usage Examples
 
 #### Poisson Model (Count Data)
 ```julia
-obs_model = ExponentialFamily(Poisson)  # Uses LogLink automatically
+using IntegratedNestedLaplace, GaussianMarkovRandomFields, Distributions
 
-# Observations and latent field
-y = [1, 4, 2]                       # Count observations
-x = [log(2.0), log(5.0), log(1.0)]  # Latent field on log scale (rates [2, 5, 1])
+# Poisson uses log link: η = log(λ) where λ is the rate
+obs_model = ExponentialFamily(Poisson)
 
-# Materialize and evaluate
-obs_lik = obs_model(y)  # No hyperparameters
-ll = loglik(obs_lik, x)
+spec = @hyperparams begin
+    (ρ ~ Beta(2, 2), transform = logit, space = natural)
+end
+
+# Latent field defines log-rates
+latent_fn(; ρ, kwargs...) = GMRF(zeros(100), ar1_precision(100, ρ))
+
+model = INLAModel(spec, latent_fn, obs_model)
 ```
 
-#### Bernoulli Model (Binary Data)  
+#### Bernoulli Model (Binary Data)
 ```julia
-obs_model = ExponentialFamily(Bernoulli)  # Uses LogitLink automatically
+# Bernoulli uses logit link: η = logit(p) where p is the probability
+obs_model = ExponentialFamily(Bernoulli)
 
-# Observations and latent field  
-y = [0, 1, 0]         # Binary observations
-x = [0.0, 1.0, -1.0]  # Latent field on logit scale (probabilities [0.5, 0.73, 0.27])
-
-# Materialize and evaluate
-obs_lik = obs_model(y)  # No hyperparameters
-ll = loglik(obs_lik, x)
+# Use in INLA model (no observation hyperparameters needed)
+model = INLAModel(spec, latent_fn, obs_model)
 ```
 
 #### Normal Model (Continuous Data)
 ```julia
-obs_model = ExponentialFamily(Normal)  # Uses IdentityLink automatically
+# Normal uses identity link: η = μ directly
+obs_model = ExponentialFamily(Normal)
 
-# Observations and latent field
-y = [0.1, 1.2, -0.4]  # Continuous observations
-x = [0.0, 1.0, -0.5]  # Latent field directly as means
+# Normal requires observation noise σ as hyperparameter
+spec = @hyperparams begin
+    (σ_latent ~ Gamma(2, 1), transform = log, space = natural)
+    (σ_obs ~ Gamma(2, 1), transform = log, space = natural)
+end
 
-# Materialize with hyperparameter
-obs_lik = obs_model(y; σ = 0.5)  # Standard deviation
-ll = loglik(obs_lik, x)
+# The σ_obs will be passed to the observation model automatically
+model = INLAModel(spec, latent_fn, obs_model)
 ```
 
 #### Binomial Model
 ```julia
-obs_model = ExponentialFamily(Binomial)  # Uses LogitLink automatically
+# Binomial uses logit link for success probability
+obs_model = ExponentialFamily(Binomial)
 
-# Observations and latent field
-y = [5, 7]     # Number of successes
-x = [0.0, 0.5] # Latent field on logit scale
+# Binomial requires n (number of trials) as hyperparameter
+spec = @hyperparams begin
+    (ρ ~ Beta(2, 2), transform = logit, space = natural)
+    n = 10.0  # Fixed number of trials
+end
 
-# Materialize with hyperparameter
-obs_lik = obs_model(y; n = 10.0)  # Number of trials
-ll = loglik(obs_lik, x)
+model = INLAModel(spec, latent_fn, obs_model)
 ```
 
 ### Non-Canonical Links
 
-You can specify custom link functions for specialized applications:
+You can specify custom link functions when needed:
 
 ```julia
-# Poisson with identity link (non-canonical)
-# Requires x values to be positive
+# Poisson with identity link (latent field = rate directly, must be positive)
 obs_model = ExponentialFamily(Poisson, IdentityLink())
-y = [1, 4, 2]
-x = [2.0, 5.0, 1.0]  # Directly as rates (must be positive)
-obs_lik = obs_model(y)
-ll = loglik(obs_lik, x)
 
-# Bernoulli with log link (non-canonical)  
-# Requires x values such that exp(x) ∈ (0,1)
+# Bernoulli with log link (latent field = log-probability)
 obs_model = ExponentialFamily(Bernoulli, LogLink())
-y = [0, 1]
-x = [log(0.3), log(0.7)]  # log-probabilities
-obs_lik = obs_model(y)
-ll = loglik(obs_lik, x)
 ```
 
-## Link Functions
-
-Link functions `g(μ)` connect the mean parameter μ to the linear predictor η via the relationship μ = g⁻¹(η).
-
-### Available Link Functions
-
-```@docs
-IdentityLink
-LogLink  
-LogitLink
-```
-
-### Working with Link Functions
-
-```julia
-# Create link functions
-identity = IdentityLink()
-log_link = LogLink()
-logit = LogitLink()
-
-# Forward transformation: μ → η
-η₁ = apply_link(log_link, 2.718)    # ≈ 1.0
-η₂ = apply_link(logit, 0.5)         # = 0.0
-
-# Inverse transformation: η → μ  
-μ₁ = apply_invlink(log_link, 1.0)   # ≈ 2.718
-μ₂ = apply_invlink(logit, 0.0)      # = 0.5
-```
-
-## Data Distributions
-
-The [`conditional_distribution`](@ref) function returns Distribution objects compatible with Distributions.jl:
-
-```julia
-obs_model = ExponentialFamily(Poisson)
-y = [2, 7]  # Observations
-x = [1.0, 2.0]  # Latent field values
-
-# Get data distribution given latent field
-dist = conditional_distribution(obs_model, x)
-
-# Use with Distributions.jl
-synthetic_data = rand(dist, 100)    # Generate samples
-mean_val = mean(dist)               # Compute moments
-var_val = var(dist)
-
-# For log-likelihood evaluation, use the materialized likelihood
-obs_lik = obs_model(y)
-prob = loglik(obs_lik, x)
-```
+For most applications, the canonical links (default) are recommended.
 
 ## Composite Observation Models
 
-Composite observation models allow you to combine multiple observation models to handle heterogeneous data within a single INLA inference. This is useful when you have different types of observations (e.g., continuous and count data) that should be modeled together.
-
-### Basic Usage
+Composite observation models combine multiple observation types (e.g., continuous and count data) in a single INLA model:
 
 ```julia
 using IntegratedNestedLaplace
-using Distributions
 
-# Create individual observation models
-gaussian_model = ExponentialFamily(Normal, indices = 1:3)    # First 3 elements
-poisson_model = ExponentialFamily(Poisson, indices = 4:6)    # Next 3 elements
+# Create models with index ranges
+normal_model = ExponentialFamily(Normal, indices = 1:3)    # First 3 latent values
+poisson_model = ExponentialFamily(Poisson, indices = 4:6)  # Next 3 latent values
 
-# Create composite model
-composite_model = CompositeObservationModel((gaussian_model, poisson_model))
+composite_model = CompositeObservationModel((normal_model, poisson_model))
 
-# Prepare observation data
-y_gaussian = [1.0, 2.0, 1.5]  # 3 Gaussian observations
-y_poisson = [2, 3, 1]         # 3 Poisson observations
-y_composite = CompositeObservations((y_gaussian, y_poisson))
+# Prepare heterogeneous observations
+y_normal = [1.0, 2.0, 1.5]
+y_poisson = [2, 3, 1]
+y_composite = CompositeObservations((y_normal, y_poisson))
 
-# Materialize with hyperparameters
-composite_lik = composite_model(y_composite; σ = 0.5)  # σ for Gaussian component
+# Use with INLA
+spec = @hyperparams begin
+    (ρ ~ Beta(2, 2), transform = logit, space = natural)
+    (σ ~ Gamma(2, 1), transform = log, space = natural)  # For Normal component
+end
 
-# Evaluate (automatically sums contributions from all components)
-x = [0.5, 1.2, 0.8, 1.1, 0.9, 0.3]  # 6 latent field values
-ll = loglik(composite_lik, x)
-grad = loggrad(composite_lik, x)
-hess = loghessian(composite_lik, x)
+model = INLAModel(spec, latent_fn, composite_model)
+result = inla(model, y_composite)
 ```
 
-### Composite Data Structure
-
-The `CompositeObservations` type combines multiple observation vectors while maintaining an `AbstractVector` interface:
-
-```julia
-# Create composite observations
-y1 = [1.0, 2.0, 3.0]  # First component (3 observations)
-y2 = [4.0, 5.0]       # Second component (2 observations)
-y_composite = CompositeObservations((y1, y2))
-
-# Acts like a regular vector
-length(y_composite)    # 5
-y_composite[1]         # 1.0
-y_composite[4]         # 4.0
-collect(y_composite)   # [1.0, 2.0, 3.0, 4.0, 5.0]
-```
-
-### Hyperparameter Handling
-
-Each component observation model can have different hyperparameters. The composite model passes all provided hyperparameters to each component, and each component extracts what it needs:
-
-```julia
-# Multiple hyperparameters for different components
-gaussian_model = ExponentialFamily(Normal, indices = 1:2)
-binomial_model = ExponentialFamily(Binomial, indices = 3:4)
-composite_model = CompositeObservationModel((gaussian_model, binomial_model))
-
-y_composite = CompositeObservations(([1.0, 2.0], [7, 8]))
-
-# Pass hyperparameters for both components
-composite_lik = composite_model(y_composite; σ = 0.5, n = 10.0)
-# σ is used by Gaussian component, n is used by Binomial component
-```
-
-### Advanced Example: Mixed Model Types
-
-```julia
-# Create a complex composite model with different distributions
-normal_model = ExponentialFamily(Normal, IdentityLink(), indices = 1:2)
-poisson_model = ExponentialFamily(Poisson, LogLink(), indices = 3:4) 
-bernoulli_model = ExponentialFamily(Bernoulli, LogitLink(), indices = 5:6)
-
-composite_model = CompositeObservationModel((normal_model, poisson_model, bernoulli_model))
-
-# Heterogeneous observation data
-y_normal = [0.5, -1.2]      # Continuous data
-y_poisson = [3, 7]          # Count data  
-y_bernoulli = [1, 0]        # Binary data
-y_composite = CompositeObservations((y_normal, y_poisson, y_bernoulli))
-
-# Materialize with appropriate hyperparameters
-composite_lik = composite_model(y_composite; σ = 0.8)  # Only Normal needs σ
-
-# Latent field values (different scales due to different link functions)
-x = [0.5, -1.0,           # Identity scale for Normal
-     log(4.0), log(8.0),  # Log scale for Poisson
-     0.0, -1.0]            # Logit scale for Bernoulli
-
-# Evaluate composite likelihood
-ll = loglik(composite_lik, x)  # Sum of all component log-likelihoods
-```
+Each component uses its specified latent field indices and extracts its required hyperparameters automatically.
 
 ## Custom Observation Models
 
-For specialized applications, you can implement custom observation models:
+For specialized applications beyond the built-in exponential family models, you can implement custom observation models. This requires:
 
-### Basic Custom Model
+1. Defining a struct that subtypes `ObservationModel`
+2. Implementing the factory pattern with `(model::YourModel)(y; kwargs...)`
+3. Implementing `loglik(obs_lik, x)` for the materialized likelihood
 
-```julia
-# Define custom struct
-struct CustomNormalModel <: ObservationModel
-    σ::Float64
-end
+See the [GaussianMarkovRandomFields.jl documentation](https://timweiland.github.io/GaussianMarkovRandomFields.jl/) for detailed implementation guides and advanced features like:
+- Analytical gradient and Hessian implementations for performance
+- Automatic differentiation with sparsity detection
+- Custom link function definitions
 
-# Declare hyperparameters (none in this example)
-hyperparameters(::CustomNormalModel) = ()
+## Further Reading
 
-# Implement factory pattern: callable syntax returns materialized likelihood
-function (model::CustomNormalModel)(y; kwargs...)
-    return MaterializedCustomModel(y, model.σ)
-end
-
-# Materialized likelihood struct
-struct MaterializedCustomModel{Y}
-    y::Y
-    σ::Float64
-end
-
-# Implement loglik for materialized version
-function loglik(obs_lik::MaterializedCustomModel, x)
-    return sum(logpdf.(Normal.(x, obs_lik.σ), obs_lik.y))
-end
-
-# Usage
-obs_model = CustomNormalModel(0.5)
-y = [0.1, 1.2, -0.4]
-obs_lik = obs_model(y)  # Materialize
-x = [0.0, 1.0, -0.5]
-ll = loglik(obs_lik, x)
-grad = loggrad(obs_lik, x)  # Automatic differentiation
-```
-
-### Optimized Custom Model
-
-For better performance, you can provide specialized gradient and Hessian implementations:
-
-```julia
-struct OptimizedModel <: ObservationModel
-    σ²::Float64
-end
-
-# Declare hyperparameters (none in this example)
-hyperparameters(::OptimizedModel) = ()
-
-# Factory pattern implementation
-function (model::OptimizedModel)(y; kwargs...)
-    return MaterializedOptimizedModel(y, model.σ²)
-end
-
-struct MaterializedOptimizedModel{Y}
-    y::Y
-    σ²::Float64
-end
-
-# Optimized implementations for materialized likelihood
-function loglik(obs_lik::MaterializedOptimizedModel, x)
-    y, σ² = obs_lik.y, obs_lik.σ²
-    return -0.5 * sum((y .- x).^2) / σ² - 0.5 * length(y) * log(2π * σ²)
-end
-
-function loggrad(obs_lik::MaterializedOptimizedModel, x)
-    y, σ² = obs_lik.y, obs_lik.σ²
-    return (y .- x) ./ σ²  # Analytical gradient
-end
-
-function loghessian(obs_lik::MaterializedOptimizedModel, x)
-    σ² = obs_lik.σ²
-    return Diagonal(-ones(length(x)) ./ σ²)  # Analytical Hessian
-end
-```
-
-## Performance Considerations
-
-### Canonical vs Non-Canonical Links
-
-- **Canonical links** (default choices) have optimized implementations that avoid redundant computations
-- **Non-canonical links** use general chain rule formulations which may be slower
-- For large problems, prefer canonical links when possible
-
-### Automatic Differentiation
-
-The package provides intelligent AD fallbacks:
-
-1. **Sparsity detection**: Attempts to detect sparse Hessian patterns using Symbolics.jl
-2. **Colored differentiation**: Uses SparseDiffTools.jl for efficient sparse AD when possible  
-3. **Dense fallback**: Falls back to ForwardDiff.jl for dense computation
-
-For custom models with known structure, providing analytical derivatives can significantly improve performance.
-
-## API Reference
-
-### Core Interface
-
-```@docs
-ObservationModel
-ObservationLikelihood
-hyperparameters
-loglik
-loggrad
-loghessian
-```
-
-### Exponential Family
-
-```@docs
-ExponentialFamily
-conditional_distribution
-```
-
-### Link Functions
-
-```@docs
-LinkFunction
-apply_link
-apply_invlink
-```
+For complete API documentation, advanced features, and implementation details, refer to:
+- **[GaussianMarkovRandomFields.jl Documentation](https://timweiland.github.io/GaussianMarkovRandomFields.jl/)** - Complete observation model API reference
+- The examples in `examples/` directory for practical INLA usage patterns

@@ -65,27 +65,24 @@ function ar1_precision(ρ, k)
     return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k) .+ ρ^2, 1 => -ρ * ones(k - 1))
 end
 
-# Model setup with proper INLA parameterization
+# Define hyperparameters with the @hyperparams macro
 k = 100
-θ_prior = HyperparameterPrior((
-    τ_gmrf_log = Normal(0, 1),              # Log precision
-    η = Normal(atanh(0.95), 0.5)            # atanh(correlation)
-))
+spec = @hyperparams begin
+    (τ ~ Exponential(1.0), transform = log, space = natural)  # Precision
+    (ρ ~ Beta(5, 1), transform = logit, space = natural)      # Autocorrelation
+end
 
 # Latent GMRF with AR-1 structure
-function latent_gmrf(θ)
-    τ = exp(θ.τ_gmrf_log)        # Transform to precision
-    ρ = tanh(θ.η)                # Transform to correlation
-    
+# Uses keyword arguments matching hyperparameter names
+function latent_gmrf(; τ, ρ, kwargs...)
     Q = ar1_precision(ρ, k) .* τ
     μ = log(1000.0) .* [ρ^i for i in 1:k]  # Exponential decay
-    
     return GMRF(μ, Q)
 end
 
 # Poisson observations with log-link
 obs_model = ExponentialFamily(Poisson)
-model = INLAModel(θ_prior, latent_gmrf, obs_model)
+model = INLAModel(spec, latent_gmrf, obs_model)
 
 # Run INLA inference
 result = inla(model, y_observed)

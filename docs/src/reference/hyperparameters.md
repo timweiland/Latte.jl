@@ -28,7 +28,7 @@ end
 # Work with parameter vectors and named tuples
 θ_vec = [1.5]  # Parameter in working space (log(σ))
 θ_working = to_named_tuple(θ_vec, spec)  # Convert to working-space NamedTuple
-θ_natural = to_natural(θ_working, spec)  # Transform to natural space: (σ = exp(1.5),)
+θ_natural = working_to_natural(θ_working, spec)  # Transform to natural space: (σ = exp(1.5),)
 θ_back = to_vector(θ_natural, spec)      # Convert back to vector
 ```
 
@@ -43,7 +43,7 @@ spec = @hyperparams begin
 end
 
 θ_vec = [0.5, -1.2, 0.8]  # Parameters in working space
-θ_natural = to_natural(to_named_tuple(θ_vec, spec), spec)
+θ_natural = working_to_natural(to_named_tuple(θ_vec, spec), spec)
 # Result: (ρ = logistic(-1.2), σ = exp(0.5), τ = exp(0.8))
 ```
 
@@ -85,8 +85,8 @@ end
 # Only free parameters go in the vector
 θ_vec = [1.2, -0.5]  # [transformed ρ, transformed τ]
 
-# To_natural converts and includes fixed parameters
-θ_natural = to_natural(to_named_tuple(θ_vec, spec), spec)
+# working_to_natural converts and includes fixed parameters
+θ_natural = working_to_natural(to_named_tuple(θ_vec, spec), spec)
 # Result: (ρ = logistic(1.2), σ = 0.5, τ = exp(-0.5))
 
 # Access fixed parameters via spec.fixed
@@ -202,8 +202,8 @@ end
 θ_working = to_named_tuple([1.5, 0.3], spec)
 
 # These operations are type-stable
-@inferred to_natural(θ_working, spec)
-@inferred to_vector(to_natural(θ_working, spec), spec)
+@inferred working_to_natural(θ_working, spec)
+@inferred to_vector(working_to_natural(θ_working, spec), spec)
 @inferred logpdf_prior(θ_working, spec)  # Includes Jacobian
 ```
 
@@ -215,7 +215,7 @@ All conversions and prior evaluations have concrete return types determined at c
 @hyperparams
 HyperparameterSpec
 Hyperparameter
-to_natural
+working_to_natural
 to_working
 to_named_tuple
 to_vector

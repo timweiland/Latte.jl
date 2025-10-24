@@ -25,34 +25,31 @@ function ar1_precision(ρ, k)
     return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k) .+ ρ^2, 1 => -ρ * ones(k - 1))
 end
 
-# Model parameters (use proper INLA parameterization)
+# Define hyperparameters with the @hyperparams macro
 k = 100
-θ_prior = HyperparameterPrior((
-    τ_gmrf_log = Normal(0, 1),                               # Log precision
-    η = Normal(atanh(0.95), 0.5 * (atanh(0.98) - atanh(0.95)))  # atanh(correlation)
-))
+spec = @hyperparams begin
+    (τ ~ Exponential(1.0), transform = log, space = natural)  # Precision
+    (ρ ~ Beta(5, 1), transform = logit, space = natural)      # Autocorrelation
+end
 
 # Latent field: AR-1 GMRF with exponential decay mean
-function latent_gmrf(θ)
-    τ = exp(θ.τ_gmrf_log)        # Transform to precision
-    ρ = tanh(θ.η)                # Transform to correlation
-    
+# Uses keyword arguments matching hyperparameter names
+function latent_gmrf(; τ, ρ, kwargs...)
     Q = ar1_precision(ρ, k) .* τ
     μ₀ = log(1000.0)             # Log-scale for Poisson rates
     μ = μ₀ .* [ρ^i for i in 1:k] # Exponential decay
-    
     return GMRF(μ, Q)
 end
 
 # Observation model: Poisson with log-link
 obs_model = ExponentialFamily(Poisson)
-model = INLAModel(θ_prior, latent_gmrf, obs_model)
+model = INLAModel(spec, latent_gmrf, obs_model)
 
 # Run INLA on your data
 result = inla(model, y_observed)
 
 # Access results
-hyperparameter_marginals = result.hyperparameter_marginals  
+hyperparameter_marginals = result.hyperparameter_marginals
 latent_marginals = result.latent_marginals
 posterior_mode = result.hyperparameter_mode
 ```
@@ -68,21 +65,22 @@ inla
 The `inla` function returns an [`INLAResult`](@ref) object containing all posterior information:
 
 ### Hyperparameter Marginals
-Posterior marginal distributions for model hyperparameters:
+Posterior marginal distributions for model hyperparameters (in natural space):
 
 ```julia
 result = inla(model, y)
 
-# Access marginals (in transformed space)
-τ_log_marginal = result.hyperparameter_marginals[1]  # Log precision
-η_marginal = result.hyperparameter_marginals[2]      # atanh(correlation)
+# Access marginals by index (already in natural space)
+τ_marginal = result.hyperparameter_marginals[1]  # Precision (natural space)
+ρ_marginal = result.hyperparameter_marginals[2]  # Correlation (natural space)
 
-# Compute posterior summaries
-log_precision_mean = mean(τ_log_marginal)
-correlation_mode = tanh(result.hyperparameter_mode[2])  # Transform back
+# Compute posterior summaries directly (no transformation needed)
+precision_mean = mean(τ_marginal)
+correlation_mean = mean(ρ_marginal)
 
 # Credible intervals
-log_prec_ci = quantile(τ_log_marginal, [0.025, 0.975])
+precision_ci = quantile(τ_marginal, [0.025, 0.975])
+correlation_ci = quantile(ρ_marginal, [0.025, 0.975])
 ```
 
 ### Latent Field Marginals  
@@ -131,28 +129,24 @@ function ar1_precision(ρ, k)
     return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k) .+ ρ^2, 1 => -ρ * ones(k - 1))
 end
 
-# Model setup with proper INLA parameterization
+# Model setup
 k = 200  # Time series length
 
-# Hyperparameter priors (in transformed space for numerical stability)
-θ_prior = HyperparameterPrior((
-    τ_gmrf_log = Normal(0, 1),  # Log precision: exp(τ_gmrf_log) = 1/σ²
-    η = Normal(atanh(0.95), 0.5 * (atanh(0.98) - atanh(0.95)))  # atanh(ρ)
-))
+# Define hyperparameters with @hyperparams macro
+spec = @hyperparams begin
+    (τ ~ Exponential(1.0), transform = log, space = natural)  # Precision
+    (ρ ~ Beta(5, 1), transform = logit, space = natural)      # Autocorrelation
+end
 
-# Latent GMRF definition
-function latent_gmrf(θ)
-    # Transform parameters back to natural scale
-    τ = exp(θ.τ_gmrf_log)        # Precision
-    ρ = tanh(θ.η)                # Correlation in (-1, 1)
-    
+# Latent GMRF definition (uses keyword arguments)
+function latent_gmrf(; τ, ρ, kwargs...)
     # AR-1 precision matrix
     Q = ar1_precision(ρ, k) .* τ
-    
+
     # Mean structure: exponentially decaying (typical for AR models)
-    μ₀ = log(1000.0)             # Base log-rate  
+    μ₀ = log(1000.0)             # Base log-rate
     μ = μ₀ .* [ρ^i for i in 1:k] # Exponential decay
-    
+
     return GMRF(μ, Q)
 end
 
@@ -160,11 +154,11 @@ end
 obs_model = ExponentialFamily(Poisson)
 
 # Complete model specification
-model = INLAModel(θ_prior, latent_gmrf, obs_model)
+model = INLAModel(spec, latent_gmrf, obs_model)
 
 # Generate synthetic data for demonstration
-true_params = (τ_gmrf_log = log(1/0.3^2), η = atanh(0.98))
-x_true = rand(latent_gmrf(true_params))
+true_params = (τ = 10.0, ρ = 0.98)
+x_true = rand(latent_gmrf(; true_params...))
 y_observed = rand.(Poisson.(exp.(x_true)))
 
 println("Generated $(length(y_observed)) observations")
@@ -181,26 +175,22 @@ else
     @warn "INLA did not converge - check model specification"
 end
 
-# Extract posterior summaries
-τ_log_posterior = result.hyperparameter_marginals[1]
-η_posterior = result.hyperparameter_marginals[2]
+# Extract posterior summaries (marginals are in natural space)
+τ_posterior = result.hyperparameter_marginals[1]  # Precision
+ρ_posterior = result.hyperparameter_marginals[2]  # Correlation
 
-# Transform back to interpretable scale
-precision_mode = exp(result.hyperparameter_mode[1])
-correlation_mode = tanh(result.hyperparameter_mode[2])
-precision_mean = exp(mean(τ_log_posterior))
-correlation_mean = tanh(mean(η_posterior))
+# Compute posterior means
+precision_mean = mean(τ_posterior)
+correlation_mean = mean(ρ_posterior)
 
 println("\\nPosterior Results:")
-println("Precision (1/σ²):")
-println("  Mode: $(round(precision_mode, digits=2))")  
+println("Precision (τ):")
 println("  Mean: $(round(precision_mean, digits=2))")
-println("  True: $(round(exp(true_params.τ_gmrf_log), digits=2))")
+println("  True: $(round(true_params.τ, digits=2))")
 
 println("Correlation (ρ):")
-println("  Mode: $(round(correlation_mode, digits=3))")
-println("  Mean: $(round(correlation_mean, digits=3))")  
-println("  True: $(round(tanh(true_params.η), digits=3))")
+println("  Mean: $(round(correlation_mean, digits=3))")
+println("  True: $(round(true_params.ρ, digits=3))")
 
 # Analyze latent field
 latent_means = [mean(m) for m in result.latent_marginals]
@@ -262,12 +252,14 @@ result = inla(model, y_observed, progress=false)
 ## Best Practices
 
 ### Parameterization
-- **Use log-scale for positive parameters**: `τ_log` instead of `τ` for precision
-- **Use transforms for bounded parameters**: `atanh(ρ)` for correlations in (-1,1)
-- **Center parameters**: Use `Normal(0, σ)` priors for transformed parameters
+- **Use appropriate transforms**: The `@hyperparams` macro handles transformations automatically
+  - `transform = log` for positive parameters (e.g., precision, variance)
+  - `transform = logit` for bounded parameters in (0,1) (e.g., correlations, proportions)
+- **Specify prior space**: Use `space = natural` to specify priors in the natural parameter space
+- **Informative priors**: Weakly informative priors often work better than flat priors
 
 ### Model Specification
-- **Informative priors**: Weakly informative priors often work better than flat priors
+- **Keyword arguments**: Latent field functions should use keyword arguments matching hyperparameter names
 - **Check scales**: Ensure data and parameters are on reasonable scales
 - **Sparse precision**: Use sparse matrices for large problems
 
@@ -289,12 +281,12 @@ result = inla(model, y_observed, progress=false)
 ```julia
 # Check if optimization failed
 if !result.convergence.mode_converged
-    # Try different hyperparameter bounds
-    θ_prior_relaxed = HyperparameterPrior((
-        τ_gmrf_log = Normal(0, 2),  # Wider prior
-        η = Normal(0, 1)            # Less informative
-    ))
-    result = inla(INLAModel(θ_prior_relaxed, latent_gmrf, obs_model), y_observed)
+    # Try different priors (wider, less informative)
+    spec_relaxed = @hyperparams begin
+        (τ ~ Exponential(0.1), transform = log, space = natural)  # Wider prior
+        (ρ ~ Beta(2, 2), transform = logit, space = natural)      # Less informative
+    end
+    result = inla(INLAModel(spec_relaxed, latent_gmrf, obs_model), y_observed)
 end
 ```
 
