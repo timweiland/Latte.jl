@@ -52,7 +52,7 @@ using LDLFactorizations
 
     # Run INLA inference
     inla_start_time = time()
-    inla_result = inla(model, y_gt, progress = false, marginalization_method = LaplaceMarginal())
+    inla_result = inla(model, y_gt, progress = false, latent_marginalization_method = LaplaceMarginal())
     inla_time = time() - inla_start_time
 
     # Run MCMC reference
@@ -118,11 +118,8 @@ using LDLFactorizations
         # Compare latent field marginals (test a subset for speed)
         test_indices = [1, 10, 50, 100, 150, 200]  # Sample across the field
         for i in test_indices
-            @show i
             inla_latent_marginal = inla_result.latent_marginals[i]
             mcmc_latent_samples = x_samples[:, i]
-
-            @show mean(inla_latent_marginal), mean(mcmc_latent_samples)
 
             # Compare means
             @test mean(inla_latent_marginal) ≈ mean(mcmc_latent_samples) rtol = 0.15 atol = 0.1
@@ -134,7 +131,6 @@ using LDLFactorizations
             inla_latent_ci = quantile(inla_latent_marginal, [0.025, 0.975])
             mcmc_latent_ci = quantile(mcmc_latent_samples, [0.025, 0.975])
 
-            @show inla_latent_ci, mcmc_latent_ci
             @test inla_latent_ci[1] ≈ mcmc_latent_ci[1] rtol = 0.25 atol = 0.1
             @test inla_latent_ci[2] ≈ mcmc_latent_ci[2] rtol = 0.25 atol = 0.1
         end

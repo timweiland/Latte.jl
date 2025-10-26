@@ -57,7 +57,13 @@ using JLD2
 
     # Run INLA inference (fast!)
     inla_start_time = time()
-    inla_result = inla(model, y_gt, progress = false, marginalization_method = LaplaceMarginal())
+    inla_result = inla(
+        model,
+        y_gt,
+        progress = false,
+        latent_marginalization_method = LaplaceMarginal(),
+        hyperparameter_marginalization_method = GridBasedMarginal(; auto_adjust = false)
+    )
     inla_time = time() - inla_start_time
 
     @testset "Reference Data Validation" begin
