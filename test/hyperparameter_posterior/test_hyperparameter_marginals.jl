@@ -5,6 +5,7 @@ using LDLFactorizations
 using Distributions
 using LinearAlgebra
 using SparseArrays
+using Bijectors
 
 @testset "Marginal Posterior Computation" begin
     spec = @hyperparams begin
@@ -43,11 +44,17 @@ using SparseArrays
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test marginal computation
-        test_values = [θ_star[1], θ_star[1] + 0.1, θ_star[1] - 0.1]
+        # Convert to natural, then add directly (broadcasting works on NaturalHyperparameters)
+        θ_natural = convert(NaturalHyperparameters, θ_star)
+        test_θ_natural = [θ_natural, θ_natural .+ 0.1, θ_natural .- 0.1]
 
-        for test_val in test_values
+        for θ_test in test_θ_natural
+            # Extract scalar value for marginal_logpdf
+            θ_test_nt = convert(NamedTuple, θ_test)
+            test_val = θ_test_nt.α
             marginal_logpdf = hyperparameter_marginal_logpdf(posterior_approx, 1, test_val)
-            direct_logpdf = posterior_approx([test_val])
+            # Feed natural hyperparameters directly to posterior_approx
+            direct_logpdf = posterior_approx(θ_test)
 
             # For 1D case, marginal should equal direct evaluation
             @test marginal_logpdf ≈ direct_logpdf atol = 1.0e-6
@@ -85,8 +92,11 @@ using SparseArrays
         @test size(exploration.integration_bounds) == (2, 2)
 
         # Test marginal computation at mode
-        test_val_1 = θ_star[1]
-        test_val_2 = θ_star[2]
+        # Convert to natural space for marginal_logpdf (which expects natural space values)
+        θ_natural = convert(NaturalHyperparameters, θ_star)
+        θ_natural_nt = convert(NamedTuple, θ_natural)
+        test_val_1 = θ_natural_nt.σ_latent
+        test_val_2 = θ_natural_nt.σ
 
         marginal_1 = hyperparameter_marginal_logpdf(posterior_approx, 1, test_val_1)
         marginal_2 = hyperparameter_marginal_logpdf(posterior_approx, 2, test_val_2)
@@ -94,8 +104,8 @@ using SparseArrays
         @test isfinite(marginal_1)
         @test isfinite(marginal_2)
 
-        # Test evaluation at joint mode
-        joint_at_mode = posterior_approx(to_vector(θ_star, spec))
+        # Test evaluation at joint mode (pass WorkingHyperparameters directly)
+        joint_at_mode = posterior_approx(θ_star)
         @test isfinite(joint_at_mode)
 
         # Test that marginals are reasonable relative to joint
@@ -106,9 +116,17 @@ using SparseArrays
         # Validate against numerical integration
         bounds = exploration.integration_bounds
         θ₂_grid = range(bounds[2, 1], bounds[2, 2], length = 100)
-        joint_vals = [posterior_approx([test_val_1, θ₂]) for θ₂ in θ₂_grid]
-        max_val = maximum(joint_vals)
-        marginal_numerical = log(sum(exp.(joint_vals .- max_val)) * step(θ₂_grid)) + max_val
+        # Convert working space grid values back to natural space for comparison
+        free_hps = collect(values(spec.free))
+        hp_θ₂ = free_hps[2]
+        inv_transform = Bijectors.inverse(hp_θ₂.transform)
+        joint_vals = [posterior_approx(NaturalHyperparameters([test_val_1, inv_transform(θ₂)], spec)) for θ₂ in θ₂_grid]
+        # Compute Jacobian correction for change of variables from η to θ
+        logdetjac_vals = [Bijectors.logabsdetjac(hp_θ₂.transform, inv_transform(θ₂)) for θ₂ in θ₂_grid]
+        # Adjust joint_vals by -logdetjac to account for Riemann sum in θ space
+        adjusted_vals = joint_vals .- logdetjac_vals
+        max_val = maximum(adjusted_vals)
+        marginal_numerical = log(sum(exp.(adjusted_vals .- max_val)) * step(θ₂_grid)) + max_val
         @test marginal_1 ≈ marginal_numerical atol = 0.3
     end
 
@@ -140,8 +158,11 @@ using SparseArrays
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test multiple evaluation points for each marginal
-        μ_values = [θ_star[1] - 0.2, θ_star[1], θ_star[1] + 0.2]
-        σ_values = [max(0.1, θ_star[2] - 0.2), θ_star[2], θ_star[2] + 0.2]
+        # Convert to natural space for marginal_logpdf (which expects natural space values)
+        θ_natural = convert(NaturalHyperparameters, θ_star)
+        θ_natural_nt = convert(NamedTuple, θ_natural)
+        μ_values = [θ_natural_nt.μ - 0.2, θ_natural_nt.μ, θ_natural_nt.μ + 0.2]
+        σ_values = [max(0.1, θ_natural_nt.σ - 0.2), θ_natural_nt.σ, θ_natural_nt.σ + 0.2]
 
         # Test μ marginals
         μ_marginals = Float64[]
@@ -206,8 +227,11 @@ using SparseArrays
         @test_throws BoundsError hyperparameter_marginal_logpdf(posterior_approx, -1, 1.0) # negative dim
 
         # Valid calls should work
-        marginal_1 = hyperparameter_marginal_logpdf(posterior_approx, 1, θ_star[1])
-        marginal_2 = hyperparameter_marginal_logpdf(posterior_approx, 2, θ_star[2])
+        # Convert to natural space for marginal_logpdf (which expects natural space values)
+        θ_natural = convert(NaturalHyperparameters, θ_star)
+        θ_natural_nt = convert(NamedTuple, θ_natural)
+        marginal_1 = hyperparameter_marginal_logpdf(posterior_approx, 1, θ_natural_nt.σ_gmrf)
+        marginal_2 = hyperparameter_marginal_logpdf(posterior_approx, 2, θ_natural_nt.ρ)
 
         @test isfinite(marginal_1)
         @test isfinite(marginal_2)
@@ -247,7 +271,10 @@ using SparseArrays
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test with different tolerances
-        test_val = θ_star[1]
+        # Convert to natural space for marginal_logpdf (which expects natural space values)
+        θ_natural = convert(NaturalHyperparameters, θ_star)
+        θ_natural_nt = convert(NamedTuple, θ_natural)
+        test_val = θ_natural_nt.σ_gmrf
 
         # Loose tolerance
         marginal_loose = hyperparameter_marginal_logpdf(posterior_approx, 1, test_val; rtol = 1.0e-3, atol = 1.0e-6)

@@ -17,14 +17,15 @@ export hyperparameter_logpdf, find_hyperparameter_mode, initial_hyperparameter_g
 
 Compute an initial guess for hyperparameter optimization in working space.
 
-For each hyperparameter:
-- If `prior_space=:natural`: Compute mode in natural space and transform to working space
-- If `prior_space=:working`: Use mode directly from prior
+Returns `WorkingHyperparameters` with initial guesses from the prior modes/means.
 
-Returns a vector of initial guesses in working space.
+# Details
+Since priors are stored in working space, we directly use the mode (or mean for distributions
+with boundary modes like Exponential) from the working-space prior.
 """
 function initial_hyperparameter_guess(spec::HyperparameterSpec)
-    return [_initial_guess_for_hyperparameter(hp) for hp in values(spec.free)]
+    θ_init = [_initial_guess_for_hyperparameter(hp) for hp in values(spec.free)]
+    return WorkingHyperparameters(θ_init, spec)
 end
 
 """
@@ -38,25 +39,18 @@ _robust_initial_value(dist::Distribution) = mode(dist)
 # Specializations for distributions with boundary modes
 _robust_initial_value(dist::Exponential) = mean(dist)  # mode=0, use mean instead
 
+# Specialization for TransformedDistribution (when prior was transformed to working space)
+function _robust_initial_value(dist::Bijectors.TransformedDistribution)
+    # Get robust initial value from base distribution
+    base_value = _robust_initial_value(dist.dist)
+    # Apply the transformation to get value in working space
+    return dist.transform(base_value)
+end
+
 function _initial_guess_for_hyperparameter(hp::Hyperparameter{T, S}) where {T, S}
-    if S == :natural
-        # Prior was specified in natural space, stored as-is
-        initial_natural = _robust_initial_value(hp.prior)
-        # Transform to working space for optimization
-        return hp.transform(initial_natural)
-    else
-        # Prior was specified in working space
-        # When transform=identity, prior is stored as-is (not wrapped)
-        # Otherwise, prior is a TransformedDistribution
-        if hp.transform === identity
-            # Identity transform: prior stored directly, already in working space
-            return _robust_initial_value(hp.prior)
-        else
-            # Non-identity transform: prior is TransformedDistribution, extract base
-            base_dist = hp.prior.dist
-            return _robust_initial_value(base_dist)
-        end
-    end
+    # Prior is always stored in working space now
+    # Just extract the mode/mean from the working-space prior
+    return _robust_initial_value(hp.prior)
 end
 
 """
@@ -68,39 +62,32 @@ This is the INLA approximation to the hyperparameter posterior.
 
 # Arguments
 - `model::INLAModel`: The INLA model specification
-- `θ`: Hyperparameters (as Vector in working space, or NamedTuple in natural space)
+- `θ`: Hyperparameters (WorkingHyperparameters or NaturalHyperparameters)
 - `y`: Observed data
 - `ga`: Optional pre-computed Gaussian approximation (GMRF object). If `nothing`, will be computed.
 
 # Details
-- When `θ` is a vector, it's assumed to be in working (unconstrained) space
-- Automatically converts to natural space for model evaluation
-- Prior includes Jacobian correction for transformations
+- Main implementation is for `WorkingHyperparameters` (working space)
+- `NaturalHyperparameters` converts to working space and adds Jacobian correction
 """
-function hyperparameter_logpdf(model::INLAModel, θ::AbstractVector, y, ga = nothing)
-    spec = model.hyperparameter_spec
-    θ_natural = working_to_natural(θ, spec)
-    return hyperparameter_logpdf(model, θ_natural, y, ga)
-end
-
-function hyperparameter_logpdf(model::INLAModel, θ_natural::NamedTuple, y, ga = nothing)
+function hyperparameter_logpdf(model::INLAModel, θ::WorkingHyperparameters, y, ga = nothing)
     # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
-    spec = model.hyperparameter_spec
 
-    log_prior_θ = logpdf_prior(θ_natural, spec)
+    # Evaluate prior in working space
+    log_prior_θ = logpdf_prior(θ)
 
     if log_prior_θ === -Inf
         return -Inf
     end
 
-    obs_lik = model.observation_model(y; θ_natural...)
-    latent_prior = latent_gmrf(model, θ_natural)
+    # Convert to natural space for model evaluation
+    θ_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ))
+
+    obs_lik = model.observation_model(y; θ_nt...)
+    latent_prior = latent_gmrf(model, θ_nt)
 
     # Use provided Gaussian approximation or compute it
     if ga === nothing
-        # Get latent field prior for this θ
-        x_prior = latent_gmrf(model, θ_natural)
-
         # Find Gaussian approximation
         x_G = gaussian_approximation(latent_prior, obs_lik)
     else
@@ -118,6 +105,15 @@ function hyperparameter_logpdf(model::INLAModel, θ_natural::NamedTuple, y, ga =
     return joint_logpdf - gaussian_logpdf
 end
 
+function hyperparameter_logpdf(model::INLAModel, θ::NaturalHyperparameters, y, ga = nothing)
+    # Convert to working space and evaluate
+    θ_working = convert(WorkingHyperparameters, θ)
+    log_p_working = hyperparameter_logpdf(model, θ_working, y, ga)
+
+    # Add Jacobian correction to get natural-space density
+    return log_p_working + logdetjac(θ)
+end
+
 """
     find_hyperparameter_mode(model::INLAModel, y; method=BFGS(), collect_points=true, progress_callback=nothing)
 
@@ -131,34 +127,32 @@ Find the mode θ* of the hyperparameter posterior π(θ | y).
 - `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
 
 # Returns
-- `θ_star`: The posterior mode in natural space (for use in exploration/integration)
-- `mode_points`: Points evaluated during optimization in working space (if collect_points=true)
+- `θ_star`: The posterior mode in working space (WorkingHyperparameters)
+- `mode_points`: WorkingHyperparameters evaluated during optimization (if collect_points=true)
 - `mode_logdensities`: Log-densities at mode_points (if collect_points=true)
 
 # Details
-Optimization and results are in working (unconstrained) space for use in subsequent
-exploration and integration steps. Convert to natural space only for final user output.
+Optimization is performed in working (unconstrained) space. The mode is returned in working space.
 """
 function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_points = true, progress_callback = nothing)
     spec = model.hyperparameter_spec
 
     # Storage for optimization path points
-    mode_points = Vector{Float64}[]
+    mode_points = WorkingHyperparameters[]
     mode_logdensities = Float64[]
 
     # Objective function (negative log-density for minimization)
-    function objective(θ)
-        θ_natural = working_to_natural(θ, spec)
+    function objective(θ_vec)
+        θ = WorkingHyperparameters(θ_vec, spec)
         logpdf_val = 0.0
         try
-            logpdf_val = hyperparameter_logpdf(model, θ_natural, y)
+            logpdf_val = hyperparameter_logpdf(model, θ, y)
         catch ZeroPivotException
             return Inf
         end
 
-
         if collect_points && isfinite(logpdf_val)
-            push!(mode_points, copy(θ))
+            push!(mode_points, WorkingHyperparameters(copy(θ_vec), spec))
             push!(mode_logdensities, logpdf_val)
         end
 
@@ -194,14 +188,13 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
         allow_f_increases = true,  # Allow occasional increases during search
         callback = optim_callback  # Add progress callback
     )
-    result = Optim.optimize(objective, θ_init, method, options)
+    result = Optim.optimize(objective, θ_init.θ, method, options)
 
     if !Optim.converged(result)
         @warn "Hyperparameter mode optimization did not converge"
     end
 
-    θ_star = Optim.minimizer(result)
-    θ_star = working_to_natural(θ_star, spec)
+    θ_star = WorkingHyperparameters(Optim.minimizer(result), spec)
 
     if collect_points
         return θ_star, mode_points, mode_logdensities

@@ -4,9 +4,17 @@ export GridPoint, HyperparameterExploration
 
 """
 Represents a single point on the exploration grid with its computed results.
+
+# Type Parameters
+- `W <: WorkingHyperparameters`: Type of working hyperparameters
+
+# Fields
+- `θ::W`: Hyperparameters in working space
+- `log_density::Float64`: Log density at this point
+- `marginal_result::Union{Nothing, MarginalResult}`: Optional marginal results
 """
-struct GridPoint
-    θ::Vector{Float64}
+struct GridPoint{W <: WorkingHyperparameters}
+    θ::W
     log_density::Float64
     marginal_result::Union{Nothing, MarginalResult}
 end
@@ -14,16 +22,19 @@ end
 """
 Represents the complete result of the hyperparameter posterior exploration.
 This is the primary object returned to the user.
+
+# Type Parameters
+- `GP <: GridPoint`: Type of grid points
 """
-struct HyperparameterExploration
-    grid_points::Vector{GridPoint}
+struct HyperparameterExploration{GP <: GridPoint}
+    grid_points::Vector{GP}
     integration_indices::Vector{Int}
     transform::ReparameterizationTransform
     log_normalization_constant::Float64
     integration_bounds::Matrix{Float64}
 
     # Constructor that computes integration bounds
-    function HyperparameterExploration(grid_points, integration_indices, transform, log_normalization_constant)
+    function HyperparameterExploration(grid_points::Vector{GP}, integration_indices, transform, log_normalization_constant) where {GP <: GridPoint}
         # Compute integration bounds once during construction
         integration_points = grid_points[integration_indices]
 
@@ -44,7 +55,7 @@ struct HyperparameterExploration
             bounds[dim, 2] = maximum(dim_values)  # max
         end
 
-        return new(grid_points, integration_indices, transform, log_normalization_constant, bounds)
+        return new{GP}(grid_points, integration_indices, transform, log_normalization_constant, bounds)
     end
 end
 
@@ -52,10 +63,11 @@ end
 
 function Base.show(io::IO, gp::GridPoint)
     print(io, "GridPoint(θ=")
-    if length(gp.θ) <= 3
-        print(io, "[", join([@sprintf("%.4f", x) for x in gp.θ], ", "), "]")
+    θ_vec = gp.θ.θ  # Extract underlying vector from WorkingHyperparameters
+    if length(θ_vec) <= 3
+        print(io, "[", join([@sprintf("%.4f", x) for x in θ_vec], ", "), "]")
     else
-        print(io, "[", @sprintf("%.4f", gp.θ[1]), ", ", @sprintf("%.4f", gp.θ[2]), ", ..., ", @sprintf("%.4f", gp.θ[end]), "]")
+        print(io, "[", @sprintf("%.4f", θ_vec[1]), ", ", @sprintf("%.4f", θ_vec[2]), ", ..., ", @sprintf("%.4f", θ_vec[end]), "]")
     end
     print(io, ", log_density=", @sprintf("%.4f", gp.log_density))
     if gp.marginal_result !== nothing
@@ -79,10 +91,9 @@ function Base.show(io::IO, exploration::HyperparameterExploration)
         # Show parameter ranges for integration points
         if !isempty(exploration.integration_indices)
             integration_points = exploration.grid_points[exploration.integration_indices]
-            θ_values = [point.θ for point in integration_points]
 
             for dim in 1:n_dim
-                dim_values = [θ[dim] for θ in θ_values]
+                dim_values = [point.θ[dim] for point in integration_points]
                 min_val = minimum(dim_values)
                 max_val = maximum(dim_values)
                 println(io, "    Dimension ", dim, ": [", @sprintf("%.4f", min_val), ", ", @sprintf("%.4f", max_val), "]")

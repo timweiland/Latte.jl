@@ -103,20 +103,20 @@ using Random
         y = x + 0.1 * randn(6)  # Noisy observations
 
         # Test joint density evaluation
-        θ_natural = working_to_natural(θ, spec)
-        log_joint = log_joint_density(model, x, θ_natural, y)
+        θ_w = WorkingHyperparameters(θ, spec)
+        log_joint = log_joint_density(model, x, θ_w, y)
         @test isa(log_joint, Real)
         @test isfinite(log_joint)
 
         # Test that different parameters give different densities
         θ2 = [log(0.8)]
-        θ2_natural = working_to_natural(θ2, spec)
-        log_joint2 = log_joint_density(model, x, θ2_natural, y)
+        θ2_w = WorkingHyperparameters(θ2, spec)
+        log_joint2 = log_joint_density(model, x, θ2_w, y)
         @test log_joint != log_joint2
 
         # Test with different latent field
         x2 = 2 * x
-        log_joint3 = log_joint_density(model, x2, θ_natural, y)
+        log_joint3 = log_joint_density(model, x2, θ_w, y)
         @test log_joint != log_joint3
     end
 
@@ -143,9 +143,9 @@ using Random
         x = randn(5)
         y = x + 0.1 * randn(5)
 
-        # Convert to natural space for log_joint_density
-        θ_natural = working_to_natural(θ, spec)
-        log_joint = log_joint_density(model, x, θ_natural, y)
+        # Convert to working space hyperparameters for log_joint_density
+        θ_w = WorkingHyperparameters(θ, spec)
+        log_joint = log_joint_density(model, x, θ_w, y)
         @test isfinite(log_joint)
     end
 
@@ -174,8 +174,8 @@ using Random
         x = randn(8)
         y = rand(8) .> 0.5  # Binary data
 
-        θ_natural = working_to_natural(θ, spec)
-        log_joint = log_joint_density(model_bernoulli, x, θ_natural, y)
+        θ_w = WorkingHyperparameters(θ, spec)
+        log_joint = log_joint_density(model_bernoulli, x, θ_w, y)
         @test isfinite(log_joint)
     end
 
@@ -199,8 +199,8 @@ using Random
         θ_named = (σ = 1.0,)  # Natural space
 
         # Test type stability
-        θ_natural = working_to_natural(θ, spec)
-        @inferred Float64 log_joint_density(model, x, θ_natural, y)
+        θ_w = WorkingHyperparameters(θ, spec)
+        @inferred Float64 log_joint_density(model, x, θ_w, y)
         @inferred GMRF latent_gmrf(model, θ_named)
     end
 
@@ -261,8 +261,8 @@ using Random
         x = randn(6)
         y = x + 0.1 * randn(6)
 
-        θ_natural = working_to_natural(θ, spec)
-        log_joint = log_joint_density(model, x, θ_natural, y)
+        θ_w = WorkingHyperparameters(θ, spec)
+        log_joint = log_joint_density(model, x, θ_w, y)
         @test isfinite(log_joint)
     end
 
@@ -284,18 +284,22 @@ using Random
         # Test basic sampling
         sample = rand(model)
         @test sample isa NamedTuple{(:θ, :x, :y)}
-        # θ is now a NamedTuple in natural space
-        @test sample.θ isa NamedTuple
-        @test sample.θ.σ > 0
+        # θ is now a NaturalHyperparameters object
+        @test sample.θ isa NaturalHyperparameters
+        θ_nt = convert(NamedTuple, sample.θ)
+        @test θ_nt.σ > 0
         @test length(sample.x) == length(sample.y) == 5
-        @test all(isfinite, values(sample.θ)) && all(isfinite, sample.x) && all(isfinite, sample.y)
+        @test all(isfinite, values(θ_nt)) && all(isfinite, sample.x) && all(isfinite, sample.y)
 
         # Test with explicit RNG
         rng = MersenneTwister(123)
         sample1 = rand(rng, model)
         rng = MersenneTwister(123)
         sample2 = rand(rng, model)
-        @test sample1.θ == sample2.θ && sample1.x == sample2.x && sample1.y == sample2.y
+        # Compare the values of hyperparameters and data
+        θ1_nt = convert(NamedTuple, sample1.θ)
+        θ2_nt = convert(NamedTuple, sample2.θ)
+        @test θ1_nt == θ2_nt && sample1.x == sample2.x && sample1.y == sample2.y
 
         # Test different samples are different
         @test rand(model) != rand(model)
@@ -315,10 +319,11 @@ using Random
         model_fixed = INLAModel(spec_fixed, latent_gmrf_fixed, obs_model)
         sample_fixed = rand(model_fixed)
         # θ should include both free and fixed parameters in natural space
-        @test sample_fixed.θ isa NamedTuple
-        @test haskey(sample_fixed.θ, :σ_latent)  # Free parameter
-        @test haskey(sample_fixed.θ, :σ)         # Fixed parameter
-        @test sample_fixed.θ.σ == 0.5            # Fixed value
+        @test sample_fixed.θ isa NaturalHyperparameters
+        θ_fixed_nt = convert(NamedTuple, sample_fixed.θ)
+        @test haskey(θ_fixed_nt, :σ_latent)     # Free parameter
+        @test haskey(θ_fixed_nt, :σ)            # Fixed parameter
+        @test θ_fixed_nt.σ == 0.5               # Fixed value
         @test length(sample_fixed.x) == length(sample_fixed.y) == 3
     end
 

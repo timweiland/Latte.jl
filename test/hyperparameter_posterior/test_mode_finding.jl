@@ -29,14 +29,17 @@ using FiniteDiff
 
         model = create_simple_model(5)
         y_test = [true, false, true, false, true]
+        spec = model.hyperparameter_spec
 
         # Test basic hyperparameter_logpdf evaluation
-        θ_test = [log(1.5)]  # Working space
+        θ_test_vec = [log(1.5)]  # Working space
+        θ_test = WorkingHyperparameters(θ_test_vec, spec)
         logpdf_val = hyperparameter_logpdf(model, θ_test, y_test)
         @test isfinite(logpdf_val)
 
         # Test that function works at various points
-        θ_low = [log(0.5)]
+        θ_low_vec = [log(0.5)]
+        θ_low = WorkingHyperparameters(θ_low_vec, spec)
         logpdf_low = hyperparameter_logpdf(model, θ_low, y_test)
         @test isfinite(logpdf_low)
     end
@@ -62,22 +65,28 @@ using FiniteDiff
         # Find mode
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
 
-        @test length(θ_star) == 1  # NamedTuple with 1 field
-        @test isfinite(θ_star.σ)  # σ should be finite in natural space
-        @test θ_star.σ > 0  # σ must be positive in natural space
+        @test θ_star isa WorkingHyperparameters
+        @test length(θ_star) == 1  # WorkingHyperparameters with 1 free parameter
+
+        # Convert to natural space to check the value
+        θ_star_natural = convert(NaturalHyperparameters, θ_star)
+        θ_star_nt = convert(NamedTuple, θ_star_natural)
+        @test isfinite(θ_star_nt.σ)  # σ should be finite in natural space
+        @test θ_star_nt.σ > 0  # σ must be positive in natural space
 
         # Test optimality condition: gradient should be ≈ 0 at mode
-        # Convert to working space vector for gradient computation
-        θ_star_working = to_vector(to_working(θ_star, spec), spec)
-        function objective(θ)
-            return hyperparameter_logpdf(model, θ, y_test)
+        # Use the working space vector for gradient computation
+        θ_star_vec = θ_star.θ
+        function objective(θ_vec)
+            θ_w = WorkingHyperparameters(θ_vec, spec)
+            return hyperparameter_logpdf(model, θ_w, y_test)
         end
 
-        grad_at_mode = FiniteDiff.finite_difference_gradient(objective, θ_star_working)
+        grad_at_mode = FiniteDiff.finite_difference_gradient(objective, θ_star_vec)
         @test abs(grad_at_mode[1]) < 1.0e-3  # Gradient should be near zero
 
         # Test second-order condition: Hessian should be negative definite
-        hess_at_mode = FiniteDiff.finite_difference_hessian(objective, θ_star_working)
+        hess_at_mode = FiniteDiff.finite_difference_hessian(objective, θ_star_vec)
         @test hess_at_mode[1, 1] < 0  # Negative definite for 1D case
 
         # Test mode collection during optimization
@@ -109,7 +118,7 @@ using FiniteDiff
 
         # Test that the mode is actually better than nearby points
         δ = 0.1
-        θ_nearby = [θ_star1[1] + δ]
+        θ_nearby = θ_star1 .+ δ  # Broadcasting preserves WorkingHyperparameters type
         logpdf_mode = hyperparameter_logpdf(model, θ_star1, y_test)
         logpdf_nearby = hyperparameter_logpdf(model, θ_nearby, y_test)
 

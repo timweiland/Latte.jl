@@ -23,16 +23,17 @@ using SparseArrays
         model = INLAModel(spec, beta_latent, obs_model)
 
         y_test = [true, true]  # Biased data to avoid boundary issues
-        θ_test = [1.0]
+        θ_test_working = WorkingHyperparameters([1.0], spec)
 
         # Test type stability of key functions
-        @inferred Float64 hyperparameter_logpdf(model, θ_test, y_test)
+        @inferred Float64 hyperparameter_logpdf(model, θ_test_working, y_test)
 
         θ_star, _, _ = find_hyperparameter_mode(model, y_test; collect_points = false)
-        @inferred NamedTuple find_hyperparameter_mode(model, y_test; collect_points = false)[1]
+        @inferred WorkingHyperparameters find_hyperparameter_mode(model, y_test; collect_points = false)[1]
 
         # Test initial hyperparameter guess function with spec
-        @inferred Vector{Float64} IntegratedNestedLaplace.initial_hyperparameter_guess(spec)
+        initial_guess = IntegratedNestedLaplace.initial_hyperparameter_guess(spec)
+        @test initial_guess isa WorkingHyperparameters
     end
 
     @testset "Memory Allocation" begin
@@ -50,15 +51,15 @@ using SparseArrays
         model = INLAModel(spec, allocation_test_latent, obs_model)
 
         y_test = randn(5)
-        θ_test = [1.5]
+        θ_test_working = WorkingHyperparameters([1.5], spec)
 
         # Warm up
-        hyperparameter_logpdf(model, θ_test, y_test)
+        hyperparameter_logpdf(model, θ_test_working, y_test)
 
         # Test that repeated calls don't allocate excessively
         initial_memory = Base.gc_bytes()
         for i in 1:10
-            hyperparameter_logpdf(model, θ_test, y_test)
+            hyperparameter_logpdf(model, θ_test_working, y_test)
         end
         final_memory = Base.gc_bytes()
 

@@ -22,18 +22,40 @@ end
     (approx::HyperparameterPosteriorApproximation)(θ)
 
 Evaluate the hyperparameter posterior approximation at point θ.
-Handles both DataInterpolations.jl (CubicSpline) and ScatteredInterpolation.jl (RBF) interpolants.
+
+# Arguments
+- `θ`: Can be `WorkingHyperparameters`, `NaturalHyperparameters`, or a vector (assumed to be in natural space)
+
+# Details
+The interpolant is built in working space. If θ is in natural space (NaturalHyperparameters or plain vector),
+it is converted to working space before evaluation. The returned log density accounts for the Jacobian
+when converting from natural to working space.
 """
-function (approx::HyperparameterPosteriorApproximation)(θ)
-    if isa(approx.interpolant, Union{CubicSpline, LinearInterpolation, ConstantInterpolation})
+function (approx::HyperparameterPosteriorApproximation)(θ::WorkingHyperparameters)
+    # Already in working space, evaluate directly
+    if isa(approx.interpolant, Union{CubicSpline, LinearInterpolation, ConstantInterpolation, QuadraticInterpolation})
         # DataInterpolations.jl interface: interpolant(x)
-        return approx.interpolant(θ isa Vector ? θ[1] : θ)
+        return approx.interpolant(θ.θ[1])
     else
         # ScatteredInterpolation.jl interface: evaluate(interpolant, point)
-        θ_vec = θ isa Vector ? θ : [θ]
-        result = evaluate(approx.interpolant, θ_vec)
+        result = evaluate(approx.interpolant, θ.θ)
         return result[1]  # ScatteredInterpolation returns a vector
     end
+end
+
+function (approx::HyperparameterPosteriorApproximation)(θ::NaturalHyperparameters)
+    # Convert to working space and evaluate
+    θ_working = convert(WorkingHyperparameters, θ)
+    log_p_working = approx(θ_working)
+    # Add Jacobian correction to get natural-space density
+    return log_p_working + logdetjac(θ)
+end
+
+function (approx::HyperparameterPosteriorApproximation)(θ_vec::AbstractVector)
+    # Assume vector is in natural space - need spec to convert
+    spec = approx.exploration.transform.θ_star.spec
+    θ_natural = NaturalHyperparameters(θ_vec, spec)
+    return approx(θ_natural)
 end
 
 """
@@ -74,7 +96,7 @@ function build_posterior_interpolant(exploration::HyperparameterExploration; pro
             interpolant = LinearInterpolation(sorted_logpdf, sorted_θ)
             progress_callback(status = "Linear interpolant complete", method = "LinearInterpolation")
         else
-            interpolant = CubicSpline(sorted_logpdf, sorted_θ)
+            interpolant = QuadraticInterpolation(sorted_logpdf, sorted_θ; extrapolation = ExtrapolationType.Linear)
             progress_callback(status = "Spline interpolant complete", method = "CubicSpline")
         end
     else
