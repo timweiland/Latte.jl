@@ -4,7 +4,7 @@ using Aqua
 
 @testset "IntegratedNestedLaplace.jl" begin
     @testset "Code quality (Aqua.jl)" begin
-        Aqua.test_all(IntegratedNestedLaplace)
+        Aqua.test_all(IntegratedNestedLaplace; persistent_tasks = false)
     end
 
     include("hyperparameters/runtests.jl")
