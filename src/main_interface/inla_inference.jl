@@ -15,9 +15,10 @@ selecting sensible defaults while supporting advanced customization.
 - `y::AbstractVector`: Observed data
 
 # Keyword Arguments
-- `marginalization_method::MarginalApproximation = GaussianMarginal()`: Method for latent marginalization
+- `latent_marginalization_method::MarginalApproximation = GaussianMarginal()`: Method for latent marginalization
+- `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = GridBasedMarginal()`: Method for hyperparameter marginalization (with adaptive expansion)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
-- `max_log_drop::Float64 = 8.0`: Maximum log-density drop for exploration boundary
+- `max_log_drop::Float64 = 6.0`: Initial maximum log-density drop for exploration (can be adaptively increased)
 - `interpolation_subdivisions::Int = 2`: Subdivision factor for interpolation grid
 - `mode_method = BFGS()`: Optimization method for mode finding
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
@@ -37,27 +38,32 @@ result = inla(model, y, max_log_drop=3.0, interpolation_subdivisions=3)
 # Disable progress tracking
 result = inla(model, y, progress=false)
 
-# Custom marginalization
-result = inla(model, y, 
-    marginalization_method=SimplifiedLaplace(), 
+# Custom latent marginalization
+result = inla(model, y,
+    latent_marginalization_method=SimplifiedLaplace(),
     latent_indices=1:100)
+
+# Custom hyperparameter marginalization (manual mode, no auto-expansion)
+result = inla(model, y,
+    hyperparameter_marginalization_method=GridBasedMarginal(auto_adjust=false))
 ```
 
 # Progress Tracking
 When `progress=true`, displays a 3-phase progress bar:
 - Phase 1 (33%): Mode finding with iteration tracking
 - Phase 2 (66%): Exploration with grid point evaluation
-- Phase 3 (100%): Interpolation construction
+- Phase 3 (100%): Hyperparameter marginalization (may include adaptive expansion)
 
 Each phase shows detailed real-time information about the computation.
 """
 function inla(
         model::INLAModel,
         y::AbstractVector;
-        marginalization_method = GaussianMarginal(),
+        latent_marginalization_method = GaussianMarginal(),
+        hyperparameter_marginalization_method = GridBasedMarginal(),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
-        max_log_drop::Float64 = 8.0,
-        interpolation_subdivisions::Int = 2,
+        max_log_drop::Float64 = 2.5,
+        interpolation_subdivisions::Int = 4,
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
         progress::Bool = true
@@ -98,11 +104,12 @@ function inla(
     advance_phase!(progress_state, "Mode finding complete", (iterations = length(mode_points),))
 
     # Phase 2: Exploration (33% → 66%)
+    # This creates a coarse grid optimized for latent field marginalization
     exploration_callback = create_progress_callback(progress_state, "Exploring hyperparameter posterior")
     exploration_start_time = time()
 
     exploration = explore_hyperparameter_posterior(
-        model, y, θ_star, marginalization_method, latent_indices;
+        model, y, θ_star, latent_marginalization_method, latent_indices;
         max_log_drop = max_log_drop,
         interpolation_subdivisions = interpolation_subdivisions,
         progress_callback = exploration_callback
@@ -111,27 +118,24 @@ function inla(
     timing[:exploration] = time() - exploration_start_time
     advance_phase!(progress_state, "Exploration complete", (points = length(exploration.grid_points),))
 
-    # Phase 3: Interpolation (66% → 100%)
-    interpolation_callback = create_progress_callback(progress_state, "Building posterior interpolant")
-    interpolation_start_time = time()
+    # Phase 3: Hyperparameter Marginalization (66% → 100%)
+    # This step can refine the exploration internally if needed for accurate marginals
+    marginalization_callback = create_progress_callback(progress_state, "Computing hyperparameter marginals")
+    marginalization_start_time = time()
 
-    posterior_approx = build_posterior_interpolant(
-        exploration;
-        progress_callback = interpolation_callback
+    hyperparameter_marginals = marginalize_hyperparameters(
+        hyperparameter_marginalization_method,
+        exploration,
+        model,
+        y;
+        progress_callback = marginalization_callback
     )
 
-    timing[:interpolation] = time() - interpolation_start_time
+    timing[:hyperparameter_marginalization] = time() - marginalization_start_time
     timing[:total] = time() - total_start_time
 
     # Finish progress tracking
     finish_progress!(progress_state)
-
-    # Create hyperparameter marginals (lazy - instantaneous, in natural space)
-    n_hyperparams = length(keys(model.hyperparameter_spec.free))
-    hyperparameter_marginals = [
-        HyperparameterMarginalDistribution(posterior_approx, i)
-            for i in 1:n_hyperparams
-    ]
 
     # Create latent marginals using the existing utility function
     latent_marginals = create_weighted_mixtures(exploration)
@@ -146,7 +150,8 @@ function inla(
 
     # Store options used
     options = (
-        marginalization_method = marginalization_method,
+        latent_marginalization_method = latent_marginalization_method,
+        hyperparameter_marginalization_method = hyperparameter_marginalization_method,
         latent_indices = latent_indices,
         max_log_drop = max_log_drop,
         interpolation_subdivisions = interpolation_subdivisions,
@@ -160,7 +165,6 @@ function inla(
         latent_marginals,
         θ_star,
         exploration,
-        posterior_approx,
         convergence,
         NamedTuple(timing),
         model,
