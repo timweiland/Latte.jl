@@ -5,28 +5,32 @@ using Printf
 export ReparameterizationTransform, logdet_jacobian, compute_reparameterization
 
 """
-    ReparameterizationTransform
+    ReparameterizationTransform{W}
 
 A struct that encapsulates the transformation from the standardized space (z) to
 the original hyperparameter space (θ).
 
 The transformation is defined as: θ(z) = θ_star + V * Λ_inv_sqrt * z.
-It is callable, so you can apply it like a function: `θ = transform(z)`.
+It is callable, so you can apply it like a function: `θ = transform(z)` which returns `WorkingHyperparameters`.
+
+# Type Parameters
+- `W <: WorkingHyperparameters`: Type of working hyperparameters
 """
-struct ReparameterizationTransform
-    θ_star::Vector{Float64}
+struct ReparameterizationTransform{W <: WorkingHyperparameters, HT <: AbstractMatrix}
+    θ_star::W
     V::Matrix{Float64}
     Λ_inv_sqrt::Diagonal{Float64, Vector{Float64}}
-    H::Matrix{Float64}  # Storing the positive-definite negative Hessian
+    H::HT  # Storing the positive-definite negative Hessian
 end
 
 """
     (t::ReparameterizationTransform)(z::AbstractVector{<:Real})
 
 Applies the forward transformation z -> θ, making the struct callable.
+Returns `WorkingHyperparameters` via broadcasting.
 """
 function (t::ReparameterizationTransform)(z::AbstractVector{<:Real})
-    return t.θ_star + t.V * t.Λ_inv_sqrt * z
+    return t.θ_star .+ t.V * t.Λ_inv_sqrt * z
 end
 
 """
@@ -48,14 +52,14 @@ Computes the reparameterization around the mode and returns it as a
 # Arguments
 - `model::INLAModel`: The INLA model
 - `y`: Observed data
-- `θ_star::AbstractVector`: Hyperparameter mode in natural space (as vector)
+- `θ_star::WorkingHyperparameters`: Hyperparameter mode in working space
 
 # Returns
 - `ReparameterizationTransform`: Transform object containing eigendecomposition
 """
-function compute_reparameterization(model::INLAModel, y, θ_star::AbstractVector)
+function compute_reparameterization(model::INLAModel, y, θ_star::WorkingHyperparameters)
     # Compute the positive-definite negative Hessian of the log-posterior at the mode
-    H = -FiniteDiff.finite_difference_hessian(θ -> hyperparameter_logpdf(model, to_named_tuple(θ, model.hyperparameter_spec), y), θ_star)
+    H = -FiniteDiff.finite_difference_hessian(θ_vec -> hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y), θ_star.θ)
 
     eigen_result = eigen(H)
 
@@ -79,10 +83,11 @@ function Base.show(io::IO, t::ReparameterizationTransform)
     println(io, "ReparameterizationTransform:")
 
     print(io, "  Mode: ")
+    θ_vec = t.θ_star.θ
     if n_dim <= 3
-        print(io, "[", join([@sprintf("%.4f", x) for x in t.θ_star], ", "), "]")
+        print(io, "[", join([@sprintf("%.4f", x) for x in θ_vec], ", "), "]")
     else
-        print(io, "[", @sprintf("%.4f", t.θ_star[1]), ", ", @sprintf("%.4f", t.θ_star[2]), ", ..., ", @sprintf("%.4f", t.θ_star[end]), "]")
+        print(io, "[", @sprintf("%.4f", θ_vec[1]), ", ", @sprintf("%.4f", θ_vec[2]), ", ..., ", @sprintf("%.4f", θ_vec[end]), "]")
     end
     println(io)
 

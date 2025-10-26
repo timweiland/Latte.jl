@@ -55,8 +55,8 @@ end
     # Find the actual mode
     θ_mode, _, _ = find_hyperparameter_mode(model, y_test)
 
-    # Create transformation
-    transform = compute_reparameterization(model, y_test, to_vector(θ_mode, model.hyperparameter_spec))
+    # Create transformation (pass WorkingHyperparameters directly)
+    transform = compute_reparameterization(model, y_test, θ_mode)
     mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test)
 
     @testset "Basic Exploration" begin
@@ -157,8 +157,8 @@ end
     # Find the actual mode
     θ_mode, _, _ = find_hyperparameter_mode(model, y_test)
 
-    # Create transformation
-    transform = compute_reparameterization(model, y_test, to_vector(θ_mode, model.hyperparameter_spec))
+    # Create transformation (pass WorkingHyperparameters directly)
+    transform = compute_reparameterization(model, y_test, θ_mode)
     mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test)
 
     @testset "Basic Dimension Exploration" begin
@@ -305,10 +305,11 @@ end
 
         # Check that exploration respects parameter bounds
         for point in exploration.grid_points
-            θ_working = to_named_tuple(point.θ, model.hyperparameter_spec)
-            θ_natural = working_to_natural(θ_working, model.hyperparameter_spec)
-            @test θ_natural.σ_gmrf > 0      # Sigma should be positive
-            @test 0 <= θ_natural.ρ <= 0.5   # Rho should be in [0, 0.5]
+            θ_w = WorkingHyperparameters(point.θ, model.hyperparameter_spec)
+            θ_n = convert(NaturalHyperparameters, θ_w)
+            θ_n_nt = convert(NamedTuple, θ_n)
+            @test θ_n_nt.σ_gmrf > 0      # Sigma should be positive
+            @test 0 <= θ_n_nt.ρ <= 0.5   # Rho should be in [0, 0.5]
         end
     end
 end

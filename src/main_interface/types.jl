@@ -4,7 +4,7 @@ using Printf
 export INLAResult
 
 """
-    INLAResult{HM, LM, Mode, Expl, Post, Conv, Time, Model, Opts}
+    INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts}
 
 Results structure for INLA inference containing all outputs from the inference process.
 
@@ -15,11 +15,10 @@ hyperparameter marginals, latent marginals, and diagnostic information.
 All fields are fully typed for type stability and performance.
 
 # Fields
-- `hyperparameter_marginals::HM`: Vector of marginal distributions for each hyperparameter (lazy evaluation)
+- `hyperparameter_marginals::HM`: Vector of marginal distributions for each hyperparameter
 - `latent_marginals::LM`: Vector of marginal distributions for latent variables (WeightedMixture)
-- `hyperparameter_mode::Mode`: Mode of the hyperparameter posterior in natural space (NamedTuple)
+- `hyperparameter_mode::Mode`: Mode of the hyperparameter posterior (WorkingHyperparameters)
 - `exploration::Expl`: Results from posterior exploration (HyperparameterExploration)
-- `posterior_approximation::Post`: Interpolated posterior approximation (HyperparameterPosteriorApproximation)
 - `convergence::Conv`: Convergence diagnostics and information (NamedTuple)
 - `computation_time::Time`: Timing breakdown by computation phase (NamedTuple)
 - `model::Model`: Original INLA model specification (INLAModel)
@@ -36,9 +35,9 @@ mean(result.hyperparameter_marginals[1])  # Mean of first hyperparameter
 # Access latent marginals
 result.latent_marginals[1]  # First latent variable marginal (WeightedMixture)
 
-# Access mode in natural space (named tuple with both free and fixed parameters)
-result.hyperparameter_mode.σ  # Access by name
-result.hyperparameter_mode    # (σ = 2.5, ρ = 0.3, μ = 0.0)
+# Access mode (WorkingHyperparameters)
+result.hyperparameter_mode       # WorkingHyperparameters
+convert(NamedTuple, convert(NaturalHyperparameters, result.hyperparameter_mode))  # Convert to NamedTuple in natural space
 
 # Access diagnostics
 result.convergence.mode_converged      # Did mode finding converge?
@@ -46,12 +45,11 @@ result.computation_time.total          # Total computation time
 result.computation_time.mode_finding   # Time spent finding mode
 ```
 """
-struct INLAResult{HM, LM, Mode, Expl, Post, Conv, Time, Model, Opts}
+struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts}
     hyperparameter_marginals::HM
     latent_marginals::LM
     hyperparameter_mode::Mode
     exploration::Expl
-    posterior_approximation::Post
     convergence::Conv
     computation_time::Time
     model::Model
@@ -72,8 +70,10 @@ function Base.show(io::IO, result::INLAResult)
     println(io, "  Hyperparameters: ", n_hyperparams)
     println(io, "  Latent variables: ", n_latent)
 
-    # Show mode as named tuple
-    mode_str = join(["$k=$(round(v, digits = 4))" for (k, v) in pairs(result.hyperparameter_mode)], ", ")
+    # Show mode as named tuple in natural space
+    mode_natural = convert(NaturalHyperparameters, result.hyperparameter_mode)
+    mode_nt = convert(NamedTuple, mode_natural)
+    mode_str = join(["$k=$(round(v, digits = 4))" for (k, v) in pairs(mode_nt)], ", ")
     println(io, "  Mode: (", mode_str, ")")
 
     # Show convergence status

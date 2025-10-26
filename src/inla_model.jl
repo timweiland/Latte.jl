@@ -74,64 +74,61 @@ function latent_gmrf(model::INLAModel, θ_named)
 end
 
 """
-    log_joint_density(model::INLAModel, x, θ, y)
+    log_joint_density(model::INLAModel, x, θ_w::WorkingHyperparameters, y)
 
-Evaluate the joint log-density log π(x, θ, y) for the INLA model.
+Evaluate the joint log-density log π(x, θ, y) for the INLA model in working space.
 
 This computes: log π(θ) + log π(x | θ) + log π(y | x, θ)
 
 # Arguments
 - `model::INLAModel`: The INLA model
 - `x`: Latent field values
-- `θ`: Hyperparameters (as Vector, in working space for HyperparameterSpec)
+- `θ_w`: Hyperparameters in working space
 - `y`: Observations
 
-This convenience method creates the latent GMRF and materializes the observation likelihood internally.
+This is the main implementation. Creates the latent GMRF and observation likelihood internally.
 """
-function log_joint_density(model::INLAModel, x, θ_natural::NamedTuple, y)
-    spec = model.hyperparameter_spec
-
-    # Create latent GMRF and materialized observation likelihood in natural space
-    latent_prior = latent_gmrf(model, θ_natural)
-    obs_lik = model.observation_model(y; θ_natural...)
-
-    return log_joint_density(model, x, θ_natural, latent_prior, obs_lik)
-end
-
-"""
-    log_joint_density(model::INLAModel, x, θ, latent_gmrf, obs_lik)
-
-Evaluate the joint log-density log π(x, θ, y) for the INLA model using precomputed components.
-
-This computes: log π(θ) + log π(x | θ) + log π(y | x, θ)
-
-# Arguments
-- `model::INLAModel`: The INLA model
-- `x`: Latent field values
-- `θ`: Hyperparameters (as Vector, in working space for HyperparameterSpec)
-- `latent_gmrf`: Precomputed latent field GMRF
-- `obs_lik`: Precomputed materialized observation likelihood
-
-This method is more efficient when the latent GMRF and observation likelihood are already available.
-"""
-function log_joint_density(model::INLAModel, x, θ_natural::NamedTuple, latent_gmrf, obs_lik)
-    spec = model.hyperparameter_spec
-
-    # Hyperparameter prior contribution
-    log_prior_θ = logpdf_prior(θ_natural, spec)
+function log_joint_density(model::INLAModel, x, θ_w::WorkingHyperparameters, y)
+    # Hyperparameter prior contribution in working space
+    log_prior_θ = logpdf_prior(θ_w)
 
     if log_prior_θ === -Inf
         # Early return
         return -Inf
     end
 
+    # Convert to natural space for latent GMRF and observation model
+    θ_natural_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_w))
+
+    # Create latent GMRF and materialized observation likelihood in natural space
+    latent_prior = latent_gmrf(model, θ_natural_nt)
+    obs_lik = model.observation_model(y; θ_natural_nt...)
+
     # Latent field prior contribution
-    log_prior_x = logpdf(latent_gmrf, x)
+    log_prior_x = logpdf(latent_prior, x)
 
     # Observation model contribution
     log_likelihood = loglik(x, obs_lik)
 
     return log_prior_θ + log_prior_x + log_likelihood
+end
+
+"""
+    log_joint_density(model::INLAModel, x, θ_n::NaturalHyperparameters, y)
+
+Evaluate the joint log-density log π(x, θ, y) for the INLA model in natural space.
+
+Converts to working space and adds Jacobian correction term.
+
+# Arguments
+- `model::INLAModel`: The INLA model
+- `x`: Latent field values
+- `θ_n`: Hyperparameters in natural space
+- `y`: Observations
+"""
+function log_joint_density(model::INLAModel, x, θ_n::NaturalHyperparameters, y)
+    θ_w = convert(WorkingHyperparameters, θ_n)
+    return log_joint_density(model, x, θ_w, y) + logdetjac(θ_n)
 end
 
 """
@@ -162,8 +159,8 @@ The sampling process:
 - `model`: The INLAModel to sample from
 
 # Returns
-A NamedTuple `(θ = θ_named, x = x_vec, y = y_vec)` where:
-- `θ_named`: NamedTuple of hyperparameter values in natural space (what users should see)
+A NamedTuple `(θ = θ_natural, x = x_vec, y = y_vec)` where:
+- `θ_natural`: NaturalHyperparameters object representing hyperparameter values in natural space
 - `x_vec`: Vector of latent field values
 - `y_vec`: Vector of observation values
 """
@@ -173,16 +170,19 @@ function Random.rand(rng::AbstractRNG, model::INLAModel)
     # Sample free hyperparameters in working space
     θ_working_vec = [rand(rng, hp.prior) for hp in values(spec.free)]
 
-    # Convert to named tuples
-    θ_working = to_named_tuple(θ_working_vec, spec)
-    θ_natural = working_to_natural(θ_working, spec)  # Includes fixed parameters - this is what user sees
+    # Convert to WorkingHyperparameters, then to NaturalHyperparameters
+    θ_working = WorkingHyperparameters(θ_working_vec, spec)
+    θ_natural = convert(NaturalHyperparameters, θ_working)
+
+    # Convert to NamedTuple for passing to functions that need it
+    θ_natural_nt = convert(NamedTuple, θ_natural)
 
     # Generate latent GMRF and sample from it
-    gmrf = latent_gmrf(model, θ_natural)
+    gmrf = latent_gmrf(model, θ_natural_nt)
     x = rand(rng, gmrf)
 
     # Sample observations given latent field using GMRF's conditional_distribution
-    y_dist = GaussianMarkovRandomFields.conditional_distribution(model.observation_model, x; θ_natural...)
+    y_dist = GaussianMarkovRandomFields.conditional_distribution(model.observation_model, x; θ_natural_nt...)
     y = rand(rng, y_dist)
 
     return (θ = θ_natural, x = x, y = y)

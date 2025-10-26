@@ -53,13 +53,12 @@ using Random
             @test approx_value ≈ true_value atol = 1.0e-10  # Should exactly interpolate
         end
 
-        # Test interpolant evaluation at mode (convert θ_star to vector)
-        θ_star_vec = to_vector(θ_star, spec)
-        mode_approx = posterior_approx(θ_star_vec)
+        # Test interpolant evaluation at mode (pass WorkingHyperparameters directly)
+        mode_approx = posterior_approx(θ_star)
         @test isfinite(mode_approx)
 
-        # Test scalar input handling
-        mode_scalar = posterior_approx(θ_star_vec[1])
+        # Test scalar input handling (1D case has only one parameter)
+        mode_scalar = posterior_approx(θ_star)
         @test mode_scalar ≈ mode_approx atol = 1.0e-10
     end
 
@@ -110,15 +109,15 @@ using Random
             @test approx_value ≈ true_value atol = tolerance
         end
 
-        # Test interpolant evaluation at mode (convert θ_star to vector)
-        θ_star_vec = to_vector(θ_star, spec)
-        mode_approx = posterior_approx(θ_star_vec)
+        # Test interpolant evaluation at mode (pass WorkingHyperparameters directly)
+        mode_approx = posterior_approx(θ_star)
         @test isfinite(mode_approx)
 
         # Test interpolation at new points near the mode
         log_normalization = exploration.log_normalization_constant
 
         # Generate test points around the mode within integration bounds
+        θ_star_vec = θ_star.θ
         mode_α, mode_β = θ_star_vec[1], θ_star_vec[2]
         bound_min_α, bound_max_α = exploration.integration_bounds[1, 1], exploration.integration_bounds[1, 2]
         bound_min_β, bound_max_β = exploration.integration_bounds[2, 1], exploration.integration_bounds[2, 2]
@@ -133,12 +132,12 @@ using Random
 
         for θ_new in test_points
             # Get interpolated value (already normalized)
-            approx_value = posterior_approx(θ_new)
+            # Create WorkingHyperparameters from θ_new (vector in working space)
+            θ_new_w = WorkingHyperparameters(θ_new, spec)
+            approx_value = posterior_approx(θ_new_w)
 
             # Get direct unnormalized value and normalize it
-            # Convert θ_new (vector in natural space) to NamedTuple for hyperparameter_logpdf
-            θ_new_nt = to_named_tuple(θ_new, spec)
-            direct_unnormalized = hyperparameter_logpdf(model, θ_new_nt, y_test)
+            direct_unnormalized = hyperparameter_logpdf(model, θ_new_w, y_test)
             direct_normalized = direct_unnormalized - log_normalization
 
             # Should be reasonably close for 2D interpolation
@@ -205,9 +204,9 @@ using Random
             approx_value = posterior_approx(θ_new)
 
             # Get direct unnormalized value and normalize it
-            # Convert θ_new (vector in natural space) to NamedTuple for hyperparameter_logpdf
-            θ_new_nt = to_named_tuple(θ_new, spec)
-            direct_unnormalized = hyperparameter_logpdf(model, θ_new_nt, y_test)
+            # Create WorkingHyperparameters from θ_new (vector in working space) for hyperparameter_logpdf
+            θ_new_w = WorkingHyperparameters(θ_new, spec)
+            direct_unnormalized = hyperparameter_logpdf(model, θ_new_w, y_test)
             direct_normalized = direct_unnormalized - log_normalization
 
             # Should be reasonably close (interpolation accuracy)

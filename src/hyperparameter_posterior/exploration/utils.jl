@@ -1,7 +1,7 @@
 export evaluate_logpdf_and_marginals, create_weighted_mixtures
 
 """
-    evaluate_logpdf_and_marginals(model::INLAModel, y, θ::Vector{Float64}; compute_marginals::Bool=false, marginalization_method=nothing, marginalization_indices=nothing)
+    evaluate_logpdf_and_marginals(model::INLAModel, y, θ::WorkingHyperparameters; compute_marginals::Bool=false, marginalization_method=nothing, marginalization_indices=nothing)
 
 Computes the log-posterior and optionally the latent field marginals at a given θ.
 This helper function encapsulates the expensive GMRF/GA logic and avoids code repetition.
@@ -9,7 +9,7 @@ This helper function encapsulates the expensive GMRF/GA logic and avoids code re
 # Arguments
 - `model::INLAModel`: The INLA model specification
 - `y`: Observed data
-- `θ::Vector{Float64}`: Hyperparameter values in unconstrained space
+- `θ::WorkingHyperparameters`: Hyperparameter values in working (unconstrained) space
 - `compute_marginals::Bool=false`: Whether to compute marginals (expensive)
 - `marginalization_method`: Method for computing marginals (required if compute_marginals=true)
 - `marginalization_indices`: Variables to marginalize (required if compute_marginals=true)
@@ -19,34 +19,29 @@ This helper function encapsulates the expensive GMRF/GA logic and avoids code re
 - `marginal_result::Union{Nothing, MarginalResult}`: Marginal results (if compute_marginals=true)
 """
 function evaluate_logpdf_and_marginals(
-        model::INLAModel, y, θ::Vector{Float64};
+        model::INLAModel, y, θ::WorkingHyperparameters;
         compute_marginals::Bool = false, marginalization_method = nothing, marginalization_indices = nothing
     )
-    spec = model.hyperparameter_spec
+    # Convert to natural space for model evaluation
+    θ_natural = convert(NaturalHyperparameters, θ)
+    θ_natural_nt = convert(NamedTuple, θ_natural)
 
-
-    # Convert θ vector to natural space
-    θ_natural = to_named_tuple(θ, spec)
-
-    log_prior_θ = logpdf_prior(θ_natural, spec)
+    log_prior_θ = logpdf_prior(θ)
     if log_prior_θ === -Inf
         return -Inf, nothing
     end
 
     # Perform the expensive Gaussian Approximation once
-    prior_gmrf = latent_gmrf(model, θ_natural)
-    obs_lik = model.observation_model(y; θ_natural...)
+    prior_gmrf = latent_gmrf(model, θ_natural_nt)
+    obs_lik = model.observation_model(y; θ_natural_nt...)
     ga = gaussian_approximation(prior_gmrf, obs_lik)
 
     # Compute log posterior density using the pre-computed GA
-    log_density = hyperparameter_logpdf(model, θ_natural, y, ga)
+    log_density = hyperparameter_logpdf(model, θ, y, ga)
 
     marginal_result = nothing
     if compute_marginals
         # Reuse the GA for marginalization
-        log_prior_θ = logpdf_prior(θ_natural, spec)
-        # Materialize observation likelihood with data and hyperparameters
-        obs_lik = model.observation_model(y; θ_natural...)
         marginal_result = marginalize(
             ga, obs_lik,
             log_prior_θ, marginalization_method, marginalization_indices;

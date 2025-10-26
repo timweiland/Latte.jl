@@ -12,7 +12,7 @@ function explore_half_axis_by_steps(
         marginalization_method, marginalization_indices
     )
     n_dim = length(transform.θ_star)
-    keyed_points = Tuple{NTuple{n_dim, Int}, GridPoint}[]
+    keyed_points = []
 
     step_count = 1
     while true
@@ -21,7 +21,7 @@ function explore_half_axis_by_steps(
         key = Tuple(key_vec)
 
         z_vec = evaluation_step_z .* collect(key)
-        θ_test = transform(z_vec)
+        θ_test = transform(z_vec)  # Returns WorkingHyperparameters directly
 
         is_integration_point = (step_count % interpolation_subdivisions == 0)
 
@@ -88,6 +88,9 @@ end
 Explore the hyperparameter posterior around the mode `θ_star` using a robust,
 integer-based grid construction method.
 
+# Arguments
+- `θ_star::WorkingHyperparameters`: The posterior mode in working space
+
 # Keyword Arguments
 - `integration_step_z::Float64 = 1.0`: The step size in the standardized z-space for the coarse *integration* grid. A step of 1.0 corresponds to one standard deviation.
 - `interpolation_subdivisions::Int = 2`: The number of fine-grid steps per coarse integration step.
@@ -98,7 +101,7 @@ integer-based grid construction method.
 - `HyperparameterExploration`: A struct containing the complete, normalized results of the exploration.
 """
 function explore_hyperparameter_posterior(
-        model::INLAModel, y, θ_star_nt::NamedTuple, marginalization_method, marginalization_indices;
+        model::INLAModel, y, θ_star::WorkingHyperparameters, marginalization_method, marginalization_indices;
         integration_step_z::Float64 = 1.0,
         max_log_drop::Float64 = 2.5,
         interpolation_subdivisions::Int = 2,
@@ -108,8 +111,6 @@ function explore_hyperparameter_posterior(
     if progress_callback === nothing
         progress_callback = (; kwargs...) -> nothing
     end
-
-    θ_star = to_vector(θ_star_nt, model.hyperparameter_spec)
 
     n_dim = length(θ_star)
 
@@ -126,7 +127,7 @@ function explore_hyperparameter_posterior(
 
     # Step 3: Explore axes and build the lookup table of raw (unnormalized) points
     progress_callback(status = "Starting axis exploration", dimensions = n_dim)
-    point_lookup = Dict{NTuple{n_dim, Int}, GridPoint}()
+    point_lookup = Dict{NTuple{n_dim, Int}, typeof(mode_point)}()
     point_lookup[Tuple(zeros(Int, n_dim))] = mode_point
     step_ranges_per_dim = Vector{UnitRange{Int}}(undef, n_dim)
     evaluation_step_z = integration_step_z / interpolation_subdivisions
@@ -145,7 +146,7 @@ function explore_hyperparameter_posterior(
     total_grid_points = prod(length.(step_ranges_per_dim))
     progress_callback(status = "Building full grid", estimated_total_points = total_grid_points)
 
-    raw_interpolation_points = GridPoint[]
+    raw_interpolation_points = typeof(mode_point)[]
     points_evaluated = 0
 
     for key_tuple in Iterators.product(step_ranges_per_dim...)
@@ -157,7 +158,7 @@ function explore_hyperparameter_posterior(
         end
 
         is_integration_point = all(iszero, collect(key_tuple) .% interpolation_subdivisions)
-        θ_off_axis = transform(evaluation_step_z .* collect(key_tuple))
+        θ_off_axis = transform(evaluation_step_z .* collect(key_tuple))  # Returns WorkingHyperparameters
 
         log_density, marginal_result = evaluate_logpdf_and_marginals(
             model, y, θ_off_axis;
@@ -201,7 +202,7 @@ function explore_hyperparameter_posterior(
         @warn "Exploration found only $(length(raw_interpolation_points)) grid points. Consider relaxing exploration parameters: increase max_log_drop (current: $max_log_drop) or decrease integration_step_z (current: $integration_step_z) for better coverage."
     end
 
-    final_grid_points = GridPoint[]
+    final_grid_points = typeof(mode_point)[]
     for p in raw_interpolation_points
         normalized_log_density = p.log_density - log_normalization_constant
         push!(final_grid_points, GridPoint(p.θ, normalized_log_density, p.marginal_result))
