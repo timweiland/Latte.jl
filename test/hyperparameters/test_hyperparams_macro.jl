@@ -22,9 +22,9 @@ using Bijectors
         hp_ρ = spec.free.ρ
         @test IntegratedNestedLaplace.prior_space(hp_σ) == :natural
         @test IntegratedNestedLaplace.prior_space(hp_ρ) == :natural
-        # When space=natural, priors are stored as-is (not wrapped)
-        @test hp_σ.prior isa Exponential
-        @test hp_ρ.prior isa Beta
+        # When space=natural, priors are transformed to working space
+        @test hp_σ.prior isa Bijectors.TransformedDistribution
+        @test hp_ρ.prior isa Bijectors.TransformedDistribution
     end
 
     @testset "Call aliases (Log, Logit, Identity)" begin
@@ -37,10 +37,10 @@ using Bijectors
         @test length(keys(spec.free)) == 3
         @test keys(spec.free) == (:σ, :ρ, :μ)
 
-        # When space=natural, priors are stored as-is (not wrapped)
-        @test spec.free.σ.prior isa Exponential
-        @test spec.free.ρ.prior isa Beta
-        @test spec.free.μ.prior isa Normal  # Identity doesn't transform
+        # When space=natural, priors are transformed to working space
+        @test spec.free.σ.prior isa Bijectors.TransformedDistribution
+        @test spec.free.ρ.prior isa Bijectors.TransformedDistribution
+        @test spec.free.μ.prior isa Normal  # Identity doesn't transform (working space by default)
     end
 
     @testset "Custom bijector expression" begin
@@ -49,8 +49,8 @@ using Bijectors
         end
 
         @test length(keys(spec.free)) == 1
-        # When space=natural, priors are stored as-is (not wrapped)
-        @test spec.free.τ.prior isa Gamma
+        # When space=natural, priors are transformed to working space
+        @test spec.free.τ.prior isa Bijectors.TransformedDistribution
     end
 
     @testset "Identity transform (default)" begin
@@ -94,8 +94,8 @@ using Bijectors
 
         @test length(keys(spec.free)) == 1
         @test IntegratedNestedLaplace.prior_space(spec.free.σ) == :natural
-        # When prior_space=natural, priors are stored as-is (not wrapped)
-        @test spec.free.σ.prior isa Exponential
+        # When prior_space=natural, priors are transformed to working space
+        @test spec.free.σ.prior isa Bijectors.TransformedDistribution
     end
 
     @testset "Equivalence with manual construction" begin
@@ -121,17 +121,18 @@ using Bijectors
         @test spec_macro.fixed.μ == spec_manual.fixed.μ
 
         # Test that they behave the same
-        θ_working = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
+        θ_w = WorkingHyperparameters([log(2.0), Bijectors.Logit(0.0, 1.0)(0.7)], spec_macro)
+        θ_w_manual = WorkingHyperparameters([log(2.0), Bijectors.Logit(0.0, 1.0)(0.7)], spec_manual)
 
-        θ_natural_macro = working_to_natural(θ_working, spec_macro)
-        θ_natural_manual = working_to_natural(θ_working, spec_manual)
+        θ_natural_macro = convert(NamedTuple, convert(NaturalHyperparameters, θ_w))
+        θ_natural_manual = convert(NamedTuple, convert(NaturalHyperparameters, θ_w_manual))
 
         @test θ_natural_macro.σ ≈ θ_natural_manual.σ atol = 1.0e-10
         @test θ_natural_macro.ρ ≈ θ_natural_manual.ρ atol = 1.0e-10
         @test θ_natural_macro.μ == θ_natural_manual.μ
 
-        log_p_macro = logpdf_prior(θ_working, spec_macro)
-        log_p_manual = logpdf_prior(θ_working, spec_manual)
+        log_p_macro = logpdf_prior(θ_w)
+        log_p_manual = logpdf_prior(θ_w_manual)
         @test log_p_macro ≈ log_p_manual atol = 1.0e-10
     end
 
@@ -247,16 +248,17 @@ using Bijectors
         end
 
         # Test transformations
-        θ_working = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
-        θ_natural = working_to_natural(θ_working, spec)
+        θ_w = WorkingHyperparameters([log(2.0), Bijectors.Logit(0.0, 1.0)(0.7)], spec)
+        θ_natural = convert(NamedTuple, convert(NaturalHyperparameters, θ_w))
 
         @test θ_natural.σ ≈ 2.0 atol = 1.0e-10
         @test θ_natural.ρ ≈ 0.7 atol = 1.0e-10
 
         # Test round-trip
-        θ_working_back = to_working(θ_natural, spec)
-        @test θ_working_back.σ ≈ θ_working.σ atol = 1.0e-10
-        @test θ_working_back.ρ ≈ θ_working.ρ atol = 1.0e-10
+        θ_n = NaturalHyperparameters([2.0, 0.7], spec)
+        θ_w_back = convert(WorkingHyperparameters, θ_n)
+        @test θ_w_back[1] ≈ log(2.0) atol = 1.0e-10
+        @test θ_w_back[2] ≈ Bijectors.Logit(0.0, 1.0)(0.7) atol = 1.0e-10
     end
 
     @testset "Functional validation: Prior evaluation" begin
@@ -281,20 +283,19 @@ using Bijectors
             μ = 0.0
         end
 
-        θ_working = (σ = log(2.0), ρ = Bijectors.Logit(0.0, 1.0)(0.7))
+        θ_w = WorkingHyperparameters([log(2.0), Bijectors.Logit(0.0, 1.0)(0.7)], spec)
+        θ_n = NaturalHyperparameters([2.0, 0.7], spec)
 
         # Test type stability of key functions with the macro-generated spec
-        @test @inferred(working_to_natural(θ_working, spec)) isa NamedTuple
-        @test @inferred(logpdf_prior(θ_working, spec)) isa Float64
+        @test @inferred(convert(NaturalHyperparameters, θ_w)) isa NaturalHyperparameters
+        @test @inferred(logpdf_prior(θ_w)) isa Float64
+        @test @inferred(logpdf_prior((σ = 2.0, ρ = 0.7), spec)) isa Float64
 
-        θ_vec = [log(2.0), Bijectors.Logit(0.0, 1.0)(0.7)]
-        result_nt = to_named_tuple(θ_vec, spec)
-        @test result_nt isa NamedTuple{(:σ, :ρ, :μ)}
-        @test result_nt.σ ≈ θ_vec[1]
-        @test result_nt.ρ ≈ θ_vec[2]
+        result_nt = convert(NamedTuple, θ_w)
+        @test result_nt isa NamedTuple
+        @test result_nt.σ ≈ log(2.0)
+        @test result_nt.ρ ≈ Bijectors.Logit(0.0, 1.0)(0.7)
         @test result_nt.μ == 0.0  # Fixed parameter
-
-        @test @inferred(to_vector(θ_working, spec)) isa Vector{Float64}
     end
 
     @testset "Documentation examples" begin
