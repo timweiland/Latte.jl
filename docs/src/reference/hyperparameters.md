@@ -25,11 +25,11 @@ spec = @hyperparams begin
     (σ ~ Gamma(2, 3), transform = log, space = natural)
 end
 
-# Work with parameter vectors and named tuples
-θ_vec = [1.5]  # Parameter in working space (log(σ))
-θ_working = to_named_tuple(θ_vec, spec)  # Convert to working-space NamedTuple
-θ_natural = working_to_natural(θ_working, spec)  # Transform to natural space: (σ = exp(1.5),)
-θ_back = to_vector(θ_natural, spec)      # Convert back to vector
+# Work with parameter vectors and conversions
+θ_w = WorkingHyperparameters([1.5], spec)  # Parameter in working space (log(σ))
+θ_n = convert(NaturalHyperparameters, θ_w)  # Transform to natural space: σ = exp(1.5)
+θ_nt = convert(NamedTuple, θ_n)             # Convert to NamedTuple: (σ = exp(1.5),)
+θ_back = θ_n.θ                               # Access underlying vector: [exp(1.5)]
 ```
 
 ### Multiple Parameters with Transformations
@@ -42,8 +42,9 @@ spec = @hyperparams begin
     (τ ~ InverseGamma(1, 1), transform = log, space = natural) # Log transform for precision
 end
 
-θ_vec = [0.5, -1.2, 0.8]  # Parameters in working space
-θ_natural = working_to_natural(to_named_tuple(θ_vec, spec), spec)
+θ_w = WorkingHyperparameters([0.5, -1.2, 0.8], spec)  # Parameters in working space
+θ_n = convert(NaturalHyperparameters, θ_w)
+θ_nt = convert(NamedTuple, θ_n)
 # Result: (ρ = logistic(-1.2), σ = exp(0.5), τ = exp(0.8))
 ```
 
@@ -83,14 +84,16 @@ spec = @hyperparams begin
 end
 
 # Only free parameters go in the vector
-θ_vec = [1.2, -0.5]  # [transformed ρ, transformed τ]
+θ_w = WorkingHyperparameters([1.2, -0.5], spec)  # [transformed ρ, transformed τ]
 
-# working_to_natural converts and includes fixed parameters
-θ_natural = working_to_natural(to_named_tuple(θ_vec, spec), spec)
+# Convert to natural space and includes fixed parameters
+θ_n = convert(NaturalHyperparameters, θ_w)
+θ_nt = convert(NamedTuple, θ_n)
 # Result: (ρ = logistic(1.2), σ = 0.5, τ = exp(-0.5))
 
-# Access fixed parameters via spec.fixed
-σ_fixed = spec.fixed.σ  # 0.5
+# Access parameters by name using dot notation
+ρ_natural = θ_n.ρ         # logistic(1.2) (natural space)
+σ_fixed = θ_n.σ           # 0.5 (fixed value)
 ```
 
 ## Integrating with INLA Models
@@ -199,12 +202,12 @@ spec = @hyperparams begin
     (ρ ~ Beta(1, 1), transform = logit, space = natural)
 end
 
-θ_working = to_named_tuple([1.5, 0.3], spec)
+θ_w = WorkingHyperparameters([1.5, 0.3], spec)
 
 # These operations are type-stable
-@inferred working_to_natural(θ_working, spec)
-@inferred to_vector(working_to_natural(θ_working, spec), spec)
-@inferred logpdf_prior(θ_working, spec)  # Includes Jacobian
+@inferred convert(NaturalHyperparameters, θ_w)
+@inferred convert(NamedTuple, θ_w)
+@inferred logpdf_prior(θ_w)  # Evaluates prior in working space
 ```
 
 All conversions and prior evaluations have concrete return types determined at compile time.
@@ -215,9 +218,8 @@ All conversions and prior evaluations have concrete return types determined at c
 @hyperparams
 HyperparameterSpec
 Hyperparameter
-working_to_natural
-to_working
-to_named_tuple
-to_vector
+WorkingHyperparameters
+NaturalHyperparameters
 logpdf_prior
+logdetjac
 ```
