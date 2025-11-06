@@ -12,6 +12,8 @@ using Aqua
     include("test_inla_model.jl")
     include("hyperparameter_posterior/runtests.jl")
     include("latent_marginalization/runtests.jl")
+    include("latent_augmentation/runtests.jl")
+    include("observation_marginals/runtests.jl")
     include("test_latent_marginalization.jl")
     include("end_to_end/runtests.jl")
 end

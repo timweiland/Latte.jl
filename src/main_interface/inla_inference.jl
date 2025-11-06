@@ -76,12 +76,10 @@ function inla(
 
     # Auto-detect latent indices if not provided
     if latent_indices === nothing
-        latent_dim = latent_dimension(model.observation_model, y)
-        if latent_dim !== nothing
-            latent_indices = collect(1:latent_dim)
-        else
-            error("Cannot infer latent dimension. Please specify latent_indices explicitly.")
-        end
+        # TODO: This is not gonna work for function-based latent priors
+        #       Maybe just enforce LatentModel type then?
+        #       Could add macro to construct LatentModel from function more easily
+        latent_indices = collect(1:length(model.latent_prior))
     end
 
     # Initialize progress tracking
@@ -143,6 +141,18 @@ function inla(
     # Create latent marginals using the existing utility function
     latent_marginals = create_weighted_mixtures(exploration)
 
+    # Split marginals if model is augmented (use views to avoid copying)
+    linear_predictor_marginals = nothing
+    base_latent_marginals = nothing
+
+    if model.augmentation_info !== nothing
+        info = model.augmentation_info
+
+        # Use views to avoid copying marginal distributions
+        linear_predictor_marginals = @view latent_marginals[info.linear_predictor_indices]
+        base_latent_marginals = @view latent_marginals[info.base_latent_indices]
+    end
+
     # Create convergence diagnostics
     convergence = (
         mode_converged = mode_points !== nothing ? true : false,  # Simplified check
@@ -172,6 +182,9 @@ function inla(
         NamedTuple(timing),
         model,
         options,
-        accumulators_result
+        accumulators_result;
+        linear_predictor_marginals = linear_predictor_marginals,
+        base_latent_marginals = base_latent_marginals,
+        augmentation_info = model.augmentation_info
     )
 end

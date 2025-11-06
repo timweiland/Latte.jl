@@ -1,8 +1,31 @@
 using Distributions
 using GaussianMarkovRandomFields
+using GaussianMarkovRandomFields: LatentModel, hyperparameters, precision_matrix, constraints, model_name
 using Random
 
+import GaussianMarkovRandomFields: hyperparameters, precision_matrix, constraints, model_name
+import Distributions: mean
+
 export INLAModel, latent_gmrf, log_joint_density
+
+# Helper type for wrapping functions as LatentModels
+struct FunctionLatentModel{FuncType} <: LatentModel
+    func::FuncType
+    n::Int
+end
+
+Base.length(flm::FunctionLatentModel) = flm.n
+hyperparameters(flm::FunctionLatentModel) = NamedTuple()  # Function handles its own params
+function precision_matrix(flm::FunctionLatentModel; kwargs...)
+    gmrf = flm.func(; kwargs...)
+    return GaussianMarkovRandomFields.precision_matrix(gmrf)
+end
+function Distributions.mean(flm::FunctionLatentModel; kwargs...)
+    gmrf = flm.func(; kwargs...)
+    return Distributions.mean(gmrf)
+end
+constraints(flm::FunctionLatentModel; kwargs...) = nothing
+model_name(::FunctionLatentModel) = :function_latent
 
 """
     INLAModel{HP, F, O}
@@ -48,8 +71,9 @@ struct INLAModel{HP, F, O <: ObservationModel}
     hyperparameter_spec::HP
     latent_prior::F
     observation_model::O
+    augmentation_info::Union{Nothing, AugmentationInfo}
 
-    function INLAModel(hp_spec::HyperparameterSpec{FreeNT, FixedNT}, latent_prior::F, observation_model::O) where {FreeNT, FixedNT, F, O <: ObservationModel}
+    function INLAModel(hp_spec::HyperparameterSpec{FreeNT, FixedNT}, latent_prior::F, observation_model::O, augmentation_info::Union{Nothing, AugmentationInfo} = nothing) where {FreeNT, FixedNT, F, O <: ObservationModel}
         # Validation: check all required hyperparameters are provided (both free and fixed)
         required = Set(hyperparameters(observation_model))
         provided = Set(fieldnames(FreeNT)) ∪ Set(fieldnames(FixedNT))
@@ -60,8 +84,124 @@ struct INLAModel{HP, F, O <: ObservationModel}
             error("Missing required hyperparameters for $(typeof(observation_model)): $(collect(missing_params))")
         end
 
-        return new{typeof(hp_spec), F, O}(hp_spec, latent_prior, observation_model)
+        return new{typeof(hp_spec), F, O}(hp_spec, latent_prior, observation_model, augmentation_info)
     end
+end
+
+function _restrict_obs_model_to_indices(obs_model::ObservationModel, indices)
+    error("Restriction to indices not supported for $(typeof(obs_model))")
+end
+
+function _restrict_obs_model_to_indices(obs_model::ExponentialFamily, indices)
+    return ExponentialFamily(obs_model.family, obs_model.link, indices)
+end
+
+"""
+    INLAModel(
+        hp_spec::HyperparameterSpec,
+        base_latent_prior,
+        obs_model::LinearlyTransformedObservationModel;
+        augment_latent::Bool = true,
+        linear_predictor_precision::Real = 1e6
+    )
+
+Specialized constructor for LinearlyTransformedObservationModel that automatically augments
+the latent field with linear predictor components.
+
+When `augment_latent=true` (default), this constructor:
+1. Extracts the design matrix A and base observation model from the LinearlyTransformedObservationModel
+2. Wraps the base_latent_prior in an AugmentedLatentModel
+3. Creates an augmented GMRF with structure [η; x_base] where η = A * x_base
+4. Stores augmentation metadata for accessing linear predictor vs base marginals later
+
+# Arguments
+- `hp_spec::HyperparameterSpec`: Hyperparameter specification
+- `base_latent_prior`: Base latent prior (function or LatentModel) returning GMRF of size n_base
+- `obs_model::LinearlyTransformedObservationModel`: Observation model with design matrix A
+- `augment_latent::Bool = true`: Whether to automatically augment (set false to disable)
+- `linear_predictor_precision::Real = 1e6`: Precision for enforcing η ≈ A * x_base (high = tight coupling)
+
+# Returns
+An INLAModel with:
+- Augmented latent prior returning GMRFs of size n_obs + n_base
+- Base observation model (unwrapped from LinearlyTransformedObservationModel)
+- AugmentationInfo metadata for tracking which indices are linear predictors vs base components
+
+# Example
+```julia
+# Base latent model
+base_model = AR1Model(100)  # 100 base components
+
+# Design matrix: 200 observations × 100 base components
+A = randn(200, 100)
+base_obs = ExponentialFamily(Poisson)
+obs_model = LinearlyTransformedObservationModel(base_obs, A)
+
+# Hyperparameters
+hp_spec = @hyperparams begin
+    (τ ~ Exponential(1.0), transform = log, space = natural)
+    (ρ ~ Beta(2, 2), transform = logit, space = working)
+end
+
+# Automatic augmentation (enabled by default)
+model = INLAModel(hp_spec, base_model, obs_model)
+# Result: latent field has 300 components [η₁...η₂₀₀; x_base₁...x_base₁₀₀]
+# model.augmentation_info contains metadata about the structure
+
+# Opt-out of augmentation
+model_no_aug = INLAModel(hp_spec, base_model, obs_model; augment_latent=false)
+# Result: user must manually handle augmentation
+```
+"""
+function INLAModel(
+        hp_spec::HyperparameterSpec,
+        base_latent_prior::F,
+        obs_model::LinearlyTransformedObservationModel;
+        augment_latent::Bool = true,
+        linear_predictor_precision::Real = 1.0e6
+    ) where {F}
+    if !augment_latent
+        # User opted out - pass through to base constructor without augmentation
+        return INLAModel(hp_spec, base_latent_prior, obs_model, nothing)
+    end
+
+    # Extract components from LinearlyTransformedObservationModel
+    design_matrix = obs_model.design_matrix
+    base_obs_model = obs_model.base_model
+
+    # Get dimensions
+    n_obs, n_full = size(design_matrix)
+
+    # Infer base latent dimension
+    # If base_latent_prior is a LatentModel, use length()
+    # If it's a function, we need to check what it returns (done during validation)
+    latent_prior = base_latent_prior
+    if base_latent_prior isa LatentModel
+        n_base = length(base_latent_prior)
+        if n_base != n_full
+            error("Dimension mismatch: base_latent_prior has dimension $n_base, but design matrix has $(n_full) columns. Expected them to match.")
+        end
+    else
+        # base_latent_prior is a function - wrap it in FunctionLatentModel
+        n_base = n_full
+
+        # Wrap function in FunctionLatentModel, then in AugmentedLatentModel
+        latent_prior = FunctionLatentModel(base_latent_prior, n_base)
+    end
+
+    augmented_latent_model = AugmentedLatentModel(
+        latent_prior,
+        design_matrix;
+        linear_predictor_precision = linear_predictor_precision
+    )
+
+    # Create augmentation metadata
+    augmentation_info = AugmentationInfo(n_obs, n_base)
+
+    obs_model = _restrict_obs_model_to_indices(base_obs_model, augmentation_info.linear_predictor_indices)
+
+    # Call base constructor with augmented model and base observation model
+    return INLAModel(hp_spec, augmented_latent_model, obs_model, augmentation_info)
 end
 
 """
