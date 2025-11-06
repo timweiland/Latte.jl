@@ -24,6 +24,9 @@ All fields are fully typed for type stability and performance.
 - `model::Model`: Original INLA model specification (INLAModel)
 - `options::Opts`: Options used for inference (NamedTuple)
 - `accumulators::Acc`: Tuple of PosteriorAccumulator objects with computed metrics (e.g., DIC, marginal likelihood)
+- `linear_predictor_marginals::Union{Nothing, Vector}`: Marginals for linear predictors η (if augmented model)
+- `base_latent_marginals::Union{Nothing, Vector}`: Marginals for base latent components (if augmented model)
+- `augmentation_info::Union{Nothing, AugmentationInfo}`: Metadata about latent field augmentation
 
 # Usage
 ```julia
@@ -51,7 +54,7 @@ result.accumulators[1].DIC             # DIC value
 result.accumulators[1].p_D             # Effective parameters
 ```
 """
-struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc}
+struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo}
     hyperparameter_marginals::HM
     latent_marginals::LM
     hyperparameter_mode::Mode
@@ -61,6 +64,39 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc}
     model::Model
     options::Opts
     accumulators::Acc
+    linear_predictor_marginals::LPM
+    base_latent_marginals::BLM
+    augmentation_info::AugInfo
+
+    function INLAResult(
+            hyperparameter_marginals::HM,
+            latent_marginals::LM,
+            hyperparameter_mode::Mode,
+            exploration::Expl,
+            convergence::Conv,
+            computation_time::Time,
+            model::Model,
+            options::Opts,
+            accumulators::Acc;
+            linear_predictor_marginals::LPM = nothing,
+            base_latent_marginals::BLM = nothing,
+            augmentation_info::AugInfo = nothing
+        ) where {HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo}
+        return new{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo}(
+            hyperparameter_marginals,
+            latent_marginals,
+            hyperparameter_mode,
+            exploration,
+            convergence,
+            computation_time,
+            model,
+            options,
+            accumulators,
+            linear_predictor_marginals,
+            base_latent_marginals,
+            augmentation_info
+        )
+    end
 end
 
 """
@@ -76,6 +112,14 @@ function Base.show(io::IO, result::INLAResult)
     println(io, "  Model: ", typeof(result.model))
     println(io, "  Hyperparameters: ", n_hyperparams)
     println(io, "  Latent variables: ", n_latent)
+
+    # Show augmentation info if present
+    if result.augmentation_info !== nothing
+        info = result.augmentation_info
+        println(io, "  Augmented structure:")
+        println(io, "    - Linear predictors (η): ", info.n_linear_predictors, " variables")
+        println(io, "    - Base latent components: ", info.n_base_latent, " variables")
+    end
 
     # Show mode as named tuple in natural space
     mode_natural = convert(NaturalHyperparameters, result.hyperparameter_mode)
