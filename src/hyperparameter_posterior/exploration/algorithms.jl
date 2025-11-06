@@ -1,7 +1,7 @@
 export explore_hyperparameter_posterior, explore_half_axis_by_steps, explore_dimension_and_build_lookup
 
 """
-    explore_half_axis_by_steps(model, y, transform, mode_logpdf, dim, direction, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices)
+    explore_half_axis_by_steps(model, y, transform, mode_logpdf, dim, direction, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators)
 
 Explores one direction along a dimension using integer step indices.
 Returns a list of (key, GridPoint) tuples where key is an integer coordinate tuple.
@@ -9,7 +9,7 @@ Returns a list of (key, GridPoint) tuples where key is an integer coordinate tup
 function explore_half_axis_by_steps(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, direction::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
-        marginalization_method, marginalization_indices
+        marginalization_method, marginalization_indices, accumulators::Tuple
     )
     n_dim = length(transform.θ_star)
     keyed_points = []
@@ -25,18 +25,31 @@ function explore_half_axis_by_steps(
 
         is_integration_point = (step_count % interpolation_subdivisions == 0)
 
-        log_density, marginal_result = evaluate_logpdf_and_marginals(
+        result = evaluate_at_grid_point(
             model, y, θ_test;
             compute_marginals = is_integration_point,
             marginalization_method = marginalization_method,
             marginalization_indices = marginalization_indices
         )
 
-        if mode_logpdf - log_density > max_log_drop
+        if mode_logpdf - result.log_density > max_log_drop
             break
         end
 
-        point = GridPoint(θ_test, log_density, marginal_result)
+        point = GridPoint(θ_test, result.log_density, result.marginal_result)
+
+        # Call accumulators if this is an integration point
+        if is_integration_point && !isempty(accumulators)
+            for acc in accumulators
+                accumulate!(
+                    acc;
+                    result...,  # Splat the NamedTuple from evaluate_at_grid_point
+                    θ = θ_test,
+                    y = y,
+                    is_mode = false  # Mode is handled separately
+                )
+            end
+        end
         push!(keyed_points, (key, point))
         step_count += 1
     end
@@ -45,7 +58,7 @@ function explore_half_axis_by_steps(
 end
 
 """
-    explore_dimension_and_build_lookup(model, y, transform, mode_logpdf, dim, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices)
+    explore_dimension_and_build_lookup(model, y, transform, mode_logpdf, dim, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators)
 
 Explore a single dimension and build lookup table for integer-based grid coordinates.
 Calls explore_half_axis_by_steps for both directions and collects results.
@@ -57,18 +70,18 @@ Returns (point_lookup, step_range) where:
 function explore_dimension_and_build_lookup(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
-        marginalization_method, marginalization_indices
+        marginalization_method, marginalization_indices, accumulators::Tuple
     )
     # Call our helper function for both directions
     pos_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, 1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
-        marginalization_method, marginalization_indices
+        marginalization_method, marginalization_indices, accumulators
     )
     neg_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, -1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
-        marginalization_method, marginalization_indices
+        marginalization_method, marginalization_indices, accumulators
     )
 
     # Return a dictionary for fast, safe lookups
@@ -96,16 +109,19 @@ integer-based grid construction method.
 - `interpolation_subdivisions::Int = 2`: The number of fine-grid steps per coarse integration step.
 - `max_log_drop::Float64 = 2.5`: Exploration along any axis stops when the log-density drops by this much from the mode.
 - `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
+- `accumulators::Tuple = ()`: Tuple of PosteriorAccumulator objects to process integration points
 
 # Returns
 - `HyperparameterExploration`: A struct containing the complete, normalized results of the exploration.
+- `accumulators`: Tuple of finalized accumulators (if provided)
 """
 function explore_hyperparameter_posterior(
         model::INLAModel, y, θ_star::WorkingHyperparameters, marginalization_method, marginalization_indices;
         integration_step_z::Float64 = 1.0,
         max_log_drop::Float64 = 2.5,
         interpolation_subdivisions::Int = 2,
-        progress_callback = nothing
+        progress_callback = nothing,
+        accumulators::Tuple = ()
     )
     # Handle progress callback
     if progress_callback === nothing
@@ -120,10 +136,24 @@ function explore_hyperparameter_posterior(
 
     # Step 2: Evaluate the mode point once, authoritatively
     progress_callback(status = "Evaluating mode point", mode = θ_star)
-    mode_log_density, mode_marginal_result = evaluate_logpdf_and_marginals(
+    mode_result = evaluate_at_grid_point(
         model, y, θ_star; compute_marginals = true, marginalization_method, marginalization_indices
     )
-    mode_point = GridPoint(θ_star, mode_log_density, mode_marginal_result)
+    mode_point = GridPoint(θ_star, mode_result.log_density, mode_result.marginal_result)
+    mode_log_density = mode_result.log_density
+
+    # Call accumulators for the mode point
+    if !isempty(accumulators)
+        for acc in accumulators
+            accumulate!(
+                acc;
+                mode_result...,  # Splat the NamedTuple
+                θ = θ_star,
+                y = y,
+                is_mode = true
+            )
+        end
+    end
 
     # Step 3: Explore axes and build the lookup table of raw (unnormalized) points
     progress_callback(status = "Starting axis exploration", dimensions = n_dim)
@@ -136,7 +166,7 @@ function explore_hyperparameter_posterior(
         progress_callback(status = "Exploring axis", current_dimension = d, total_dimensions = n_dim)
         axis_points, axis_range = explore_dimension_and_build_lookup(
             model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
-            interpolation_subdivisions, marginalization_method, marginalization_indices
+            interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators
         )
         merge!(point_lookup, axis_points) # Add all on-axis points to the master table
         step_ranges_per_dim[d] = axis_range
@@ -160,15 +190,28 @@ function explore_hyperparameter_posterior(
         is_integration_point = all(iszero, collect(key_tuple) .% interpolation_subdivisions)
         θ_off_axis = transform(evaluation_step_z .* collect(key_tuple))  # Returns WorkingHyperparameters
 
-        log_density, marginal_result = evaluate_logpdf_and_marginals(
+        result = evaluate_at_grid_point(
             model, y, θ_off_axis;
             compute_marginals = is_integration_point,
             marginalization_method = marginalization_method,
             marginalization_indices = marginalization_indices
         )
 
-        if mode_log_density - log_density <= max_log_drop
-            push!(raw_interpolation_points, GridPoint(θ_off_axis, log_density, marginal_result))
+        if mode_log_density - result.log_density <= max_log_drop
+            push!(raw_interpolation_points, GridPoint(θ_off_axis, result.log_density, result.marginal_result))
+
+            # Call accumulators if this is an integration point
+            if is_integration_point && !isempty(accumulators)
+                for acc in accumulators
+                    accumulate!(
+                        acc;
+                        result...,  # Splat the NamedTuple from evaluate_at_grid_point
+                        θ = θ_off_axis,
+                        y = y,
+                        is_mode = false
+                    )
+                end
+            end
         end
 
         # Update progress for every grid point
@@ -177,7 +220,7 @@ function explore_hyperparameter_posterior(
             points_evaluated = points_evaluated,
             total_points = total_grid_points,
             current_θ = θ_off_axis,
-            log_density = log_density
+            log_density = result.log_density
         )
     end
 
@@ -208,12 +251,23 @@ function explore_hyperparameter_posterior(
         push!(final_grid_points, GridPoint(p.θ, normalized_log_density, p.marginal_result))
     end
 
-    progress_callback(status = "Exploration complete", final_points = length(final_grid_points))
-
-    return HyperparameterExploration(
+    # Create exploration object
+    exploration = HyperparameterExploration(
         final_grid_points,
         integration_indices,
         transform,
         log_normalization_constant
     )
+
+    # Finalize accumulators
+    if !isempty(accumulators)
+        progress_callback(status = "Finalizing accumulators", n_accumulators = length(accumulators))
+        for acc in accumulators
+            finalize!(acc, exploration)
+        end
+    end
+
+    progress_callback(status = "Exploration complete", final_points = length(final_grid_points))
+
+    return exploration, accumulators
 end

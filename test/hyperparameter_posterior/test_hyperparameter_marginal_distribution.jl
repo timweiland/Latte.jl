@@ -63,7 +63,7 @@ using Bijectors
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(inla_model, y_gt)
 
         # Step 2: Explore posterior
-        exploration = explore_hyperparameter_posterior(
+        exploration, _ = explore_hyperparameter_posterior(
             inla_model, y_gt, θ_star, GaussianMarginal(), 1:k
         )
 
