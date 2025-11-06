@@ -39,7 +39,7 @@ using Random
 
         # Get exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration = explore_hyperparameter_posterior(model, y_test, θ_star, GaussianMarginal(), 1:100)
+        exploration, _ = explore_hyperparameter_posterior(model, y_test, θ_star, GaussianMarginal(), 1:100)
 
         # Build interpolant
         posterior_approx = build_posterior_interpolant(exploration)
@@ -91,7 +91,7 @@ using Random
 
         # Get exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration = explore_hyperparameter_posterior(
+        exploration, _ = explore_hyperparameter_posterior(
             model, y_test, θ_star, GaussianMarginal(), 1:100;
             interpolation_subdivisions = 2
         )
@@ -165,7 +165,7 @@ using Random
 
         # Get dense exploration
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration = explore_hyperparameter_posterior(
+        exploration, _ = explore_hyperparameter_posterior(
             model, y_test, θ_star, GaussianMarginal(), 1:2;
             integration_step_z = 3.0, interpolation_subdivisions = 1
         )  # Dense sampling

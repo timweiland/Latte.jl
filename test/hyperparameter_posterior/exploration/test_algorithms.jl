@@ -224,7 +224,7 @@ end
     θ_mode, _, _ = find_hyperparameter_mode(model, y_test)
 
     @testset "Basic Full Exploration" begin
-        exploration = explore_hyperparameter_posterior(
+        exploration, _ = explore_hyperparameter_posterior(
             model, y_test, θ_mode,
             GaussianMarginal(), 1:1000;
             integration_step_z = 1.0,
@@ -240,7 +240,7 @@ end
     end
 
     @testset "Mode Point Included" begin
-        exploration = explore_hyperparameter_posterior(
+        exploration, _ = explore_hyperparameter_posterior(
             model, y_test, θ_mode,
             GaussianMarginal(), 1:1000;
             integration_step_z = 1.0,
@@ -261,7 +261,7 @@ end
     end
 
     @testset "Integration Points Have Marginals" begin
-        exploration = explore_hyperparameter_posterior(
+        exploration, _ = explore_hyperparameter_posterior(
             model, y_test, θ_mode,
             GaussianMarginal(), 1:1000;
             integration_step_z = 1.0,
@@ -276,7 +276,7 @@ end
     end
 
     @testset "Normalized Densities" begin
-        exploration = explore_hyperparameter_posterior(
+        exploration, _ = explore_hyperparameter_posterior(
             model, y_test, θ_mode,
             GaussianMarginal(), 1:1000;
             integration_step_z = 1.0,
@@ -295,7 +295,7 @@ end
     end
 
     @testset "Parameter Bounds" begin
-        exploration = explore_hyperparameter_posterior(
+        exploration, _ = explore_hyperparameter_posterior(
             model, y_test, θ_mode,
             GaussianMarginal(), 1:1000;
             integration_step_z = 0.5,  # Smaller step size

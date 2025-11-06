@@ -23,6 +23,7 @@ selecting sensible defaults while supporting advanced customization.
 - `mode_method = BFGS()`: Optimization method for mode finding
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
 - `progress::Bool = true`: Enable progress tracking
+- `accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator())`: Tuple of PosteriorAccumulator objects for model comparison metrics
 
 # Returns
 - `INLAResult`: Complete INLA inference results with marginals and diagnostics
@@ -66,7 +67,8 @@ function inla(
         interpolation_subdivisions::Int = 4,
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
-        progress::Bool = true
+        progress::Bool = true,
+        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator())
     )
 
     # Input validation
@@ -108,11 +110,12 @@ function inla(
     exploration_callback = create_progress_callback(progress_state, "Exploring hyperparameter posterior")
     exploration_start_time = time()
 
-    exploration = explore_hyperparameter_posterior(
+    exploration, accumulators_result = explore_hyperparameter_posterior(
         model, y, θ_star, latent_marginalization_method, latent_indices;
         max_log_drop = max_log_drop,
         interpolation_subdivisions = interpolation_subdivisions,
-        progress_callback = exploration_callback
+        progress_callback = exploration_callback,
+        accumulators = accumulators
     )
 
     timing[:exploration] = time() - exploration_start_time
@@ -168,6 +171,7 @@ function inla(
         convergence,
         NamedTuple(timing),
         model,
-        options
+        options,
+        accumulators_result
     )
 end

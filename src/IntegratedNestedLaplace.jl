@@ -24,6 +24,7 @@ include("latent_marginalization/marginalization_module.jl")
 include("hyperparameter_posterior/hyperparameter_posterior.jl")
 include("distributions/distributions.jl")
 include("observation_models/observation_models.jl")
+include("posterior_accumulators/posterior_accumulators.jl")
 include("main_interface/main_interface.jl")
 
 end

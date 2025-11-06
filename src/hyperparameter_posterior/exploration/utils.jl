@@ -1,10 +1,13 @@
-export evaluate_logpdf_and_marginals, create_weighted_mixtures
+export evaluate_at_grid_point, create_weighted_mixtures
 
 """
-    evaluate_logpdf_and_marginals(model::INLAModel, y, θ::WorkingHyperparameters; compute_marginals::Bool=false, marginalization_method=nothing, marginalization_indices=nothing)
+    evaluate_at_grid_point(model::INLAModel, y, θ::WorkingHyperparameters; compute_marginals::Bool=false, marginalization_method=nothing, marginalization_indices=nothing)
 
-Computes the log-posterior and optionally the latent field marginals at a given θ.
+Evaluate all quantities needed at a hyperparameter grid point.
+
 This helper function encapsulates the expensive GMRF/GA logic and avoids code repetition.
+Returns a NamedTuple with all computed quantities, designed to be splatted as kwargs to
+accumulator callbacks.
 
 # Arguments
 - `model::INLAModel`: The INLA model specification
@@ -15,10 +18,15 @@ This helper function encapsulates the expensive GMRF/GA logic and avoids code re
 - `marginalization_indices`: Variables to marginalize (required if compute_marginals=true)
 
 # Returns
-- `log_density::Float64`: Log posterior density π(θ|y)
-- `marginal_result::Union{Nothing, MarginalResult}`: Marginal results (if compute_marginals=true)
+NamedTuple with:
+- `log_density`: Log posterior π(θ|y)
+- `marginal_result`: Latent marginals (if compute_marginals=true, else nothing)
+- `ga`: Gaussian approximation GMRF
+- `x_star`: Latent mode (mean of ga)
+- `obs_loglikelihoods`: Per-observation log p(yᵢ|xᵢ,θ) (or nothing if unavailable)
+- `total_loglikelihood`: Sum of obs_loglikelihoods (or scalar log-likelihood)
 """
-function evaluate_logpdf_and_marginals(
+function evaluate_at_grid_point(
         model::INLAModel, y, θ::WorkingHyperparameters;
         compute_marginals::Bool = false, marginalization_method = nothing, marginalization_indices = nothing
     )
@@ -28,16 +36,31 @@ function evaluate_logpdf_and_marginals(
 
     log_prior_θ = logpdf_prior(θ)
     if log_prior_θ === -Inf
-        return -Inf, nothing
+        # Return minimal NamedTuple for rejected point
+        return (
+            log_density = -Inf,
+            marginal_result = nothing,
+            ga = nothing,
+            x_star = nothing,
+            obs_loglikelihoods = nothing,
+            total_loglikelihood = -Inf,
+        )
     end
 
     # Perform the expensive Gaussian Approximation once
     prior_gmrf = latent_gmrf(model, θ_natural_nt)
     obs_lik = model.observation_model(y; θ_natural_nt...)
     ga = gaussian_approximation(prior_gmrf, obs_lik)
+    x_star = mean(ga)
 
     # Compute log posterior density using the pre-computed GA
     log_density = hyperparameter_logpdf(model, θ, y, ga)
+
+    # Compute observation log-likelihoods
+    # TODO: Use per-observation log-likelihoods when available in GMRF.jl
+    # For now, use total log-likelihood only
+    obs_loglikelihoods = nothing
+    total_loglikelihood = loglik(x_star, obs_lik)
 
     marginal_result = nothing
     if compute_marginals
@@ -49,7 +72,14 @@ function evaluate_logpdf_and_marginals(
         )
     end
 
-    return log_density, marginal_result
+    return (
+        log_density = log_density,
+        marginal_result = marginal_result,
+        ga = ga,
+        x_star = x_star,
+        obs_loglikelihoods = obs_loglikelihoods,
+        total_loglikelihood = total_loglikelihood,
+    )
 end
 
 """

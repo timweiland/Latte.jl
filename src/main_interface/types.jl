@@ -4,12 +4,12 @@ using Printf
 export INLAResult
 
 """
-    INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts}
+    INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc}
 
 Results structure for INLA inference containing all outputs from the inference process.
 
 This structure provides organized access to all results from INLA inference, including
-hyperparameter marginals, latent marginals, and diagnostic information.
+hyperparameter marginals, latent marginals, diagnostic information, and model comparison metrics.
 
 # Type Parameters
 All fields are fully typed for type stability and performance.
@@ -23,6 +23,7 @@ All fields are fully typed for type stability and performance.
 - `computation_time::Time`: Timing breakdown by computation phase (NamedTuple)
 - `model::Model`: Original INLA model specification (INLAModel)
 - `options::Opts`: Options used for inference (NamedTuple)
+- `accumulators::Acc`: Tuple of PosteriorAccumulator objects with computed metrics (e.g., DIC, marginal likelihood)
 
 # Usage
 ```julia
@@ -43,9 +44,14 @@ convert(NamedTuple, convert(NaturalHyperparameters, result.hyperparameter_mode))
 result.convergence.mode_converged      # Did mode finding converge?
 result.computation_time.total          # Total computation time
 result.computation_time.mode_finding   # Time spent finding mode
+
+# Access model comparison metrics
+result.accumulators[1]                 # First accumulator (e.g., DICAccumulator)
+result.accumulators[1].DIC             # DIC value
+result.accumulators[1].p_D             # Effective parameters
 ```
 """
-struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts}
+struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc}
     hyperparameter_marginals::HM
     latent_marginals::LM
     hyperparameter_mode::Mode
@@ -54,6 +60,7 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts}
     computation_time::Time
     model::Model
     options::Opts
+    accumulators::Acc
 end
 
 """
@@ -92,5 +99,14 @@ function Base.show(io::IO, result::INLAResult)
     n_integration_points = length(result.exploration.integration_indices)
     println(io, "  Exploration: ", n_exploration_points, " points (", n_integration_points, " integration)")
 
-    return print(io, "  Use .hyperparameter_marginals, .latent_marginals for analysis")
+    # Show model comparison metrics if present
+    if !isempty(result.accumulators)
+        println(io, "\nModel comparison metrics:")
+        for acc in result.accumulators
+            show(io, MIME("text/plain"), acc)
+            println(io)
+        end
+    end
+
+    return print(io, "Use .hyperparameter_marginals, .latent_marginals, .accumulators for analysis")
 end
