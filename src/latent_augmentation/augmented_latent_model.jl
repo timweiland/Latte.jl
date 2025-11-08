@@ -148,15 +148,14 @@ function precision_matrix(model::AugmentedLatentModel; kwargs...)
     #   [ Q_η           -Q_η * A          ]
     #   [ -A' * Q_η     Q_base + A' * Q_η * A ]
 
-    # Compute blocks
-    # TODO: Efficiency!!! Only compute one of the off-diagonal blocks
+    # Compute blocks efficiently
+    # Only compute off-diagonal block once (bottom_left = top_right')
     top_left = Q_η
     top_right = -Q_η_scalar * A  # -Q_η * A
-    bottom_left = -Q_η_scalar * A'  # -A' * Q_η  (transpose of top_right)
     bottom_right = Q_base + Q_η_scalar * (A' * A)  # Q_base + A' * Q_η * A
 
     # Assemble sparse matrix
-    return _sparse_block_matrix(top_left, top_right, bottom_left, bottom_right)
+    return _sparse_block_matrix(top_left, top_right, bottom_right)
 end
 
 """
@@ -239,19 +238,59 @@ function base_latent_indices(model::AugmentedLatentModel)
     return (n_obs + 1):n_full
 end
 
-# Helper function to construct sparse block matrix from four blocks
-function _sparse_block_matrix(top_left, top_right, bottom_left, bottom_right)
-    # TODO: Efficiency!!! Sparse matrix should be assembled via Is, Js, Vs here
-    n1, m1 = size(top_left)
-    n2, m2 = size(bottom_right)
+# Helper function to construct sparse block matrix from three blocks
+# Bottom-left is the transpose of top-right
+function _sparse_block_matrix(top_left, top_right, bottom_right)
+    n_obs, n_obs2 = size(top_left)
+    n_obs3, n_base = size(top_right)
+    n_base2, n_base3 = size(bottom_right)
 
-    # Build by stacking rows
-    top_row = hcat(top_left, top_right)
-    bottom_row = hcat(bottom_left, bottom_right)
-    full_matrix = vcat(top_row, bottom_row)
+    @assert n_obs == n_obs2 == n_obs3
+    @assert n_base == n_base2 == n_base3
 
-    # Convert to sparse if not already
-    return sparse(full_matrix)
+    n_total = n_obs + n_base
+
+    # Assemble efficiently via coordinate format (I, J, V)
+    Is = Int[]
+    Js = Int[]
+    Vs = Float64[]
+
+    # Top-left block (Q_η): diagonal matrix
+    # Q_η = Q_η_scalar * I
+    if top_left isa UniformScaling
+        Q_η_scalar = top_left.λ
+        top_left_idcs = 1:n_obs
+        append!(Is, top_left_idcs)
+        append!(Js, top_left_idcs)
+        append!(Vs, fill(Q_η_scalar, n_obs))
+    else
+        # General case: extract nonzeros
+        I_tl, J_tl, V_tl = findnz(sparse(top_left))
+        append!(Is, I_tl)
+        append!(Js, J_tl)
+        append!(Vs, V_tl)
+    end
+
+    # Top-right block: -Q_η * A
+    I_tr, J_tr, V_tr = findnz(sparse(top_right))
+    append!(Is, I_tr)
+    append!(Js, J_tr .+ n_obs)  # Offset columns
+    append!(Vs, V_tr)
+
+    # Bottom-left block: transpose of top-right
+    # (i, j) in top_right maps to (j + n_obs, i) in bottom_left
+    append!(Is, J_tr .+ n_obs)  # Row = col of top_right + offset
+    append!(Js, I_tr)           # Col = row of top_right
+    append!(Vs, V_tr)           # Same values
+
+    # Bottom-right block: Q_base + A' * Q_η * A
+    I_br, J_br, V_br = findnz(sparse(bottom_right))
+    append!(Is, I_br .+ n_obs)  # Offset rows
+    append!(Js, J_br .+ n_obs)  # Offset columns
+    append!(Vs, V_br)
+
+    # Construct sparse matrix
+    return sparse(Is, Js, Vs, n_total, n_total)
 end
 
 function Base.show(io::IO, model::AugmentedLatentModel)
