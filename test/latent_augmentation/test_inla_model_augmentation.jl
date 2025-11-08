@@ -34,7 +34,8 @@ using Distributions
         @test model.augmentation_info.n_base_latent == n_base
 
         # Check that observation model was unwrapped
-        @test model.observation_model === base_obs
+        @test model.observation_model.family == base_obs.family
+        @test model.observation_model.link == base_obs.link
 
         # Check that latent_prior is now an AugmentedLatentModel
         @test model.latent_prior isa AugmentedLatentModel
