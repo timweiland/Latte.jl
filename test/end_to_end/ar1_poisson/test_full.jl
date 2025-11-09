@@ -97,8 +97,8 @@ using LDLFactorizations
         τ_gmrf_samples_natural = exp.(τ_gmrf_log_samples)  # Transform from log(τ) to τ
         η_samples_natural = η_samples  # η has identity transform
 
-        τ_gmrf_marginal = inla_result.hyperparameter_marginals[1]
-        η_marginal = inla_result.hyperparameter_marginals[2]
+        τ_gmrf_marginal = inla_result.hyperparameter_marginals.τ_gmrf_log
+        η_marginal = inla_result.hyperparameter_marginals.η
 
         # Compare hyperparameter posterior means in natural space
         @test mean(τ_gmrf_marginal) ≈ mean(τ_gmrf_samples_natural) rtol = 0.1
