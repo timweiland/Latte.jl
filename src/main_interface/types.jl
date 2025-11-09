@@ -15,7 +15,7 @@ hyperparameter marginals, latent marginals, diagnostic information, and model co
 All fields are fully typed for type stability and performance.
 
 # Fields
-- `hyperparameter_marginals::HM`: Vector of marginal distributions for each hyperparameter
+- `hyperparameter_marginals::HM`: NamedTuple mapping parameter names to marginal distributions for each hyperparameter
 - `latent_marginals::LM`: Vector of marginal distributions for latent variables (WeightedMixture)
 - `hyperparameter_mode::Mode`: Mode of the hyperparameter posterior (WorkingHyperparameters)
 - `exploration::Expl`: Results from posterior exploration (HyperparameterExploration)
@@ -32,9 +32,9 @@ All fields are fully typed for type stability and performance.
 ```julia
 result = inla_inference(model, y)
 
-# Access hyperparameter marginals
-result.hyperparameter_marginals[1]  # First hyperparameter marginal
-mean(result.hyperparameter_marginals[1])  # Mean of first hyperparameter
+# Access hyperparameter marginals (by name)
+result.hyperparameter_marginals.τ  # Marginal for τ hyperparameter
+mean(result.hyperparameter_marginals.τ)  # Mean of τ hyperparameter
 
 # Access latent marginals
 result.latent_marginals[1]  # First latent variable marginal (WeightedMixture)

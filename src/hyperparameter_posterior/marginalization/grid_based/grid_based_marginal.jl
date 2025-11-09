@@ -20,7 +20,7 @@ Main iteration loop for grid-based hyperparameter marginalization.
 3. Return final hyperparameter marginal distributions
 
 # Returns
-Vector of `HyperparameterMarginalDistribution` objects (one per hyperparameter).
+NamedTuple mapping parameter names to `HyperparameterMarginalDistribution` objects.
 """
 function _marginalize_impl(
         method::GridBasedMarginal,
@@ -147,10 +147,13 @@ function _marginalize_impl(
     progress_callback(status = "Creating final marginal distributions")
     final_posterior_approx = build_posterior_interpolant(current_exploration)
 
-    hyperparameter_marginals = [
-        HyperparameterMarginalDistribution(final_posterior_approx, i)
+    # Extract parameter names from the hyperparameter spec
+    param_names = collect(keys(current_exploration.transform.θ_star.spec.free))
+
+    hyperparameter_marginals = NamedTuple(
+        param_names[i] => HyperparameterMarginalDistribution(final_posterior_approx, i)
             for i in 1:n_dim
-    ]
+    )
 
     progress_callback(
         status = "Hyperparameter marginalization complete",
