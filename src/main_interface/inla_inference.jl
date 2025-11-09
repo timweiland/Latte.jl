@@ -1,4 +1,7 @@
+using GaussianMarkovRandomFields
 using Optim
+using StatsModels
+using DataFrames
 
 export inla
 
@@ -186,5 +189,20 @@ function inla(
         linear_predictor_marginals = linear_predictor_marginals,
         base_latent_marginals = base_latent_marginals,
         augmentation_info = model.augmentation_info
+    )
+end
+
+function inla(
+        formula::FormulaTerm,
+        hyperparam_spec::HyperparameterSpec,
+        df::DataFrame;
+        family,
+        trials = :n,
+        kwargs...
+    )
+    _, y, obs_model, latent_model = build_formula_components(formula, df; family, trials)
+    model = INLAModel(hyperparam_spec, latent_model, obs_model)
+    return inla(
+        model, y; kwargs...
     )
 end
