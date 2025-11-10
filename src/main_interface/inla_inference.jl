@@ -64,10 +64,10 @@ function inla(
         model::INLAModel,
         y::AbstractVector;
         latent_marginalization_method = GaussianMarginal(),
-        hyperparameter_marginalization_method = GridBasedMarginal(),
+        hyperparameter_marginalization_method = GridBasedMarginal(auto_adjust = false),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
-        max_log_drop::Float64 = 2.5,
-        interpolation_subdivisions::Int = 4,
+        max_log_drop::Float64 = 15.0,
+        interpolation_subdivisions::Int = 2,
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
         progress::Bool = true,
@@ -174,6 +174,7 @@ function inla(
         mode_method = mode_method,
         mode_iterations = mode_iterations,
         progress = progress,
+        y = y,
     )
 
     return INLAResult(

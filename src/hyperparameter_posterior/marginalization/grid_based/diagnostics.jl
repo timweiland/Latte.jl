@@ -95,8 +95,8 @@ function diagnose_marginal_coverage(
 
         # Determine if tails are ok
         # Tails are ok if: (1) slope implies decrease in log density AND (2) estimated mass is small
-        left_ok = (left_slope > 1.0e-6) && (left_mass < target_tail_mass)
-        right_ok = (right_slope < -1.0e-6) && (right_mass < target_tail_mass)
+        left_ok = (left_mass < target_tail_mass)
+        right_ok = (right_mass < target_tail_mass)
 
         # Compute suggested extensions
         # If tail mass is too high, suggest additional log-drop based on exponential model

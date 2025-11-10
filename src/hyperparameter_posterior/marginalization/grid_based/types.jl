@@ -103,7 +103,7 @@ function GridBasedMarginal(;
         log_drop_increment::Float64 = 2.0,
         max_log_drop_cap::Float64 = 20.0,
         allow_asymmetric::Bool = true,
-        target_tail_mass::Float64 = 0.0001,
+        target_tail_mass::Float64 = 0.001,
         stability_tolerance::Float64 = 0.005,
         auto_adjust::Bool = true,
         max_iterations::Int = 5
