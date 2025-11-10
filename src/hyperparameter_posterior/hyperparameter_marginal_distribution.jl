@@ -1,3 +1,4 @@
+using DataFrames
 using Distributions
 using Bijectors
 using HCubature
@@ -6,7 +7,7 @@ using Roots
 using Printf
 using Optim
 
-export HyperparameterMarginalDistribution
+export HyperparameterMarginalDistribution, summary_df
 
 """
     HyperparameterMarginalDistribution{T} <: ContinuousUnivariateDistribution
@@ -61,8 +62,8 @@ rand(marginal_dist)             # Sample in natural space
 mode(marginal_dist)             # Mode in natural space
 ```
 """
-mutable struct HyperparameterMarginalDistribution{T} <: ContinuousUnivariateDistribution
-    approx::HyperparameterPosteriorApproximation
+mutable struct HyperparameterMarginalDistribution{T, A <: HyperparameterPosteriorApproximation} <: ContinuousUnivariateDistribution
+    approx::A
     marginal_dim::Int
     rtol::T
     atol::T
@@ -79,11 +80,11 @@ mutable struct HyperparameterMarginalDistribution{T} <: ContinuousUnivariateDist
     _mode::Union{Nothing, T}
 
     function HyperparameterMarginalDistribution(
-            approx::HyperparameterPosteriorApproximation,
+            approx::A,
             marginal_dim::Int;
             rtol::Real = 1.0e-3,
             atol::Real = 1.0e-6
-        )
+        ) where {A}
         T = Float64
 
         # Input validation - get dimensions from the first grid point
@@ -133,7 +134,7 @@ mutable struct HyperparameterMarginalDistribution{T} <: ContinuousUnivariateDist
 
         log_normalization_constant = T(log(normalization_integral))
 
-        return new{T}(
+        return new{T, A}(
             approx, marginal_dim, T(rtol), T(atol),
             bounds, log_normalization_constant, nothing, nothing
         )
@@ -476,4 +477,46 @@ function Base.show(io::IO, d::HyperparameterMarginalDistribution)
     end
 
     return print(io, "  Use logpdf(), mean(), quantile(), rand() for analysis")
+end
+
+"""
+    summary_df(marginals::Dict{Symbol, <:HyperparameterMarginalDistribution})
+
+Create a summary DataFrame of hyperparameter marginal distributions with key statistics.
+
+# Example
+```julia
+result = inla(model, y)
+df = summary_df(result.hyperparameter_marginals)
+```
+"""
+function summary_df(marginals::NamedTuple{<:Any, <:Tuple{Vararg{<:HyperparameterMarginalDistribution}}})
+    # Compute statistics for each marginal
+    parameters = Symbol[]
+    modes = Float64[]
+    medians = Float64[]
+    q025s = Float64[]
+    q975s = Float64[]
+    means = Float64[]
+    stds = Float64[]
+
+    for (param_name, marginal) in pairs(marginals)
+        push!(parameters, param_name)
+        push!(modes, mode(marginal))
+        push!(medians, median(marginal))
+        push!(q025s, quantile(marginal, 0.025))
+        push!(q975s, quantile(marginal, 0.975))
+        push!(means, mean(marginal))
+        push!(stds, std(marginal))
+    end
+
+    return DataFrame(
+        parameter = parameters,
+        mode = modes,
+        median = medians,
+        q2_5 = q025s,
+        q97_5 = q975s,
+        mean = means,
+        std = stds
+    )
 end

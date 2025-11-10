@@ -18,6 +18,7 @@ export ObservationModel, ObservationLikelihood, ExponentialFamily,
 
 # Include INLA-specific modules
 include("utils/selinv.jl")
+include("utils/distribution_summaries.jl")
 include("hyperparameters/hyperparameters.jl")
 include("latent_augmentation/latent_augmentation_module.jl")
 include("inla_model.jl")
