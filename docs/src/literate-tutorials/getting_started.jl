@@ -1,0 +1,141 @@
+# # Getting started with IntegratedNestedLaplace.jl
+#
+# Welcome!
+# In this hands-on tutorial we will walk through a very simple Bayesian analysis
+# of mortality rates following surgery in some hospitals.
+# In the process, you will learn the basics of IntegratedNestedLaplace.jl enabling
+# you to get started with your own analyses.
+#
+# ## Installation
+# If you haven't done so already, you need to install both Julia and this package.
+# See the instructions on the home page.
+#
+# ## What are integrated nested Laplace approximations?
+#
+# Integrated Nested Laplace Approximations (INLA) is a computational method for
+# fast approximate Bayesian inference in latent Gaussian models. Instead of using
+# slow MCMC sampling, INLA uses a combination of Laplace approximations and numerical
+# integration to quickly compute posterior marginal distributions for parameters and
+# hyperparameters.
+#
+# INLA is particularly well-suited for:
+# - **Hierarchical models** with structured latent effects (random intercepts, spatial fields, etc.)
+# - **Generalized linear mixed models** with exponential family likelihoods
+# - **Geostatistical and spatio-temporal models** with Gaussian Markov random fields
+# - **Problems requiring speed** where you need results in seconds rather than hours
+#
+# This package, IntegratedNestedLaplace.jl, provides a modern Julia implementation
+# of INLA with emphasis on clarity, flexibility, and composability.
+#
+# ## The dataset
+# We're going to analyze a very simple dataset that contains mortality rates following
+# cardiac surgery on babies in twelve different hospitals.
+#
+# This is our dataset:
+using DataFrames
+surg_data = DataFrame(
+    hospital = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"],
+    n = [47, 148, 119, 810, 211, 196, 148, 215, 207, 97, 256, 360],
+    r = [0, 18, 8, 46, 8, 13, 9, 31, 14, 8, 29, 24]
+)
+
+# Let's visualize it using AlgebraOfGraphics.jl:
+using AlgebraOfGraphics, CairoMakie
+draw(
+    data(surg_data) *
+        mapping(
+        :hospital => "Hospital",
+        (:r, :n) => ((r, n) -> r ./ n) => "Observed mortality rate"
+    ) *
+        visual(BarPlot),
+    axis = (xticklabelrotation = π / 4, title = "Observed surgery mortality rates by hospital")
+)
+
+# ## Modelling
+# bla bla bla
+using GaussianMarkovRandomFields, StatsModels
+iid = IID(constraint = :sumtozero)
+f = @formula(r ~ 1 + iid(hospital))
+
+#
+using IntegratedNestedLaplace
+hp_spec = @hyperparams begin
+    (τ_iid ~ pc_prior_precision(1.0, α = 0.01), transform = log)
+end
+
+# ## Running INLA
+# We have our data, we've specified the model, and we've chosen a prior for its hyperparameter.
+# Without further ado, let's run INLA:
+using Distributions
+inla_result = inla(f, hp_spec, surg_data; family = Binomial)
+
+# The output is of type `INLAResult`, which contains the results of the analysis
+# (and spits out a nice summary).
+#
+# Let's dissect the results.
+#
+# ## Exploring the Results
+#
+# All marginals computed by IntegratedNestedLaplace.jl implement the Distributions.jl interface.
+# This means that you can simply call methods from Distributions.jl directly on these objects.
+# Let's try this for the marginal of the IID model's precision:
+τ_marginal = inla_result.hyperparameter_marginals.τ_iid
+
+# Let's compute the median and a confidence interval:
+median(τ_marginal), quantile(τ_marginal, 0.025), quantile(τ_marginal, 0.975)
+
+# We can also sample:
+rand(τ_marginal, 3)
+
+# If you'd prefer to get a quick summary of key statistics, the helper method `summary_df` is your friend:
+summary_df(inla_result.hyperparameter_marginals)
+
+# We can do the same for the marginals of the latent field.
+# It's worth mentioning that by default, the latent field is augmented by the linear predictors (since this simplifies marginalization).
+# So while the latent model we originally specified only had 13 variables, we get 25 latent marginals in the end:
+typeof(inla_result.latent_marginals), length(inla_result.latent_marginals)
+
+# We can distinguish between the two.
+# The following are the marginals of our original latent model:
+summary_df(inla_result.base_latent_marginals)
+
+# And these are the marginals of the linear predictors:
+summary_df(inla_result.linear_predictor_marginals)
+
+# We can also get the posterior predictive marginals (which result from mapping the linear predictor marginals through the inverse link function):
+pred_df = summary_df(observation_marginals(inla_result))
+
+# We can use AlgebraOfGraphics again to visualize our results nicely:
+pred_df.hospital = surg_data.hospital
+data(pred_df) * (
+    mapping(:hospital => "Hospital", :q2_5, :q97_5) * visual(Rangebars, whiskerwidth = 8, color = :gray80) +
+        mapping(:hospital => "Hospital", :median => "Median") * visual(Scatter, markersize = 10)
+) |> draw(;
+    axis = (
+        xticklabelrotation = π / 4,
+        title = "Posterior predictive marginals of mortality rate by hospital",
+        ylabel = "Mortality rate",
+    )
+)
+
+# ... so it'd be wise to avoid Hospital H :)
+#
+# Lastly, let's take a look at accumulators.
+# These get called for each integration point of the hyperparameter posterior.
+# Two accumulators are included by default, to compute the Deviance Information Criterion (DIC) and the marginal likelihood.
+# You saw their output in the `INLAResult` summary, but you can also access their results directly:
+inla_result.accumulators[1]
+
+#
+inla_result.accumulators[1].DIC, inla_result.accumulators[1].p_D
+
+#
+inla_result.accumulators[2]
+
+# These two quantities are most valuable for Bayesian model selection.
+# If we run INLA on the same data for two different models, these quantities help us decide between the two.
+
+# ## Conclusion
+# Congratulations! You just learned the basic usage of IntegratedNestedLaplace.jl.
+#
+# Curious to learn more? Check our other tutorials.
