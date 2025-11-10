@@ -3,6 +3,7 @@ using StatsBase
 using Random
 using Roots
 using Printf
+using Optim
 
 export WeightedMixture
 
@@ -81,6 +82,12 @@ end
 
 function Distributions.std(d::WeightedMixture)
     return sqrt(var(d))
+end
+
+function Distributions.mode(d::WeightedMixture)
+    x0 = mean(d)
+    result = optimize(x -> -logpdf(d, x[1]), [x0])
+    return only(Optim.minimizer(result))
 end
 
 # Support
