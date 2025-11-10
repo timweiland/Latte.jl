@@ -2,6 +2,8 @@ using IntegratedNestedLaplace
 using Documenter
 using DocumenterVitepress
 
+include("generate_literate.jl")
+
 DocMeta.setdocmeta!(IntegratedNestedLaplace, :DocTestSetup, :(using IntegratedNestedLaplace); recursive = true)
 
 makedocs(;
@@ -14,6 +16,10 @@ makedocs(;
     ),
     pages = [
         "Home" => "index.md",
+        "Tutorials" => [
+            "Overview" => "tutorials/index.md",
+            "tutorials/getting_started.md",
+        ],
         "Main Interface" => "main_interface.md",
         "Reference" => [
             "Observation Models" => "reference/observation_models.md",
