@@ -1,6 +1,7 @@
 using Distributions
 using Bijectors
 using HCubature
+using Optim
 using Random
 using Roots
 using Printf
@@ -277,6 +278,12 @@ end
 
 function Distributions.std(d::TransformedWeightedMixture)
     return sqrt(var(d))
+end
+
+function Distributions.mode(d::TransformedWeightedMixture)
+    x0 = mean(d)
+    result = optimize(x -> -logpdf(d, x[1]), [x0])
+    return only(Optim.minimizer(result))
 end
 
 # ==================== CDF and Quantile ====================
