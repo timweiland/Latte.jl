@@ -117,7 +117,7 @@ function _hyperparams_resolve_space(opts::Dict{Symbol, Any}, name::Symbol)
     end
 
     selected = prior_space_val === nothing ? space_val : prior_space_val
-    return QuoteNode(selected === nothing ? :working : selected)
+    return QuoteNode(selected === nothing ? :natural : selected)
 end
 
 function _hyperparams_hyperparameter_expr(base::Expr, option_exprs)
