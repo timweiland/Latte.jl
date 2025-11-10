@@ -56,7 +56,7 @@ jobs:
           lfs: true
       - uses: julia-actions/setup-julia@v1
         with:
-          version: '1'
+          version: '1.11'
       - uses: julia-actions/cache@v1
       - name: Configure doc environment
         shell: julia --project=docs --color=yes {0}
