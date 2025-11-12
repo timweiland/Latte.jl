@@ -50,7 +50,20 @@ function evaluate_at_grid_point(
     # Perform the expensive Gaussian Approximation once
     prior_gmrf = latent_gmrf(model, θ_natural_nt)
     obs_lik = model.observation_model(y; θ_natural_nt...)
-    ga = gaussian_approximation(prior_gmrf, obs_lik)
+    ga = nothing
+    try
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
+    catch PosDefException
+        @warn "PosDefException at hyperparams $(θ_natural_nt)"
+        return (
+            log_density = -Inf,
+            marginal_result = nothing,
+            ga = nothing,
+            x_star = nothing,
+            obs_loglikelihoods = nothing,
+            total_loglikelihood = -Inf,
+        )
+    end
     x_star = mean(ga)
 
     # Compute log posterior density using the pre-computed GA
