@@ -18,7 +18,8 @@ makedocs(;
         "Home" => "index.md",
         "Tutorials" => [
             "Overview" => "tutorials/index.md",
-            "tutorials/getting_started.md",
+            "Getting started" => "tutorials/getting_started.md",
+            "Spatial disease mapping" => "tutorials/disease_mapping_spatial.md",
         ],
         "Main Interface" => "main_interface.md",
         "Reference" => [
