@@ -199,9 +199,10 @@ function inla(
         df::DataFrame;
         family,
         trials = :n,
+        exposure = nothing,
         kwargs...
     )
-    _, y, obs_model, latent_model = build_formula_components(formula, df; family, trials)
+    _, y, obs_model, latent_model = build_formula_components(formula, df; family, trials, exposure)
     model = INLAModel(hyperparam_spec, latent_model, obs_model)
     return inla(
         model, y; kwargs...
