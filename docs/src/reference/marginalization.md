@@ -102,7 +102,7 @@ MarginalResult
 The marginal distributions returned are standard Julia `Distribution` objects that support the full `Distributions.jl` interface:
 
 - **Gaussian marginals**: `Normal{Float64}` distributions
-- **Laplace marginals**: `SplineAugmentedGaussian{Float64}` distributions with lazy computation
+- **Laplace marginals**: `SplineAugmentedGaussian` distributions with lazy computation
 
 ## SplineAugmentedGaussian Distribution
 
