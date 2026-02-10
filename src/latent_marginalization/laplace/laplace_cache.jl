@@ -5,6 +5,7 @@ using GaussianMarkovRandomFields
 using FastGaussQuadrature
 using DataInterpolations
 using HCubature
+using LinearSolve
 
 export LaplaceApproximationCache, fit_density_correction_spline, evaluate_corrected_density
 export setup_conditional_computation, conditional_gmrf, evaluate_laplace_logpdf
@@ -95,6 +96,20 @@ function LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index::Int, 
 end
 
 """
+    LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index, μ, σ, prior_gmrf, lsc; threshold=0.001)
+
+Create a cache using the GMRF's precomputed LinearSolve cache to avoid redundant factorizations.
+The `lsc` should be obtained via `linsolve_cache(base_gmrf)`.
+"""
+function LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf, lsc::LinearSolve.LinearCache; threshold = 0.001)
+    conditional_column, active_set = setup_conditional_computation(base_gmrf, conditioning_index, μ, σ, lsc; threshold = threshold)
+    return LaplaceApproximationCache(
+        base_gmrf, obs_lik, conditioning_index,
+        conditional_column, active_set, μ, σ, prior_gmrf
+    )
+end
+
+"""
     LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index, prior_gmrf; threshold=0.001)
 
 Create a cache for Laplace approximation computations (convenience constructor).
@@ -105,24 +120,44 @@ function LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index::Int
     return LaplaceApproximationCache(base_gmrf, obs_model, conditioning_index, μ, σ, prior_gmrf; threshold = threshold)
 end
 
-function _compute_conditional_column(base_gmrf::AbstractGMRF, conditioning_index::Int)
-    Q = precision_matrix(base_gmrf)
-    n = size(Q, 1)
+"""
+    _solve_with_cache!(lsc::LinearSolve.LinearCache, e_i::Vector{Float64})
 
-    # Solve Q * v = e_i to get Q^{-1}[:,i]
+Solve Q * v = e_i using an existing LinearSolve cache, reusing the factorization.
+Returns a copy of the solution vector.
+"""
+function _solve_with_cache!(lsc::LinearSolve.LinearCache, e_i::Vector{Float64})
+    lsc.b .= e_i
+    sol = solve!(lsc)
+    return copy(sol.u)
+end
+
+function _compute_conditional_column(base_gmrf::AbstractGMRF, conditioning_index::Int)
+    lsc = GaussianMarkovRandomFields.linsolve_cache(base_gmrf)
+    return _compute_conditional_column(base_gmrf, conditioning_index, lsc)
+end
+
+function _compute_conditional_column(base_gmrf::AbstractGMRF, conditioning_index::Int, lsc::LinearSolve.LinearCache)
+    n = length(base_gmrf)
+
+    # Solve Q * v = e_i to get Q^{-1}[:,i] using precomputed factorization
     e_i = zeros(n)
     e_i[conditioning_index] = 1.0
-    return Q \ e_i
+    return _solve_with_cache!(lsc, e_i)
 end
 
 function _compute_conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int)
+    lsc = GaussianMarkovRandomFields.linsolve_cache(constrained_gmrf.base_gmrf)
+    return _compute_conditional_column(constrained_gmrf, conditioning_index, lsc)
+end
+
+function _compute_conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int, lsc::LinearSolve.LinearCache)
     # Account for existing constraints via a correction term
-    Q = precision_matrix(constrained_gmrf.base_gmrf)
-    n = size(Q, 1)
+    n = length(constrained_gmrf)
     e_i = zeros(n)
     e_i[conditioning_index] = 1.0
 
-    base = Q \ e_i
+    base = _solve_with_cache!(lsc, e_i)
     correction = constrained_gmrf.A_tilde_T * (constrained_gmrf.L_c \ (constrained_gmrf.A_tilde_T' * e_i))
     return base - correction
 end
@@ -143,12 +178,20 @@ Precompute the conditioning_index-independent components for Laplace approximati
 - `conditional_column`: Q^{-1}[:,i] - the i-th column of the covariance matrix
 - `active_set`: Indices of components with |a_{ij}| > threshold
 
-This function performs the expensive computations that are independent of the 
+This function performs the expensive computations that are independent of the
 specific value of x_i, allowing efficient evaluation at multiple x_i points.
 """
 function setup_conditional_computation(base_gmrf, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}; threshold = 0.001)
     conditional_column = _compute_conditional_column(base_gmrf, conditioning_index)
+    return _setup_active_set(conditional_column, conditioning_index, σ; threshold = threshold)
+end
 
+function setup_conditional_computation(base_gmrf, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, lsc::LinearSolve.LinearCache; threshold = 0.001)
+    conditional_column = _compute_conditional_column(base_gmrf, conditioning_index, lsc)
+    return _setup_active_set(conditional_column, conditioning_index, σ; threshold = threshold)
+end
+
+function _setup_active_set(conditional_column::Vector{Float64}, conditioning_index::Int, σ::Vector{Float64}; threshold = 0.001)
     # Use precomputed standard deviations
     # Compute influence coefficients a_{ij} = -(Q^{-1})_{ji} / (σ_j * σ_i)
     σ_i = σ[conditioning_index]
@@ -172,13 +215,13 @@ function setup_conditional_computation(base_gmrf, conditioning_index::Int; thres
 end
 
 """
-    conditional_gmrf(base_gmrf, obs_model, conditioning_index, conditional_column, 
+    conditional_gmrf(base_gmrf, obs_model, conditioning_index, conditional_column,
                     active_set, μ_conditional, θ, y)
 
 Construct the conditional GMRF π̃_GG(x_{R_i} | x_i, θ, y) for the Laplace approximation.
 
 # Arguments
-- `base_gmrf`: The base GMRF from Gaussian approximation  
+- `base_gmrf`: The base GMRF from Gaussian approximation
 - `obs_model`: Observation model for computing Hessians
 - `active_set`: Precomputed active set indices
 - `μ_conditional`: Conditional mean configuration E[x | x_i]
@@ -303,7 +346,7 @@ function _compute_accurate_normalization(spline, μ_i, σ_i)
 end
 
 """
-    fit_density_correction_spline(cache::LaplaceApproximationCache, θ, y, log_prior_θ; 
+    fit_density_correction_spline(cache::LaplaceApproximationCache, θ, y, log_prior_θ;
                                   n_points=9, normalize_exactly=false)
 
 Fit a cubic spline to the difference between Laplace and Gaussian approximation log-densities.
@@ -314,7 +357,7 @@ log π̃_LA(x_i | θ, y) ≈ log π̃_G(x_i | θ, y) + spline(x_i)
 # Arguments
 - `cache`: Precomputed cache for Laplace approximation
 - `θ`: Hyperparameters
-- `y`: Observed data  
+- `y`: Observed data
 - `log_prior_θ`: Log-density of hyperparameter prior
 - `n_points`: Number of Gauss-Hermite quadrature points (default 9)
 - `normalize_exactly`: If true, use numerical integration for exact normalization; if false, use Gauss-Hermite approximation (default false)
