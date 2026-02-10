@@ -37,11 +37,14 @@ function _marginalize_impl(
     μ = mean(ga)
     σ = Vector(std(ga))
 
+    # Reuse the GMRF's existing LinearSolve cache (contains precomputed factorization)
+    lsc = GaussianMarkovRandomFields.linsolve_cache(ga)
+
     marginals = SplineAugmentedGaussian{Float64}[]
 
     for i in indices
-        # Create cache for this variable (passing μ and σ for efficiency)
-        cache = LaplaceApproximationCache(ga, obs_lik, i, μ, σ, prior_gmrf)
+        # Create cache for this variable, reusing the GMRF's precomputed factorization
+        cache = LaplaceApproximationCache(ga, obs_lik, i, μ, σ, prior_gmrf, lsc)
 
         # Fit spline correction using the normalization method specified in the LaplaceMarginal
         spline, log_norm_const, nodes, corrections = fit_density_correction_spline(
