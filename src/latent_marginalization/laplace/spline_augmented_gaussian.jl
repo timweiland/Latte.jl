@@ -8,7 +8,7 @@ using Random
 export SplineAugmentedGaussian
 
 """
-    SplineAugmentedGaussian{T} <: ContinuousUnivariateDistribution
+    SplineAugmentedGaussian{T, S} <: ContinuousUnivariateDistribution
 
 A distribution representing a Gaussian base with a spline correction factor.
 This implementation uses on-demand computation with caching for expensive operations
@@ -17,7 +17,7 @@ use cases (e.g., repeated calls to `quantile` or `mean`).
 
 # Fields (Internal)
 - `base::Normal{T}`: The base Gaussian distribution π̃_G.
-- `spline`: Interpolation object for the log-density correction.
+- `spline::S`: Interpolation object for the log-density correction.
 - `normalization_constant::T`: The pre-computed log of the normalization constant.
 
 # Cached Fields (Internal, Lazy-Loaded)
@@ -25,9 +25,9 @@ use cases (e.g., repeated calls to `quantile` or `mean`).
 - `_cdf_spline`: A cached interpolating spline for the CDF.
 - `_quantile_spline`: A cached interpolating spline for the quantile function (inverse CDF).
 """
-mutable struct SplineAugmentedGaussian{T} <: ContinuousUnivariateDistribution
+mutable struct SplineAugmentedGaussian{T, S} <: ContinuousUnivariateDistribution
     base::Normal{T}
-    spline
+    spline::S
     normalization_constant::T
 
     # --- Caches for expensive, derived quantities ---
@@ -36,9 +36,9 @@ mutable struct SplineAugmentedGaussian{T} <: ContinuousUnivariateDistribution
     _cdf_spline::Union{Nothing, DataInterpolations.AbstractInterpolation}
     _quantile_spline::Union{Nothing, DataInterpolations.AbstractInterpolation}
 
-    function SplineAugmentedGaussian(base::Normal{T}, spline, normalization_constant::T) where {T}
+    function SplineAugmentedGaussian(base::Normal{T}, spline::S, normalization_constant::T) where {T, S}
         # The constructor is cheap: it only stores inputs and initializes caches to `nothing`.
-        return new{T}(base, spline, normalization_constant, nothing, nothing, nothing)
+        return new{T, S}(base, spline, normalization_constant, nothing, nothing, nothing)
     end
 end
 
@@ -241,8 +241,8 @@ Return the parameters of the distribution as a tuple (base, spline, normalizatio
 Distributions.params(d::SplineAugmentedGaussian) = (d.base, d.spline, d.normalization_constant)
 
 """
-    partype(::Type{SplineAugmentedGaussian{T}}) where T
+    partype(::Type{<:SplineAugmentedGaussian{T}}) where T
 
 Return the parameter type.
 """
-Distributions.partype(::Type{SplineAugmentedGaussian{T}}) where {T} = T
+Distributions.partype(::Type{<:SplineAugmentedGaussian{T}}) where {T} = T

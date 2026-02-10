@@ -37,7 +37,7 @@ function _marginalize_impl(
     μ = mean(ga)
     σ = Vector(std(ga))
 
-    marginals = SplineAugmentedGaussian{Float64}[]
+    marginals = SplineAugmentedGaussian[]
 
     for i in indices
         # Create cache for this variable (passing μ and σ for efficiency)
