@@ -30,7 +30,7 @@ using Random
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, stable_1d_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(stable_1d_latent, 100), obs_model)
 
         # Generate stable test data
         σ_gmrf_true = 2.5
@@ -81,7 +81,7 @@ using Random
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, stable_2d_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(stable_2d_latent, 100), obs_model)
 
         # Generate stable test data
         σ_gmrf_true = 2.5
@@ -159,7 +159,7 @@ using Random
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, smooth_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(smooth_latent, 2), obs_model)
 
         y_test = [true, false]
 

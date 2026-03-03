@@ -20,7 +20,7 @@ using SparseArrays
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, beta_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(beta_latent, 2), obs_model)
 
         y_test = [true, true]  # Biased data to avoid boundary issues
         θ_test_working = WorkingHyperparameters([1.0], spec)
@@ -48,7 +48,7 @@ using SparseArrays
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, allocation_test_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(allocation_test_latent, 5), obs_model)
 
         y_test = randn(5)
         θ_test_working = WorkingHyperparameters([1.5], spec)
@@ -83,7 +83,7 @@ using SparseArrays
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model_1d = INLAModel(spec_1d, latent_1d, obs_model)
+        model_1d = INLAModel(spec_1d, FunctionLatentModel(latent_1d, 3), obs_model)
         y_test_1d = [true, false, true]
 
         θ_star_1d, _, _ = find_hyperparameter_mode(model_1d, y_test_1d)
@@ -101,7 +101,7 @@ using SparseArrays
             return GMRF(zeros(n), Q)
         end
 
-        model_2d = INLAModel(spec_2d, latent_2d, obs_model)
+        model_2d = INLAModel(spec_2d, FunctionLatentModel(latent_2d, 4), obs_model)
         y_test_2d = [true, false, true, false]
 
         θ_star_2d, _, _ = find_hyperparameter_mode(model_2d, y_test_2d)
@@ -120,7 +120,7 @@ using SparseArrays
             return GMRF(zeros(n), Q)
         end
 
-        model_3d = INLAModel(spec_3d, latent_3d, obs_model)
+        model_3d = INLAModel(spec_3d, FunctionLatentModel(latent_3d, 6), obs_model)
         y_test_3d = [true, false, true, false, true, false]
 
         θ_star_3d, _, _ = find_hyperparameter_mode(model_3d, y_test_3d)
@@ -145,7 +145,7 @@ using SparseArrays
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, extreme_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(extreme_latent, 3), obs_model)
 
         # Test with extreme data
         y_extreme_large = [10.0, 12.0, 15.0]  # Large values
@@ -180,7 +180,7 @@ using SparseArrays
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, consistent_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(consistent_latent, 4), obs_model)
 
         y_test = [true, false, true, false]
 

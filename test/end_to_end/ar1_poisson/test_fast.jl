@@ -53,7 +53,7 @@ using JLD2
     end
 
     obs_model = ExponentialFamily(Poisson)
-    model = INLAModel(spec, latent_gmrf, obs_model)
+    model = INLAModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model)
 
     # Run INLA inference (fast!)
     inla_start_time = time()

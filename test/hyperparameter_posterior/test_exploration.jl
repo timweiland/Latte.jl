@@ -26,7 +26,7 @@ using FiniteDiff
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, correlation_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(correlation_latent, 5), obs_model)
 
         y_test = [true, false, true, true, false]
 
@@ -63,7 +63,7 @@ using FiniteDiff
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, variance_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(variance_latent, 6), obs_model)
 
         y_test = [0.5, -0.2, 0.8, -0.1, 0.3, -0.4]
 
@@ -120,7 +120,7 @@ using FiniteDiff
         end
 
         obs_model = ExponentialFamily(Normal)  # Uses σ
-        model = INLAModel(spec, two_variance_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(two_variance_latent, 4), obs_model)
 
         y_test = [0.5, -0.3, 0.8, -0.2]
 
