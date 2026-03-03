@@ -18,7 +18,7 @@ using Bijectors
         return GMRF(μ .* ones(n), Q)
     end
     obs_model = ExponentialFamily(Normal)
-    model = INLAModel(spec, latent_gmrf, obs_model)
+    model = INLAModel(spec, FunctionLatentModel(latent_gmrf, n), obs_model)
     θ_gt, x_gt, y_gt = rand(model)
 
     @testset "1D Marginals (Identity Case)" begin
@@ -34,7 +34,7 @@ using Bijectors
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, alpha_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(alpha_latent, 3), obs_model)
 
         y_test = [true, false, true]
 
@@ -75,7 +75,7 @@ using Bijectors
         end
 
         obs_model = ExponentialFamily(Normal)  # Uses σ hyperparameter
-        model = INLAModel(spec, two_variance_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(two_variance_latent, 6), obs_model)
 
         # Use data that's not too extreme to avoid boundary modes
         y_test = [0.2, -0.1, 0.3, -0.2, 0.1, -0.15]
@@ -144,7 +144,7 @@ using Bijectors
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, location_scale_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(location_scale_latent, 5), obs_model)
 
         # Use balanced data that should give interior mode
         y_test = [0.1, -0.05, 0.15, -0.08, 0.12]
@@ -208,7 +208,7 @@ using Bijectors
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, stable_2d_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(stable_2d_latent, 1000), obs_model)
 
         # Generate stable test data using the same method as the working example
         σ_gmrf_true = 2.5
@@ -257,7 +257,7 @@ using Bijectors
         end
 
         obs_model = ExponentialFamily(Normal)  # Use Normal for stability
-        model = INLAModel(spec, tolerance_test_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(tolerance_test_latent, 1000), obs_model)
 
         # Generate stable test data using the same method as the working example
         σ_gmrf_true = 2.5
