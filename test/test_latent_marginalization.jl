@@ -150,7 +150,7 @@ using Random
         y = [rand(Poisson(λ)) for λ in λ_true]
 
         # Compute Gaussian approximation
-        obs_lik = obs_model(y; θ...)
+        obs_lik = obs_model(PoissonObservations(y); θ...)
         ga = gaussian_approximation(prior_gmrf, obs_lik)
         log_prior_θ = 0.0
 
