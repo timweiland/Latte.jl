@@ -6,7 +6,7 @@ using Random
 import GaussianMarkovRandomFields: hyperparameters, precision_matrix, constraints, model_name
 import Distributions: mean
 
-export INLAModel, latent_gmrf, log_joint_density
+export INLAModel, FunctionLatentModel, latent_gmrf, log_joint_density
 
 # Helper type for wrapping functions as LatentModels
 struct FunctionLatentModel{FuncType} <: LatentModel
@@ -25,6 +25,7 @@ function Distributions.mean(flm::FunctionLatentModel; kwargs...)
     return Distributions.mean(gmrf)
 end
 constraints(flm::FunctionLatentModel; kwargs...) = nothing
+(flm::FunctionLatentModel)(; kwargs...) = flm.func(; kwargs...)
 model_name(::FunctionLatentModel) = :function_latent
 
 """
@@ -67,29 +68,40 @@ obs_model = ExponentialFamily(Normal)
 model = INLAModel(hp_spec, latent_gmrf, obs_model)
 ```
 """
-struct INLAModel{HP, F, O <: ObservationModel}
+struct INLAModel{HP, F <: LatentModel, O <: ObservationModel}
     hyperparameter_spec::HP
     latent_prior::F
     observation_model::O
     augmentation_info::Union{Nothing, AugmentationInfo}
 
-    function INLAModel(hp_spec::HyperparameterSpec{FreeNT, FixedNT}, latent_prior::F, observation_model::O, augmentation_info::Union{Nothing, AugmentationInfo} = nothing) where {FreeNT, FixedNT, F, O <: ObservationModel}
+    function INLAModel(hp_spec::HyperparameterSpec{FreeNT, FixedNT}, latent_prior, observation_model::O, augmentation_info::Union{Nothing, AugmentationInfo} = nothing) where {FreeNT, FixedNT, O <: ObservationModel}
+        # Catch raw functions with a helpful error message
+        if latent_prior isa Function
+            error(
+                "Raw functions are not supported as latent priors. " *
+                    "Use FunctionLatentModel(f, n) to wrap your function with its output dimension n."
+            )
+        end
+
         # Validation: check all required hyperparameters are provided (both free and fixed)
         required = Set(hyperparameters(observation_model))
         provided = Set(fieldnames(FreeNT)) ∪ Set(fieldnames(FixedNT))
-        #provided = Set(AllNames)  # Check all parameters (free + fixed)
 
         missing_params = setdiff(required, provided)
         if !isempty(missing_params)
             error("Missing required hyperparameters for $(typeof(observation_model)): $(collect(missing_params))")
         end
 
-        return new{typeof(hp_spec), F, O}(hp_spec, latent_prior, observation_model, augmentation_info)
+        return new{typeof(hp_spec), typeof(latent_prior), O}(hp_spec, latent_prior, observation_model, augmentation_info)
     end
 end
 
 function _restrict_obs_model_to_indices(obs_model::ObservationModel, indices)
-    error("Restriction to indices not supported for $(typeof(obs_model))")
+    error(
+        "Prediction via missing values is not supported for $(typeof(obs_model)). " *
+            "Only ExponentialFamily observation models support this, as prediction via " *
+            "missing values assumes a 1:1 mapping between latent variables and observations."
+    )
 end
 
 function _restrict_obs_model_to_indices(obs_model::ExponentialFamily, indices)

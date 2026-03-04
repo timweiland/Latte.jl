@@ -41,7 +41,7 @@ using Bijectors
         obs_model = ExponentialFamily(Normal)
 
         # Create INLA model
-        inla_model = INLAModel(spec, latent_gmrf, obs_model)
+        inla_model = INLAModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model)
 
         # Generate synthetic data
         Random.seed!(123)

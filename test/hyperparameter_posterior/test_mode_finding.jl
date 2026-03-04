@@ -24,7 +24,7 @@ using FiniteDiff
             end
 
             obs_model = ExponentialFamily(Bernoulli)  # No hyperparameters
-            return INLAModel(spec, simple_latent, obs_model)
+            return INLAModel(spec, FunctionLatentModel(simple_latent, n), obs_model)
         end
 
         model = create_simple_model(5)
@@ -57,7 +57,7 @@ using FiniteDiff
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, precision_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(precision_latent, 8), obs_model)
 
         # Generate test data
         y_test = randn(8)
@@ -109,7 +109,7 @@ using FiniteDiff
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, test_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(test_latent, 6), obs_model)
 
         y_test = [true, true, false, true, false, false]
 
@@ -138,7 +138,7 @@ using FiniteDiff
         end
 
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, exponential_latent, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(exponential_latent, 3), obs_model)
 
         # Test with moderate data (not too extreme to avoid numerical issues)
         y_moderate = [true, false, true]

@@ -25,13 +25,15 @@ using Random
         obs_model = ExponentialFamily(Normal)  # Requires σ hyperparameter
 
         # Test successful construction
-        model = INLAModel(spec, latent_gmrf, obs_model)
+        latent_prior = FunctionLatentModel(latent_gmrf, 10)
+        model = INLAModel(spec, latent_prior, obs_model)
         @test model.hyperparameter_spec == spec
-        @test model.latent_prior == latent_gmrf
+        @test model.latent_prior isa FunctionLatentModel
+        @test model.latent_prior.func == latent_gmrf
         @test model.observation_model == obs_model
 
         # Test type parameters
-        @test model isa INLAModel{typeof(spec), typeof(latent_gmrf), typeof(obs_model)}
+        @test model isa INLAModel{typeof(spec), typeof(latent_prior), typeof(obs_model)}
     end
 
     @testset "Parameter Validation" begin
@@ -49,7 +51,7 @@ using Random
         obs_model = ExponentialFamily(Normal)  # Requires σ
 
         # Should error due to missing σ
-        @test_throws ErrorException INLAModel(spec_incomplete, latent_gmrf, obs_model)
+        @test_throws ErrorException INLAModel(spec_incomplete, FunctionLatentModel(latent_gmrf, 5), obs_model)
     end
 
     @testset "latent_gmrf Function" begin
@@ -64,7 +66,7 @@ using Random
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 8), obs_model)
 
         # Test latent GMRF generation
         θ_named = (σ = 2.0,)
@@ -95,7 +97,7 @@ using Random
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 6), obs_model)
 
         # Test data
         θ = [log(1.5)]  # σ = 1.5 in natural space, log(1.5) in working space
@@ -136,7 +138,7 @@ using Random
         obs_model = ExponentialFamily(Normal)  # Uses σ
 
         # Test construction with parameter name matching
-        model = INLAModel(spec, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 5), obs_model)
 
         # Test joint density with multiple parameters
         θ = [log(1.2), log(0.8)]  # [σ_latent, σ] in working space
@@ -167,7 +169,7 @@ using Random
         end
 
         obs_model_bernoulli = ExponentialFamily(Bernoulli)
-        model_bernoulli = INLAModel(spec, ar1_latent, obs_model_bernoulli)
+        model_bernoulli = INLAModel(spec, FunctionLatentModel(ar1_latent, 8), obs_model_bernoulli)
 
         # Test with binary data
         θ = [log(2.0)]  # τ = 2.0 in natural space
@@ -191,7 +193,7 @@ using Random
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 4), obs_model)
 
         θ = [log(1.0)]  # Working space
         x = randn(4)
@@ -215,7 +217,7 @@ using Random
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 3), obs_model)
 
         # Test that show doesn't error
         str = string(model)
@@ -255,7 +257,7 @@ using Random
         IntegratedNestedLaplace.loglik(x, obs_lik::MaterializedTestObsModel) = -0.5 * sum((obs_lik.y - x) .^ 2) / obs_lik.σ^2 - length(obs_lik.y) * log(obs_lik.σ) / 2
 
         obs_model = TestObsModel()
-        model = INLAModel(spec, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 6), obs_model)
 
         θ = [log(1.5)]  # Only free parameter in working space
         x = randn(6)
@@ -279,7 +281,7 @@ using Random
         end
 
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, latent_gmrf_func, obs_model)
+        model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 5), obs_model)
 
         # Test basic sampling
         sample = rand(model)
@@ -316,7 +318,7 @@ using Random
             return GMRF(zeros(n), Q)
         end
 
-        model_fixed = INLAModel(spec_fixed, latent_gmrf_fixed, obs_model)
+        model_fixed = INLAModel(spec_fixed, FunctionLatentModel(latent_gmrf_fixed, 3), obs_model)
         sample_fixed = rand(model_fixed)
         # θ should include both free and fixed parameters in natural space
         @test sample_fixed.θ isa NaturalHyperparameters
