@@ -74,15 +74,15 @@ function inla(
         accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator())
     )
 
+    # Pre-process missing observations for prediction
+    y_obs, model_pred, prediction_info = _prepare_for_prediction(model, y)
+
     # Input validation
-    validate_inla_inputs(model, y, latent_indices)
+    validate_inla_inputs(model_pred, y_obs, latent_indices)
 
     # Auto-detect latent indices if not provided
     if latent_indices === nothing
-        # TODO: This is not gonna work for function-based latent priors
-        #       Maybe just enforce LatentModel type then?
-        #       Could add macro to construct LatentModel from function more easily
-        latent_indices = collect(1:length(model.latent_prior))
+        latent_indices = collect(1:length(model_pred.latent_prior))
     end
 
     # Initialize progress tracking
@@ -97,7 +97,7 @@ function inla(
     mode_start_time = time()
 
     θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(
-        model, y;
+        model_pred, y_obs;
         method = mode_method,
         collect_points = true,
         progress_callback = mode_callback
@@ -112,7 +112,7 @@ function inla(
     exploration_start_time = time()
 
     exploration, accumulators_result = explore_hyperparameter_posterior(
-        model, y, θ_star, latent_marginalization_method, latent_indices;
+        model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
         max_log_drop = max_log_drop,
         interpolation_subdivisions = interpolation_subdivisions,
         progress_callback = exploration_callback,
@@ -130,8 +130,8 @@ function inla(
     hyperparameter_marginals = marginalize_hyperparameters(
         hyperparameter_marginalization_method,
         exploration,
-        model,
-        y;
+        model_pred,
+        y_obs;
         progress_callback = marginalization_callback
     )
 
@@ -148,8 +148,8 @@ function inla(
     linear_predictor_marginals = nothing
     base_latent_marginals = nothing
 
-    if model.augmentation_info !== nothing
-        info = model.augmentation_info
+    if model_pred.augmentation_info !== nothing
+        info = model_pred.augmentation_info
 
         # Use views to avoid copying marginal distributions
         linear_predictor_marginals = @view latent_marginals[info.linear_predictor_indices]
@@ -184,12 +184,13 @@ function inla(
         exploration,
         convergence,
         NamedTuple(timing),
-        model,
+        model_pred,
         options,
         accumulators_result;
         linear_predictor_marginals = linear_predictor_marginals,
         base_latent_marginals = base_latent_marginals,
-        augmentation_info = model.augmentation_info
+        augmentation_info = model_pred.augmentation_info,
+        prediction_info = prediction_info
     )
 end
 

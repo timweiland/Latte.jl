@@ -1,13 +1,13 @@
 export validate_inla_inputs
 
 """
-    validate_inla_inputs(model::INLAModel, y::AbstractVector, latent_indices::Union{Nothing, AbstractVector{<:Integer}})
+    validate_inla_inputs(model::INLAModel, y::AbstractVector, latent_indices)
 
 Validate inputs for INLA inference.
 
 # Arguments
 - `model::INLAModel`: The INLA model
-- `y::AbstractVector`: Observed data
+- `y::AbstractVector`: Observed data (already filtered if prediction)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}}`: Indices of latent variables to marginalize
 
 # Throws
@@ -25,8 +25,7 @@ function validate_inla_inputs(model::INLAModel, y::AbstractVector, latent_indice
             throw(ArgumentError("latent_indices cannot be empty"))
         end
 
-        # Check bounds
-        n_latent = length(y)  # Assuming latent field has same length as observations
+        n_latent = length(model.latent_prior)
         if any(i -> i < 1 || i > n_latent, latent_indices)
             throw(ArgumentError("latent_indices must be between 1 and $(n_latent)"))
         end

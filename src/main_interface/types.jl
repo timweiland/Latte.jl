@@ -54,7 +54,7 @@ result.accumulators[1].DIC             # DIC value
 result.accumulators[1].p_D             # Effective parameters
 ```
 """
-struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo}
+struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo}
     hyperparameter_marginals::HM
     latent_marginals::LM
     hyperparameter_mode::Mode
@@ -67,6 +67,7 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, Au
     linear_predictor_marginals::LPM
     base_latent_marginals::BLM
     augmentation_info::AugInfo
+    prediction_info::PredInfo
 
     function INLAResult(
             hyperparameter_marginals::HM,
@@ -80,9 +81,10 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, Au
             accumulators::Acc;
             linear_predictor_marginals::LPM = nothing,
             base_latent_marginals::BLM = nothing,
-            augmentation_info::AugInfo = nothing
-        ) where {HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo}
-        return new{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo}(
+            augmentation_info::AugInfo = nothing,
+            prediction_info::PredInfo = nothing
+        ) where {HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo}
+        return new{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo}(
             hyperparameter_marginals,
             latent_marginals,
             hyperparameter_mode,
@@ -94,7 +96,8 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, Au
             accumulators,
             linear_predictor_marginals,
             base_latent_marginals,
-            augmentation_info
+            augmentation_info,
+            prediction_info
         )
     end
 end
@@ -112,6 +115,12 @@ function Base.show(io::IO, result::INLAResult)
     println(io, "  Model: ", typeof(result.model))
     println(io, "  Hyperparameters: ", n_hyperparams)
     println(io, "  Latent variables: ", n_latent)
+
+    # Show prediction info if present
+    if result.prediction_info !== nothing
+        info = result.prediction_info
+        println(io, "  Prediction: ", length(info.prediction_indices), " predicted, ", length(info.observed_indices), " observed")
+    end
 
     # Show augmentation info if present
     if result.augmentation_info !== nothing
