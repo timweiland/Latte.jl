@@ -97,7 +97,11 @@ struct INLAModel{HP, F <: LatentModel, O <: ObservationModel}
 end
 
 function _restrict_obs_model_to_indices(obs_model::ObservationModel, indices)
-    error("Restriction to indices not supported for $(typeof(obs_model))")
+    error(
+        "Prediction via missing values is not supported for $(typeof(obs_model)). " *
+            "Only ExponentialFamily observation models support this, as prediction via " *
+            "missing values assumes a 1:1 mapping between latent variables and observations."
+    )
 end
 
 function _restrict_obs_model_to_indices(obs_model::ExponentialFamily, indices)
