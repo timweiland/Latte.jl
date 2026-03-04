@@ -62,9 +62,9 @@ using Bijectors
         @test length(keys(spec.free)) == 2
         @test keys(spec.free) == (:μ, :σ)
 
-        # Default is identity transform, working space
-        @test IntegratedNestedLaplace.prior_space(spec.free.μ) == :working
-        @test IntegratedNestedLaplace.prior_space(spec.free.σ) == :working
+        # Default is identity transform, natural space (natural = working when transform is identity)
+        @test IntegratedNestedLaplace.prior_space(spec.free.μ) == :natural
+        @test IntegratedNestedLaplace.prior_space(spec.free.σ) == :natural
         @test spec.free.μ.prior isa Normal
         @test spec.free.σ.prior isa Gamma
         @test spec.free.μ.transform === identity
