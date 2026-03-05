@@ -32,9 +32,13 @@ struct HyperparameterExploration{GP <: GridPoint}
     transform::ReparameterizationTransform
     log_normalization_constant::Float64
     integration_bounds::Matrix{Float64}
+    accumulator_reorder::Vector{Int}  # Permutation: call order → grid order
 
     # Constructor that computes integration bounds
-    function HyperparameterExploration(grid_points::Vector{GP}, integration_indices, transform, log_normalization_constant) where {GP <: GridPoint}
+    function HyperparameterExploration(
+            grid_points::Vector{GP}, integration_indices, transform, log_normalization_constant;
+            accumulator_reorder::Vector{Int} = collect(1:length(integration_indices))
+        ) where {GP <: GridPoint}
         # Compute integration bounds once during construction
         integration_points = grid_points[integration_indices]
 
@@ -55,7 +59,7 @@ struct HyperparameterExploration{GP <: GridPoint}
             bounds[dim, 2] = maximum(dim_values)  # max
         end
 
-        return new{GP}(grid_points, integration_indices, transform, log_normalization_constant, bounds)
+        return new{GP}(grid_points, integration_indices, transform, log_normalization_constant, bounds, accumulator_reorder)
     end
 end
 
