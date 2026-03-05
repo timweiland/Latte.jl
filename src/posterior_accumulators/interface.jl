@@ -52,6 +52,7 @@ Process information from one integration point (unweighted).
 - `ga::GMRF`: Gaussian approximation
 - `x_star::Vector{Float64}`: Latent field mode
 - `marginal_result`: Latent marginals at this point
+- `obs_lik::ObservationLikelihood`: Materialized observation likelihood for current θ
 - `y::Vector`: Observations (added by caller)
 - `is_mode::Bool`: True if this is hyperparameter mode (added by caller)
 
@@ -75,16 +76,20 @@ function finalize! end
 """
     get_integration_weights(exploration::HyperparameterExploration) -> Vector{Float64}
 
-Extract normalized integration weights from exploration result.
+Extract normalized integration weights from exploration result, ordered to match
+the accumulator call order (i.e., the order in which `accumulate!` was called).
 
-Returns vector of weights corresponding to integration points, summing to 1.0.
+Returns vector of weights summing to 1.0.
 
-The weights are computed from the normalized log densities stored in the grid points.
+The weights are computed from the normalized log densities stored in the grid points,
+then reordered via `exploration.accumulator_reorder` so that `weights[k]` corresponds
+to the k-th `accumulate!` call.
 """
 function get_integration_weights(exploration::HyperparameterExploration)
     integration_points = exploration.grid_points[exploration.integration_indices]
     log_weights = [p.log_density for p in integration_points]
     weights = exp.(log_weights)
     weights ./= sum(weights)  # Normalize to sum to 1 (for numerical safety)
-    return weights
+    # Reorder from grid order → accumulator call order
+    return weights[exploration.accumulator_reorder]
 end

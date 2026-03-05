@@ -26,7 +26,7 @@ selecting sensible defaults while supporting advanced customization.
 - `mode_method = BFGS()`: Optimization method for mode finding
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
 - `progress::Bool = true`: Enable progress tracking
-- `accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator())`: Tuple of PosteriorAccumulator objects for model comparison metrics
+- `accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator())`: Tuple of PosteriorAccumulator objects for model comparison metrics
 
 # Returns
 - `INLAResult`: Complete INLA inference results with marginals and diagnostics
@@ -71,7 +71,7 @@ function inla(
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
         progress::Bool = true,
-        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator())
+        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator())
     )
 
     # Pre-process missing observations for prediction

@@ -69,11 +69,9 @@ function evaluate_at_grid_point(
     # Compute log posterior density using the pre-computed GA
     log_density = hyperparameter_logpdf(model, θ, y, ga)
 
-    # Compute observation log-likelihoods
-    # TODO: Use per-observation log-likelihoods when available in GMRF.jl
-    # For now, use total log-likelihood only
-    obs_loglikelihoods = nothing
-    total_loglikelihood = loglik(x_star, obs_lik)
+    # Compute per-observation log-likelihoods
+    obs_loglikelihoods = pointwise_loglik(x_star, obs_lik)
+    total_loglikelihood = sum(obs_loglikelihoods)
 
     marginal_result = nothing
     if compute_marginals
@@ -92,6 +90,7 @@ function evaluate_at_grid_point(
         x_star = x_star,
         obs_loglikelihoods = obs_loglikelihoods,
         total_loglikelihood = total_loglikelihood,
+        obs_lik = obs_lik,
     )
 end
 
