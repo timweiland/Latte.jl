@@ -15,6 +15,7 @@ using Aqua
     include("latent_augmentation/runtests.jl")
     include("prediction/runtests.jl")
     include("observation_marginals/runtests.jl")
+    include("posterior_accumulators/runtests.jl")
     include("test_latent_marginalization.jl")
     include("end_to_end/runtests.jl")
 end

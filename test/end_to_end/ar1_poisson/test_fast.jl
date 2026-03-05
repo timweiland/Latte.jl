@@ -7,6 +7,7 @@ using SparseArrays
 using Random
 using LDLFactorizations
 using JLD2
+using Statistics
 
 @testset "End-to-End Test: AR-1 Poisson Model (Fast)" begin
 
@@ -125,6 +126,51 @@ using JLD2
             @test inla_latent_ci[1] ≈ mcmc_latent_ci[1] rtol = 0.25 atol = 0.1
             @test inla_latent_ci[2] ≈ mcmc_latent_ci[2] rtol = 0.25 atol = 0.1
         end
+    end
+
+    @testset "WAIC and DIC vs MCMC" begin
+        # Compute MCMC WAIC from stored posterior samples
+        # Poisson log-link: log p(y_i | x_i) = y_i * x_i - exp(x_i) - log(y_i!)
+        n_samples = size(x_samples, 1)
+        n_obs = length(y_gt)
+
+        ll_matrix = Matrix{Float64}(undef, n_samples, n_obs)
+        for s in 1:n_samples, i in 1:n_obs
+            ll_matrix[s, i] = logpdf(Poisson(exp(x_samples[s, i])), y_gt[i])
+        end
+
+        # MCMC lppd: Σ_i log(mean_s(exp(ll_si)))
+        mcmc_lppd = sum(
+            let col = @view(ll_matrix[:, i])
+                    m = maximum(col)
+                    m + log(mean(exp.(col .- m)))
+            end for i in 1:n_obs
+        )
+
+        # MCMC p_WAIC1: 2 * (lppd - Σ_i mean_s(ll_si))
+        mcmc_mean_ll = sum(mean(@view(ll_matrix[:, i])) for i in 1:n_obs)
+        mcmc_p_waic1 = 2.0 * (mcmc_lppd - mcmc_mean_ll)
+        mcmc_waic = -2 * (mcmc_lppd - mcmc_p_waic1)
+
+        # MCMC DIC: D_bar + p_D  where D_bar = mean(-2*ll), D_mode ≈ min deviance
+        mcmc_deviances = [-2 * sum(ll_matrix[s, :]) for s in 1:n_samples]
+        mcmc_D_bar = mean(mcmc_deviances)
+        mcmc_D_mode = minimum(mcmc_deviances)  # Approximate mode deviance
+        mcmc_p_D = mcmc_D_bar - mcmc_D_mode
+        mcmc_dic = mcmc_D_bar + mcmc_p_D
+
+        # Extract INLA accumulators
+        dic_acc = inla_result.accumulators[1]
+        waic_acc = inla_result.accumulators[3]
+
+        # WAIC comparison (rtol=0.15 accounts for GA and grid approximation)
+        @test waic_acc.lppd ≈ mcmc_lppd rtol = 0.15
+        @test waic_acc.p_WAIC ≈ mcmc_p_waic1 rtol = 0.3
+        @test waic_acc.WAIC ≈ mcmc_waic rtol = 0.15
+
+        # DIC comparison (looser tolerance since D_mode from MCMC is approximate)
+        @test dic_acc.D_bar ≈ mcmc_D_bar rtol = 0.15
+        @test dic_acc.DIC ≈ mcmc_dic rtol = 0.3
     end
 
     @testset "Model Properties" begin

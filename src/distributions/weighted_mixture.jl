@@ -4,6 +4,7 @@ using Random
 using Roots
 using Printf
 using Optim
+using StatsFuns: logsumexp
 
 export WeightedMixture
 
@@ -157,11 +158,6 @@ end
 
 Base.rand(d::WeightedMixture) = rand(Random.GLOBAL_RNG, d)
 
-# Utility function for log-sum-exp
-function logsumexp(log_terms::Vector)
-    max_log = maximum(log_terms)
-    return max_log + log(sum(exp(x - max_log) for x in log_terms))
-end
 
 # Custom show method for better user experience
 function Base.show(io::IO, d::WeightedMixture)
