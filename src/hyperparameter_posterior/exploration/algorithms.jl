@@ -1,5 +1,7 @@
 export explore_hyperparameter_posterior, explore_half_axis_by_steps, explore_dimension_and_build_lookup
 
+using StatsFuns: logsumexp
+
 """
     explore_half_axis_by_steps(model, y, transform, mode_logpdf, dim, direction, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators)
 
@@ -9,7 +11,8 @@ Returns a list of (key, GridPoint) tuples where key is an integer coordinate tup
 function explore_half_axis_by_steps(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, direction::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
-        marginalization_method, marginalization_indices, accumulators::Tuple
+        marginalization_method, marginalization_indices, accumulators::Tuple,
+        accumulator_call_keys::Vector
     )
     n_dim = length(transform.θ_star)
     keyed_points = []
@@ -38,18 +41,20 @@ function explore_half_axis_by_steps(
 
         point = GridPoint(θ_test, result.log_density, result.marginal_result)
 
-        # Call accumulators if this is an integration point
+        # Call accumulators eagerly and record the grid key for ordering
         if is_integration_point && !isempty(accumulators)
             for acc in accumulators
                 accumulate!(
                     acc;
-                    result...,  # Splat the NamedTuple from evaluate_at_grid_point
+                    result...,
                     θ = θ_test,
                     y = y,
-                    is_mode = false  # Mode is handled separately
+                    is_mode = false
                 )
             end
+            push!(accumulator_call_keys, key)
         end
+
         push!(keyed_points, (key, point))
         step_count += 1
     end
@@ -70,18 +75,21 @@ Returns (point_lookup, step_range) where:
 function explore_dimension_and_build_lookup(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
-        marginalization_method, marginalization_indices, accumulators::Tuple
+        marginalization_method, marginalization_indices, accumulators::Tuple,
+        accumulator_call_keys::Vector
     )
     # Call our helper function for both directions
     pos_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, 1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
-        marginalization_method, marginalization_indices, accumulators
+        marginalization_method, marginalization_indices, accumulators,
+        accumulator_call_keys
     )
     neg_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, -1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
-        marginalization_method, marginalization_indices, accumulators
+        marginalization_method, marginalization_indices, accumulators,
+        accumulator_call_keys
     )
 
     # Return a dictionary for fast, safe lookups
@@ -142,12 +150,17 @@ function explore_hyperparameter_posterior(
     mode_point = GridPoint(θ_star, mode_result.log_density, mode_result.marginal_result)
     mode_log_density = mode_result.log_density
 
+    # Track the order in which accumulators are called (grid coordinate keys).
+    # This lets us compute the permutation from call order → grid order in finalize!.
+    mode_key = ntuple(_ -> 0, n_dim)
+    accumulator_call_keys = NTuple{n_dim, Int}[mode_key]
+
     # Call accumulators for the mode point
     if !isempty(accumulators)
         for acc in accumulators
             accumulate!(
                 acc;
-                mode_result...,  # Splat the NamedTuple
+                mode_result...,
                 θ = θ_star,
                 y = y,
                 is_mode = true
@@ -158,7 +171,7 @@ function explore_hyperparameter_posterior(
     # Step 3: Explore axes and build the lookup table of raw (unnormalized) points
     progress_callback(status = "Starting axis exploration", dimensions = n_dim)
     point_lookup = Dict{NTuple{n_dim, Int}, typeof(mode_point)}()
-    point_lookup[Tuple(zeros(Int, n_dim))] = mode_point
+    point_lookup[mode_key] = mode_point
     step_ranges_per_dim = Vector{UnitRange{Int}}(undef, n_dim)
     evaluation_step_z = integration_step_z / interpolation_subdivisions
 
@@ -166,7 +179,8 @@ function explore_hyperparameter_posterior(
         progress_callback(status = "Exploring axis", current_dimension = d, total_dimensions = n_dim)
         axis_points, axis_range = explore_dimension_and_build_lookup(
             model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
-            interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators
+            interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators,
+            accumulator_call_keys
         )
         merge!(point_lookup, axis_points) # Add all on-axis points to the master table
         step_ranges_per_dim[d] = axis_range
@@ -200,17 +214,18 @@ function explore_hyperparameter_posterior(
         if mode_log_density - result.log_density <= max_log_drop
             push!(raw_interpolation_points, GridPoint(θ_off_axis, result.log_density, result.marginal_result))
 
-            # Call accumulators if this is an integration point
+            # Call accumulators eagerly and record the grid key for ordering
             if is_integration_point && !isempty(accumulators)
                 for acc in accumulators
                     accumulate!(
                         acc;
-                        result...,  # Splat the NamedTuple from evaluate_at_grid_point
+                        result...,
                         θ = θ_off_axis,
                         y = y,
                         is_mode = false
                     )
                 end
+                push!(accumulator_call_keys, key_tuple)
             end
         end
 
@@ -224,15 +239,31 @@ function explore_hyperparameter_posterior(
         )
     end
 
-    # Step 5: Compute the normalization constant using the Jacobian
+    # Step 5: Compute permutation from grid order → accumulator call order.
+    # Accumulators were called eagerly in discovery order (mode, neg axis, pos axis, off-axis),
+    # but integration_indices follows grid order (Iterators.product iteration).
+    # The permutation lets get_integration_weights reorder weights to match call order.
+    accumulator_reorder = Int[]
+    if !isempty(accumulators)
+        # Build grid-order position index via a single pass over the grid
+        call_key_set = Set(accumulator_call_keys)
+        grid_position = Dict{NTuple{n_dim, Int}, Int}()
+        grid_idx = 0
+        for key_tuple in Iterators.product(step_ranges_per_dim...)
+            if key_tuple in call_key_set
+                grid_idx += 1
+                grid_position[key_tuple] = grid_idx
+            end
+        end
+        # accumulator_reorder[k] = grid position of the k-th accumulator call
+        # get_integration_weights uses: weights_grid[accumulator_reorder] → call order
+        accumulator_reorder = [grid_position[k] for k in accumulator_call_keys]
+    end
+
+    # Step 6: Compute the normalization constant using the Jacobian
     progress_callback(status = "Computing normalization", total_explored_points = length(raw_interpolation_points))
     integration_indices = findall(p -> p.marginal_result !== nothing, raw_interpolation_points)
     unnormalized_integration_logpdfs = [p.log_density for p in raw_interpolation_points[integration_indices]]
-
-    function logsumexp(x)
-        max_x = maximum(x)
-        return max_x + log(sum(exp.(x .- max_x)))
-    end
 
     log_z_cell_volume = n_dim * log(integration_step_z)
     log_normalization_constant = logsumexp(unnormalized_integration_logpdfs) + logdet_jacobian(transform) + log_z_cell_volume
@@ -256,7 +287,8 @@ function explore_hyperparameter_posterior(
         final_grid_points,
         integration_indices,
         transform,
-        log_normalization_constant
+        log_normalization_constant;
+        accumulator_reorder = isempty(accumulator_reorder) ? collect(1:length(integration_indices)) : accumulator_reorder
     )
 
     # Finalize accumulators

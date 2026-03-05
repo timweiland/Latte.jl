@@ -7,7 +7,8 @@ using GaussianMarkovRandomFields: ObservationModel, ObservationLikelihood,
     CompositeObservationModel, loglik, loggrad, loghessian, hyperparameters,
     latent_dimension, gaussian_approximation, successes, trials,
     IdentityLink, LogLink, LogitLink, LinkFunction,
-    conditional_distribution, apply_link, apply_invlink
+    conditional_distribution, apply_link, apply_invlink,
+    pointwise_loglik, NormalLikelihood
 
 # Re-export observation model types and functions for user convenience
 export ObservationModel, ObservationLikelihood, ExponentialFamily,
@@ -15,7 +16,8 @@ export ObservationModel, ObservationLikelihood, ExponentialFamily,
     CompositeObservationModel, gaussian_approximation,
     loglik, loggrad, loghessian, hyperparameters, latent_dimension,
     successes, trials, IdentityLink, LogLink, LogitLink, LinkFunction,
-    conditional_distribution, apply_link, apply_invlink
+    conditional_distribution, apply_link, apply_invlink,
+    pointwise_loglik
 
 # Include INLA-specific modules
 include("utils/selinv.jl")
