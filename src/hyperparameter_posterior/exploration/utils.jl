@@ -127,10 +127,10 @@ function create_weighted_mixtures(exploration::HyperparameterExploration)
     # Get the GridPoint objects for the integration points
     integration_points = exploration.grid_points[exploration.integration_indices]
 
-    # The log densities are already normalized, so weights are simple to calculate
+    # Compute weights with log-sum-exp stabilization for numerical safety
     log_weights = [p.log_density for p in integration_points]
-    weights = exp.(log_weights)
-    weights ./= sum(weights) # Re-normalize for numerical safety
+    weights = exp.(log_weights .- maximum(log_weights))
+    weights ./= sum(weights)
 
     marginal_results = [p.marginal_result for p in integration_points]
 
