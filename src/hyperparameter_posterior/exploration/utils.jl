@@ -47,51 +47,58 @@ function evaluate_at_grid_point(
         )
     end
 
-    # Perform the expensive Gaussian Approximation once
-    prior_gmrf = latent_gmrf(model, θ_natural_nt)
-    obs_lik = model.observation_model(y; θ_natural_nt...)
-    ga = nothing
+    # Perform the expensive Gaussian Approximation and downstream evaluations.
+    # Wrap in try-catch to handle numerical failures (PosDefException,
+    # ZeroPivotException, SingularException) that can occur at extreme
+    # hyperparameter values — especially with CCD design points far from the mode.
     try
+        prior_gmrf = latent_gmrf(model, θ_natural_nt)
+        obs_lik = model.observation_model(y; θ_natural_nt...)
         ga = gaussian_approximation(prior_gmrf, obs_lik)
-    catch PosDefException
-        @warn "PosDefException at hyperparams $(θ_natural_nt)"
+        x_star = mean(ga)
+
+        # Compute log posterior density using the pre-computed GA
+        log_density = hyperparameter_logpdf(model, θ, y, ga)
+
+        # Compute per-observation log-likelihoods
+        obs_loglikelihoods = pointwise_loglik(x_star, obs_lik)
+        total_loglikelihood = sum(obs_loglikelihoods)
+
+        marginal_result = nothing
+        if compute_marginals
+            # Reuse the GA for marginalization
+            marginal_result = marginalize(
+                ga, obs_lik,
+                log_prior_θ, marginalization_method, marginalization_indices;
+                prior_gmrf = prior_gmrf
+            )
+        end
+
         return (
-            log_density = -Inf,
-            marginal_result = nothing,
-            ga = nothing,
-            x_star = nothing,
-            obs_loglikelihoods = nothing,
-            total_loglikelihood = -Inf,
+            log_density = log_density,
+            marginal_result = marginal_result,
+            ga = ga,
+            x_star = x_star,
+            obs_loglikelihoods = obs_loglikelihoods,
+            total_loglikelihood = total_loglikelihood,
+            obs_lik = obs_lik,
         )
+    catch e
+        if e isa PosDefException || e isa LinearAlgebra.ZeroPivotException ||
+                e isa LinearAlgebra.SingularException
+            @warn "Numerical failure at hyperparams $(θ_natural_nt): $(typeof(e))"
+            return (
+                log_density = -Inf,
+                marginal_result = nothing,
+                ga = nothing,
+                x_star = nothing,
+                obs_loglikelihoods = nothing,
+                total_loglikelihood = -Inf,
+            )
+        else
+            rethrow(e)
+        end
     end
-    x_star = mean(ga)
-
-    # Compute log posterior density using the pre-computed GA
-    log_density = hyperparameter_logpdf(model, θ, y, ga)
-
-    # Compute per-observation log-likelihoods
-    obs_loglikelihoods = pointwise_loglik(x_star, obs_lik)
-    total_loglikelihood = sum(obs_loglikelihoods)
-
-    marginal_result = nothing
-    if compute_marginals
-        # Reuse the GA for marginalization
-        marginal_result = marginalize(
-            ga, obs_lik,
-            log_prior_θ, marginalization_method, marginalization_indices;
-            prior_gmrf = prior_gmrf
-        )
-    end
-
-    return (
-        log_density = log_density,
-        marginal_result = marginal_result,
-        ga = ga,
-        x_star = x_star,
-        obs_loglikelihoods = obs_loglikelihoods,
-        total_loglikelihood = total_loglikelihood,
-        obs_lik = obs_lik,
-    )
 end
 
 """
