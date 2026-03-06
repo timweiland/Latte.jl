@@ -175,6 +175,7 @@ function inla(
         mode_iterations = mode_iterations,
         progress = progress,
         y = y,
+        y_obs = y_obs,
     )
 
     return INLAResult(
