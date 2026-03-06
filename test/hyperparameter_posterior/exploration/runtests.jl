@@ -4,4 +4,5 @@ using Test
     include("test_transformation.jl")
     include("test_utils.jl")
     include("test_algorithms.jl")
+    include("test_ccd.jl")
 end

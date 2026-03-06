@@ -27,6 +27,7 @@ selecting sensible defaults while supporting advanced customization.
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
 - `progress::Bool = true`: Enable progress tracking
 - `accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator())`: Tuple of PosteriorAccumulator objects for model comparison metrics
+- `exploration_strategy::Symbol = :auto`: Hyperparameter exploration strategy. `:auto` uses grid for d ≤ 2, CCD for d ≥ 3. `:grid` forces Cartesian grid. `:ccd` forces Central Composite Design (O(2d²+1) points).
 
 # Returns
 - `INLAResult`: Complete INLA inference results with marginals and diagnostics
@@ -71,7 +72,8 @@ function inla(
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
         progress::Bool = true,
-        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator())
+        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator()),
+        exploration_strategy::Symbol = :auto
     )
 
     # Pre-process missing observations for prediction
@@ -111,13 +113,33 @@ function inla(
     exploration_callback = create_progress_callback(progress_state, "Exploring hyperparameter posterior")
     exploration_start_time = time()
 
-    exploration, accumulators_result = explore_hyperparameter_posterior(
-        model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
-        max_log_drop = max_log_drop,
-        interpolation_subdivisions = interpolation_subdivisions,
-        progress_callback = exploration_callback,
-        accumulators = accumulators
-    )
+    if exploration_strategy ∉ (:auto, :grid, :ccd)
+        throw(ArgumentError("exploration_strategy must be :auto, :grid, or :ccd, got :$exploration_strategy"))
+    end
+
+    use_ccd = if exploration_strategy == :auto
+        length(θ_star) > 2
+    elseif exploration_strategy == :ccd
+        true
+    else
+        false
+    end
+
+    if use_ccd
+        exploration, accumulators_result = explore_hyperparameter_posterior_ccd(
+            model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
+            progress_callback = exploration_callback,
+            accumulators = accumulators
+        )
+    else
+        exploration, accumulators_result = explore_hyperparameter_posterior(
+            model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
+            max_log_drop = max_log_drop,
+            interpolation_subdivisions = interpolation_subdivisions,
+            progress_callback = exploration_callback,
+            accumulators = accumulators
+        )
+    end
 
     timing[:exploration] = time() - exploration_start_time
     advance_phase!(progress_state, "Exploration complete", (points = length(exploration.grid_points),))
