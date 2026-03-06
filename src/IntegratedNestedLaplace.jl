@@ -8,7 +8,8 @@ using GaussianMarkovRandomFields: ObservationModel, ObservationLikelihood,
     latent_dimension, gaussian_approximation, successes, trials,
     IdentityLink, LogLink, LogitLink, LinkFunction,
     conditional_distribution, apply_link, apply_invlink,
-    pointwise_loglik, NormalLikelihood
+    pointwise_loglik, NormalLikelihood,
+    PoissonLikelihood, BernoulliLikelihood, BinomialLikelihood
 
 # Re-export observation model types and functions for user convenience
 export ObservationModel, ObservationLikelihood, ExponentialFamily,
