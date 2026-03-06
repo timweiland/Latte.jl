@@ -50,10 +50,8 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
     y_obs = _get_y_obs(result)
 
     # Compute integration weights
+    weights = _integration_weights(exploration)
     integration_points = exploration.grid_points[exploration.integration_indices]
-    log_weights = [p.log_density for p in integration_points]
-    weights = exp.(log_weights .- maximum(log_weights))
-    weights ./= sum(weights)
 
     # Sample integration point indices
     point_indices = rand(rng, Categorical(weights), n)
@@ -66,14 +64,8 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
         point = integration_points[idx]
         θ = point.θ
 
-        # Convert to natural space
-        θ_natural = convert(NaturalHyperparameters, θ)
-        θ_natural_nt = convert(NamedTuple, θ_natural)
-
         # Reconstruct Gaussian approximation
-        prior_gmrf = latent_gmrf(model, θ_natural_nt)
-        obs_lik = model.observation_model(y_obs; θ_natural_nt...)
-        ga = gaussian_approximation(prior_gmrf, obs_lik)
+        ga, θ_natural_nt = _reconstruct_ga(model, y_obs, θ)
 
         # Draw samples for all occurrences of this integration point
         for i in findall(==(idx), point_indices)
