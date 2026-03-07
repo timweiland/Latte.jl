@@ -60,7 +60,7 @@ f = @formula(r ~ 1 + iid(hospital))
 #
 using IntegratedNestedLaplace
 hp_spec = @hyperparams begin
-    (τ_iid ~ pc_prior_precision(1.0, α = 0.01), transform = log)
+    (τ_iid ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
 end
 
 # ## Running INLA

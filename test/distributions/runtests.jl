@@ -4,6 +4,9 @@ using Test
 
 @testset "Distributions Tests" begin
     include("test_weighted_mixture.jl")
-
-    # Future distribution tests can be added here
+    include("test_bijectors.jl")
+    include("test_pc_prior_precision.jl")
+    include("test_pc_prior_sigma.jl")
+    include("test_pc_prior_ar1.jl")
+    include("test_pc_prior_bym.jl")
 end
