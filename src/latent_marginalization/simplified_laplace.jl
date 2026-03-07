@@ -66,6 +66,11 @@ const R_SCALE = π^(3 / 2) / ((4 - π) * sqrt(2))
 const C = 1 - 2 / π
 
 function _get_skew_params(γ_1, γ_3, μ_i, σ_i)
+    # Degenerate case: no skewness → Normal(μ + γ₁σ, σ)
+    if abs(γ_3) < 1.0e-30
+        return (μ_i + γ_1 * σ_i, σ_i, 0.0)
+    end
+
     r = cbrt(R_SCALE * γ_3) # a / ω
     ρ = r^2
     t = ((ρ - 1) + sqrt((1 - ρ)^2 + 4 * C * ρ)) / (2C)
