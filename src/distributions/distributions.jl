@@ -2,6 +2,5 @@
 
 include("weighted_mixture.jl")
 include("transformed_weighted_mixture.jl")
-include("pc.jl")
-
-# Future custom distributions can be added here
+include("bijectors.jl")
+include("pc_prior/pc_prior.jl")
