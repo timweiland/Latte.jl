@@ -127,8 +127,8 @@ f = @formula(cases ~ 1 + spatial(county_id) + unstructured(county_id))
 # We use PC (Penalized Complexity) priors for the precision parameters.
 # These priors prefer simpler models unless data strongly suggests otherwise:
 hp_spec = @hyperparams begin
-    (τ_besag ~ pc_prior_precision(1.0, α = 0.01), transform = log)
-    (τ_iid ~ pc_prior_precision(1.0, α = 0.01), transform = log)
+    (τ_besag ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+    (τ_iid ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
 end
 
 # This says: "I believe there's only a 1% chance that the standard deviation
@@ -355,7 +355,7 @@ println("  Log marginal likelihood: ", round(inla_result.accumulators[2].log_mar
 f_iid = @formula(cases ~ 1 + unstructured(county_id))
 
 hp_spec_iid = @hyperparams begin
-    (τ_iid ~ pc_prior_precision(1.0, α = 0.01), transform = log)
+    (τ_iid ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
 end
 
 inla_result_iid = inla(

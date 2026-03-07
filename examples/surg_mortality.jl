@@ -33,7 +33,7 @@ println("Precision matrix: $(size(Q)) ($(round((nnz(Q) / length(Q)) * 100, digit
 
 #hp_prior = HyperparameterPrior((σ = LogNormal(0.0, 1.0), τ_iid = LogNormal(0.0, 1.0)))
 hp_spec = @hyperparams begin
-    (τ_iid ~ pc_prior_precision(1.0, α = 0.01), transform = log, space = natural)
+    (τ_iid ~ PCPrior.Precision(1.0, α = 0.01), transform = log, space = natural)
 end
 
 A_constr = zeros(1, 13)
