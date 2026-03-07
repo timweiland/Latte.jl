@@ -254,4 +254,38 @@ using Statistics
         @test all(-10 .< τ_gmrf_log_samples .< 10)  # Log precision should be reasonable
         @test all(-5 .< η_samples .< 5)  # atanh(ρ) should be reasonable
     end
+
+    @testset "SimplifiedLaplace variant" begin
+        # Run same model with SimplifiedLaplace
+        inla_result_sl = inla(
+            model,
+            y_gt,
+            progress = false,
+            latent_marginalization_method = SimplifiedLaplace(),
+            hyperparameter_marginalization_method = GridBasedMarginal(; auto_adjust = false),
+        )
+
+        @test isa(inla_result_sl, INLAResult)
+        @test length(inla_result_sl.latent_marginals) == k
+        @test inla_result_sl.convergence.mode_converged == true
+
+        # Compare against MCMC reference (same tolerances as LaplaceMarginal)
+        test_indices = [10, 50, 100, 150, 200]
+        for i in test_indices
+            mcmc_samples = x_samples[:, i]
+            sl_m = inla_result_sl.latent_marginals[i]
+
+            @test mean(sl_m) ≈ mean(mcmc_samples) rtol = 0.15 atol = 0.1
+            @test std(sl_m) ≈ std(mcmc_samples) rtol = 0.2 atol = 0.1
+        end
+
+        # Cross-check: SimplifiedLaplace vs LaplaceMarginal should agree closely
+        for i in test_indices
+            sl_m = inla_result_sl.latent_marginals[i]
+            la_m = inla_result.latent_marginals[i]
+
+            @test mean(sl_m) ≈ mean(la_m) rtol = 0.05 atol = 0.05
+            @test std(sl_m) ≈ std(la_m) rtol = 0.1 atol = 0.05
+        end
+    end
 end
