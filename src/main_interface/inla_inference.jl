@@ -163,8 +163,10 @@ function inla(
     # Finish progress tracking
     finish_progress!(progress_state)
 
-    # Create latent marginals using the existing utility function
-    latent_marginals = create_weighted_mixtures(exploration)
+    # Create latent marginals and KLD diagnostics using the existing utility function
+    mixture_result = create_weighted_mixtures(exploration)
+    latent_marginals = mixture_result.marginals
+    kld = mixture_result.kld
 
     # Split marginals if model is augmented (use views to avoid copying)
     linear_predictor_marginals = nothing
@@ -213,7 +215,8 @@ function inla(
         linear_predictor_marginals = linear_predictor_marginals,
         base_latent_marginals = base_latent_marginals,
         augmentation_info = model_pred.augmentation_info,
-        prediction_info = prediction_info
+        prediction_info = prediction_info,
+        kld = kld
     )
 end
 

@@ -138,8 +138,9 @@ function create_weighted_mixtures(exploration::HyperparameterExploration)
     @assert !isempty(marginal_results) && all(!isnothing, marginal_results) "No valid marginal results found at integration points"
     n_vars = length(marginal_results[1].marginals)
 
-    # Create weighted mixtures for each variable
+    # Create weighted mixtures and weight-averaged KLD for each variable
     final_marginals = Vector{WeightedMixture}(undef, n_vars)
+    kld_values = zeros(n_vars)
 
     for var_idx in 1:n_vars
         # Extract component distributions for this variable across all integration points
@@ -147,7 +148,12 @@ function create_weighted_mixtures(exploration::HyperparameterExploration)
 
         # Create weighted mixture for this variable
         final_marginals[var_idx] = WeightedMixture(components, weights)
+
+        # Weight-average KLD across integration points
+        for (w, mr) in zip(weights, marginal_results)
+            kld_values[var_idx] += w * mr.kld_values[var_idx]
+        end
     end
 
-    return final_marginals
+    return (marginals = final_marginals, kld = kld_values)
 end
