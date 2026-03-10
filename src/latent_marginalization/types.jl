@@ -1,7 +1,7 @@
 using Distributions
 using Printf
 
-export MarginalApproximation, MarginalResult
+export MarginalApproximation, MarginalResult, AdaptiveMarginal
 
 """
     MarginalApproximation
@@ -9,6 +9,36 @@ export MarginalApproximation, MarginalResult
 Abstract base type for different marginalization approximation methods in INLA.
 """
 abstract type MarginalApproximation end
+
+"""
+    AdaptiveMarginal <: MarginalApproximation
+
+Adaptive marginalization strategy following Rue et al. (2009) Section 4.2.
+
+Starts with SimplifiedLaplace for all variables, computes SKLD against the Gaussian
+baseline, and escalates to full LaplaceMarginal for variables where SKLD exceeds the
+threshold.
+
+# Fields
+- `kld_threshold::Float64`: SKLD threshold for escalation (default: 0.1)
+
+# Example
+```julia
+result = inla(model, y; latent_marginalization_method=AdaptiveMarginal())
+result = inla(model, y; latent_marginalization_method=AdaptiveMarginal(0.05))
+```
+"""
+struct AdaptiveMarginal <: MarginalApproximation
+    kld_threshold::Float64
+
+    function AdaptiveMarginal(kld_threshold::Float64)
+        kld_threshold >= 0 || throw(ArgumentError("kld_threshold must be non-negative, got $kld_threshold"))
+        isfinite(kld_threshold) || throw(ArgumentError("kld_threshold must be finite, got $kld_threshold"))
+        return new(kld_threshold)
+    end
+end
+
+AdaptiveMarginal() = AdaptiveMarginal(0.1)
 
 """
     MarginalResult
@@ -20,12 +50,14 @@ Container for marginalization results.
 - `marginals::Vector{<:ContinuousUnivariateDistribution}`: Marginal distributions
 - `method::MarginalApproximation`: Approximation method used
 - `computation_time::Float64`: Computation time in seconds
+- `kld_values::Vector{Float64}`: Symmetric KLD between Gaussian and corrected marginal per variable
 """
 struct MarginalResult
     indices::Vector{Int}
     marginals::Vector{<:ContinuousUnivariateDistribution}
     method::MarginalApproximation
     computation_time::Float64  # in seconds
+    kld_values::Vector{Float64}
 end
 
 # Custom show method for better user experience

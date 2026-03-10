@@ -1,4 +1,21 @@
+using Distributions: Normal
+
 export marginalize
+
+# GaussianMarginal: KLD is trivially zero (comparing Gaussian to itself)
+function _compute_kld_values(::GaussianMarginal, marginals, indices, μ_ga, σ_ga)
+    return zeros(length(indices))
+end
+
+# Non-Gaussian methods: compute SKLD against Gaussian baseline from GA
+function _compute_kld_values(::MarginalApproximation, marginals, indices, μ_ga, σ_ga)
+    kld_values = Vector{Float64}(undef, length(indices))
+    for (j, i) in enumerate(indices)
+        gaussian_baseline = Normal(μ_ga[i], σ_ga[i])
+        kld_values[j] = symmetric_kld(gaussian_baseline, marginals[j])
+    end
+    return kld_values
+end
 
 """
     marginalize(ga, obs_lik, log_prior_θ, method, indices=1:length(mean(ga)); prior_gmrf=nothing)
@@ -23,8 +40,12 @@ function marginalize(
         prior_gmrf = nothing
     )
 
+    # Pre-compute GA statistics (used for validation, KLD, and passed to _marginalize_impl)
+    μ_ga = mean(ga)
+    σ_ga = std(ga)
+
     # Validate indices
-    n = length(mean(ga))
+    n = length(μ_ga)
     if any(i -> i < 1 || i > n, indices)
         throw(BoundsError(1:n, indices))
     end
@@ -35,7 +56,11 @@ function marginalize(
     # Measure computation time
     start_time = time()
     marginals = _marginalize_impl(ga, obs_lik, log_prior_θ, method, indices, prior_gmrf)
+
+    # Compute KLD between Gaussian baseline and corrected marginals
+    kld_values = _compute_kld_values(method, marginals, indices, μ_ga, σ_ga)
+
     computation_time = time() - start_time
 
-    return MarginalResult(indices, marginals, method, computation_time)
+    return MarginalResult(indices, marginals, method, computation_time, kld_values)
 end
