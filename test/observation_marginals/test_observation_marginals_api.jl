@@ -100,7 +100,8 @@ using Random
             model = INLAModel(hp_spec, base_model, obs_model)
             y = fill(5, n_obs)
 
-            result = inla(model, y; progress = false)
+            # Use GaussianMarginal to test observation marginal transformation (not latent approx quality)
+            result = inla(model, y; progress = false, latent_marginalization_method = GaussianMarginal())
             obs_marginals = observation_marginals(result)
 
             # Should use elementwise(log) bijector
@@ -123,7 +124,8 @@ using Random
             model = INLAModel(hp_spec, base_model, obs_model)
             y = BinomialObservations(fill(5, n_obs), fill(10, n_obs))
 
-            result = inla(model, y; progress = false)
+            # Use GaussianMarginal to test observation marginal transformation (not latent approx quality)
+            result = inla(model, y; progress = false, latent_marginalization_method = GaussianMarginal())
             obs_marginals = observation_marginals(result)
 
             # Should use Logit bijector
@@ -155,7 +157,9 @@ using Random
         model = INLAModel(hp_spec, base_model, obs_model)
         y = fill(5, n_obs)
 
-        result = inla(model, y; progress = false)
+        # Use GaussianMarginal — SkewNormal from SimplifiedLaplace lacks cdf, which
+        # quantile() needs. This test checks observation marginal transforms, not latent approx.
+        result = inla(model, y; progress = false, latent_marginalization_method = GaussianMarginal())
         obs_marginals = observation_marginals(result)
 
         # Test that we can compute various statistics
