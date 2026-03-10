@@ -1,5 +1,6 @@
 # Custom distributions for IntegratedNestedLaplace.jl
 
+include("skew_normal_ext.jl")
 include("weighted_mixture.jl")
 include("transformed_weighted_mixture.jl")
 include("bijectors.jl")
