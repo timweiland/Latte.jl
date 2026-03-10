@@ -8,30 +8,31 @@ using Distributions
 export summary_df
 
 """
-    summary_df(marginals::AbstractVector{<:Distribution})
+    summary_df(marginals::AbstractVector{<:Distribution}; kld=nothing)
 
 Create a summary DataFrame of marginal distributions with key statistics.
 
 # Arguments
 - `marginals::AbstractVector`: Vector of distributions (e.g., latent marginals)
+- `kld::Union{Nothing, AbstractVector{<:Real}}`: Optional per-variable symmetric KLD values
 
 # Returns
 DataFrame with one row per distribution containing:
-- `index`: Index in the vector
 - `mode`: Mode of the marginal
 - `median`: Median (50th percentile)
 - `q2_5`: 2.5th percentile
 - `q97_5`: 97.5th percentile
 - `mean`: Mean
 - `std`: Standard deviation
+- `kld`: Symmetric KLD (if provided)
 
 # Example
 ```julia
 result = inla(model, y)
-df = summary_df(result.latent_marginals)
+df = summary_df(result.latent_marginals; kld=result.kld)
 ```
 """
-function summary_df(marginals::AbstractVector{<:Distribution})
+function summary_df(marginals::AbstractVector{<:Distribution}; kld = nothing)
     # Compute statistics for each marginal
     modes = Float64[]
     medians = Float64[]
@@ -49,7 +50,7 @@ function summary_df(marginals::AbstractVector{<:Distribution})
         push!(stds, std(marginal))
     end
 
-    return DataFrame(
+    df = DataFrame(
         mode = modes,
         median = medians,
         q2_5 = q025s,
@@ -57,4 +58,10 @@ function summary_df(marginals::AbstractVector{<:Distribution})
         mean = means,
         std = stds
     )
+
+    if kld !== nothing
+        df.kld = collect(Float64, kld)
+    end
+
+    return df
 end
