@@ -93,4 +93,43 @@ using Statistics
             @test std(result_sl.latent_marginals[i]) ≈ std(result_la.latent_marginals[i]) rtol = 0.25
         end
     end
+
+    # Run AdaptiveMarginal
+    result_adaptive = inla(
+        model, y; progress = false,
+        latent_marginalization_method = AdaptiveMarginal()
+    )
+
+    @testset "AdaptiveMarginal vs MCMC" begin
+        for i in test_indices
+            mcmc_mean = mean(x_samples[:, i])
+            mcmc_std = std(x_samples[:, i])
+
+            @test mean(result_adaptive.latent_marginals[i]) ≈ mcmc_mean atol = 0.3
+            @test std(result_adaptive.latent_marginals[i]) ≈ mcmc_std rtol = 0.3
+        end
+    end
+
+    @testset "KLD diagnostics" begin
+        # All results should have KLD vectors
+        @test result_g.kld !== nothing
+        @test result_sl.kld !== nothing
+        @test result_la.kld !== nothing
+
+        @test length(result_g.kld) == n
+        @test length(result_sl.kld) == n
+        @test length(result_la.kld) == n
+
+        # GaussianMarginal KLD should be zero
+        @test all(result_g.kld .== 0.0)
+
+        # Non-Gaussian methods should have non-negative KLD
+        @test all(result_sl.kld .>= 0.0)
+        @test all(result_la.kld .>= 0.0)
+
+        # AdaptiveMarginal should also have KLD
+        @test result_adaptive.kld !== nothing
+        @test length(result_adaptive.kld) == n
+        @test all(result_adaptive.kld .>= 0.0)
+    end
 end

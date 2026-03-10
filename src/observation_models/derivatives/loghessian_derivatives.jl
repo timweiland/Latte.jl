@@ -78,7 +78,12 @@ function loghessian_directional_derivative(
     # For Poisson: log p(y|x) = y*x - exp(x) - log(y!)
     # Hessian: ∇²[log p(y|x)] = -exp(x)
     # Directional derivative: d/dt[-exp(x + tv)]|_{t=0} = -exp(x) * v
-    third_deriv_values = -exp.(x0) .* v
+    # Only observation indices contribute (all indices if no restriction)
+    obs_indices = obs_lik.indices === nothing ? eachindex(x0) : obs_lik.indices
+    third_deriv_values = zeros(eltype(x0), length(x0))
+    for i in obs_indices
+        third_deriv_values[i] = -exp(x0[i]) * v[i]
+    end
     return Diagonal(third_deriv_values)
 end
 
@@ -97,9 +102,11 @@ function loghessian_directional_derivative(
         obs_lik::BernoulliLikelihood{LogitLink}
     )
     # Compute third derivative values element-wise
-    third_deriv_values = similar(x0)
+    # Only observation indices contribute; others are zero (all indices if no restriction)
+    obs_indices = obs_lik.indices === nothing ? eachindex(x0) : obs_lik.indices
+    third_deriv_values = zeros(eltype(x0), length(x0))
 
-    for i in eachindex(x0)
+    for i in obs_indices
         # Compute sigmoid in a numerically stable way
         x = x0[i]
         if x >= 0
@@ -132,9 +139,11 @@ function loghessian_directional_derivative(
         obs_lik::BinomialLikelihood{LogitLink}
     )
     # Compute third derivative values element-wise
-    third_deriv_values = similar(x0)
+    # Only observation indices contribute; others are zero (all indices if no restriction)
+    third_deriv_values = zeros(eltype(x0), length(x0))
+    indices = obs_lik.indices === nothing ? eachindex(x0) : obs_lik.indices
 
-    for i in eachindex(x0)
+    for (j, i) in enumerate(indices)
         # Compute sigmoid in a numerically stable way
         x = x0[i]
         if x >= 0
@@ -146,7 +155,7 @@ function loghessian_directional_derivative(
         end
 
         # Get number of trials for this observation
-        n_trials = obs_lik.n[i]
+        n_trials = obs_lik.n[j]
 
         # Directional derivative: -n * (1-2p) * p * (1-p) * v
         third_deriv_values[i] = -n_trials * (1 - 2p) * p * (1 - p) * v[i]

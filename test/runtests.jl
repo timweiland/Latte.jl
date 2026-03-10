@@ -7,6 +7,7 @@ using Aqua
         Aqua.test_all(IntegratedNestedLaplace; persistent_tasks = false)
     end
 
+    include("utils/runtests.jl")
     include("hyperparameters/runtests.jl")
     include("distributions/runtests.jl")
     include("test_inla_model.jl")

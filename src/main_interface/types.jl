@@ -54,7 +54,7 @@ result.accumulators[1].DIC             # DIC value
 result.accumulators[1].p_D             # Effective parameters
 ```
 """
-struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo}
+struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo, KLD}
     hyperparameter_marginals::HM
     latent_marginals::LM
     hyperparameter_mode::Mode
@@ -68,6 +68,7 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, Au
     base_latent_marginals::BLM
     augmentation_info::AugInfo
     prediction_info::PredInfo
+    kld::KLD
 
     function INLAResult(
             hyperparameter_marginals::HM,
@@ -82,9 +83,10 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, Au
             linear_predictor_marginals::LPM = nothing,
             base_latent_marginals::BLM = nothing,
             augmentation_info::AugInfo = nothing,
-            prediction_info::PredInfo = nothing
-        ) where {HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo}
-        return new{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo}(
+            prediction_info::PredInfo = nothing,
+            kld::KLD = nothing
+        ) where {HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo, KLD}
+        return new{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo, KLD}(
             hyperparameter_marginals,
             latent_marginals,
             hyperparameter_mode,
@@ -97,7 +99,8 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, Au
             linear_predictor_marginals,
             base_latent_marginals,
             augmentation_info,
-            prediction_info
+            prediction_info,
+            kld
         )
     end
 end
@@ -161,5 +164,13 @@ function Base.show(io::IO, result::INLAResult)
         end
     end
 
-    return print(io, "Use .hyperparameter_marginals, .latent_marginals, .accumulators for analysis")
+    # Show KLD diagnostics if available and non-trivial
+    if result.kld !== nothing && !isempty(result.kld) && any(k -> k > 0, result.kld)
+        max_kld, max_idx = findmax(result.kld)
+        println(io, "\nApproximation quality (KLD):")
+        println(io, "  Max SKLD: ", @sprintf("%.4f", max_kld), " (variable ", max_idx, ")")
+        println(io, "  Mean SKLD: ", @sprintf("%.4f", sum(result.kld) / length(result.kld)))
+    end
+
+    return print(io, "\nUse .hyperparameter_marginals, .latent_marginals, .accumulators for analysis")
 end
