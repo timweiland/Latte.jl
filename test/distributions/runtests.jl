@@ -3,6 +3,7 @@
 using Test
 
 @testset "Distributions Tests" begin
+    include("test_skew_normal_ext.jl")
     include("test_weighted_mixture.jl")
     include("test_bijectors.jl")
     include("test_pc_prior_precision.jl")
