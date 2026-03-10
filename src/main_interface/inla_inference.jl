@@ -18,7 +18,7 @@ selecting sensible defaults while supporting advanced customization.
 - `y::AbstractVector`: Observed data
 
 # Keyword Arguments
-- `latent_marginalization_method::MarginalApproximation = GaussianMarginal()`: Method for latent marginalization
+- `latent_marginalization_method::MarginalApproximation = AdaptiveMarginal()`: Method for latent marginalization
 - `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = GridBasedMarginal()`: Method for hyperparameter marginalization (with adaptive expansion)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
 - `max_log_drop::Float64 = 6.0`: Initial maximum log-density drop for exploration (can be adaptively increased)
@@ -64,7 +64,7 @@ Each phase shows detailed real-time information about the computation.
 function inla(
         model::INLAModel,
         y::AbstractVector;
-        latent_marginalization_method = GaussianMarginal(),
+        latent_marginalization_method = AdaptiveMarginal(),
         hyperparameter_marginalization_method = GridBasedMarginal(auto_adjust = false),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
         max_log_drop::Float64 = 15.0,
