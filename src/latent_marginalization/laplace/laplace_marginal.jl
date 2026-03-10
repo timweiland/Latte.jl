@@ -38,7 +38,8 @@ function _marginalize_impl(
     σ = Vector(std(ga))
 
     # Reuse the GMRF's existing LinearSolve cache (contains precomputed factorization)
-    lsc = GaussianMarkovRandomFields.linsolve_cache(ga)
+    base = ga isa ConstrainedGMRF ? ga.base_gmrf : ga
+    lsc = GaussianMarkovRandomFields.linsolve_cache(base)
 
     marginals = SplineAugmentedGaussian{Float64}[]
 
