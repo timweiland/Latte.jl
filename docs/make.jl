@@ -20,6 +20,7 @@ makedocs(;
             "Overview" => "tutorials/index.md",
             "Getting started" => "tutorials/getting_started.md",
             "Spatial disease mapping" => "tutorials/disease_mapping_spatial.md",
+            "Bayesian model averaging" => "tutorials/bayesian_model_averaging.md",
         ],
         "Main Interface" => "main_interface.md",
         "Reference" => [

@@ -5,7 +5,7 @@ using SparseArrays
 export selinv_mat
 
 function selinv_mat(x::GMRF)
-    return GaussianMarkovRandomFields.selinv(x.linsolve_cache)
+    return GaussianMarkovRandomFields.selinv(GaussianMarkovRandomFields.linsolve_cache(x))
 end
 
 function _update_sparsely!(Σ::SparseMatrixCSC, ΣA_T, AΣA_T_cho)

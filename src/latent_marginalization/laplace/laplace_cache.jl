@@ -152,12 +152,14 @@ function _compute_conditional_column(constrained_gmrf::ConstrainedGMRF, conditio
 end
 
 function _compute_conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int, lsc::LinearSolve.LinearCache)
-    # Account for existing constraints via a correction term
+    # Account for existing constraints via a Woodbury correction term
     n = length(constrained_gmrf)
     e_i = zeros(n)
     e_i[conditioning_index] = 1.0
 
+    # Q_base⁻¹ eᵢ via the shared linsolve cache
     base = _solve_with_cache!(lsc, e_i)
+    # Woodbury correction for the constraint: Σ_constrained = Σ_base - Ã' L_c⁻¹ Ã
     correction = constrained_gmrf.A_tilde_T * (constrained_gmrf.L_c \ (constrained_gmrf.A_tilde_T' * e_i))
     return base - correction
 end
