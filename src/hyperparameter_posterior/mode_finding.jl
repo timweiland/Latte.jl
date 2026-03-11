@@ -100,7 +100,14 @@ function hyperparameter_logpdf(model::INLAModel, θ::WorkingHyperparameters, y, 
     log_likelihood = loglik(x_star, obs_lik)
 
     joint_logpdf = log_prior_θ + log_prior_x + log_likelihood
+    if !isfinite(joint_logpdf)
+        return -Inf
+    end
+
     gaussian_logpdf = logpdf(x_G, x_star)
+    if !isfinite(gaussian_logpdf)
+        return -Inf
+    end
 
     return joint_logpdf - gaussian_logpdf
 end
@@ -147,11 +154,15 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
         logpdf_val = 0.0
         try
             logpdf_val = hyperparameter_logpdf(model, θ, y)
-        catch ZeroPivotException
+        catch e
             return Inf
         end
 
-        if collect_points && isfinite(logpdf_val)
+        if !isfinite(logpdf_val)
+            return Inf
+        end
+
+        if collect_points
             push!(mode_points, WorkingHyperparameters(copy(θ_vec), spec))
             push!(mode_logdensities, logpdf_val)
         end
