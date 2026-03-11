@@ -29,7 +29,6 @@ function _marginalize_impl(
     upgrade_mask = sl_kld .> method.kld_threshold
 
     if !any(upgrade_mask)
-        @info "AdaptiveMarginal: all $(length(indices_vec)) variables within KLD threshold (< $(method.kld_threshold)), using SimplifiedLaplace"
         return sl_marginals
     end
 
