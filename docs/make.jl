@@ -22,6 +22,7 @@ makedocs(;
             "Spatial disease mapping" => "tutorials/disease_mapping_spatial.md",
             "Bayesian model averaging" => "tutorials/bayesian_model_averaging.md",
             "Temporal trends" => "tutorials/temporal_trend_earthquakes.md",
+            "Nonlinear regression" => "tutorials/nonlinear_regression_gam.md",
         ],
         "Main Interface" => "main_interface.md",
         "Reference" => [
