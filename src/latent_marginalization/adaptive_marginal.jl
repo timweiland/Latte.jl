@@ -1,10 +1,30 @@
 using Distributions: ContinuousUnivariateDistribution
+using GaussianMarkovRandomFields: NormalLikelihood, LinearlyTransformedLikelihood
+
+# When the observation model is Gaussian, the Gaussian approximation is exact —
+# no SimplifiedLaplace or Laplace correction is needed.
+function _marginalize_impl(
+        ga, obs_lik::NormalLikelihood, log_prior_θ::Real,
+        method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf
+    )
+    return _marginalize_impl(ga, obs_lik, log_prior_θ, GaussianMarginal(), indices, prior_gmrf)
+end
+
+function _marginalize_impl(
+        ga, obs_lik::LinearlyTransformedLikelihood{<:NormalLikelihood}, log_prior_θ::Real,
+        method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf
+    )
+    return _marginalize_impl(ga, obs_lik, log_prior_θ, GaussianMarginal(), indices, prior_gmrf)
+end
 
 """
     _marginalize_impl(ga, obs_lik, log_prior_θ, method::AdaptiveMarginal, indices, prior_gmrf)
 
 Adaptive marginalization: starts with SimplifiedLaplace, escalates to LaplaceMarginal
 for variables where SKLD(Gaussian, SimplifiedLaplace) exceeds the threshold.
+
+When the observation model is Gaussian (Normal family), dispatches to GaussianMarginal
+since the Gaussian approximation is exact.
 """
 function _marginalize_impl(
         ga, obs_lik, log_prior_θ::Real,
