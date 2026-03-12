@@ -22,7 +22,7 @@ selecting sensible defaults while supporting advanced customization.
 - `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = GridBasedMarginal()`: Method for hyperparameter marginalization (with adaptive expansion)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
 - `max_log_drop::Float64 = 6.0`: Initial maximum log-density drop for exploration (can be adaptively increased)
-- `interpolation_subdivisions::Int = 2`: Subdivision factor for interpolation grid
+- `interpolation_subdivisions::Int = 1`: Subdivision factor for interpolation grid
 - `mode_method = BFGS()`: Optimization method for mode finding
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
 - `progress::Bool = true`: Enable progress tracking
@@ -67,8 +67,8 @@ function inla(
         latent_marginalization_method = AdaptiveMarginal(),
         hyperparameter_marginalization_method = GridBasedMarginal(auto_adjust = false),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
-        max_log_drop::Float64 = 15.0,
-        interpolation_subdivisions::Int = 2,
+        max_log_drop::Float64 = 6.0,
+        interpolation_subdivisions::Int = 1,
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
         progress::Bool = true,
