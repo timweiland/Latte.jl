@@ -113,9 +113,9 @@ integer-based grid construction method.
 - `θ_star::WorkingHyperparameters`: The posterior mode in working space
 
 # Keyword Arguments
-- `integration_step_z::Float64 = 1.0`: The step size in the standardized z-space for the coarse *integration* grid. A step of 1.0 corresponds to one standard deviation.
-- `interpolation_subdivisions::Int = 2`: The number of fine-grid steps per coarse integration step.
-- `max_log_drop::Float64 = 2.5`: Exploration along any axis stops when the log-density drops by this much from the mode.
+- `integration_step_z::Float64 = 0.75`: The step size in the standardized z-space for the coarse *integration* grid. A step of 1.0 corresponds to one standard deviation.
+- `interpolation_subdivisions::Int = 1`: The number of fine-grid steps per coarse integration step.
+- `max_log_drop::Float64 = 6.0`: Exploration along any axis stops when the log-density drops by this much from the mode.
 - `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
 - `accumulators::Tuple = ()`: Tuple of PosteriorAccumulator objects to process integration points
 
@@ -125,9 +125,9 @@ integer-based grid construction method.
 """
 function explore_hyperparameter_posterior(
         model::INLAModel, y, θ_star::WorkingHyperparameters, marginalization_method, marginalization_indices;
-        integration_step_z::Float64 = 1.0,
-        max_log_drop::Float64 = 2.5,
-        interpolation_subdivisions::Int = 2,
+        integration_step_z::Float64 = 0.75,
+        max_log_drop::Float64 = 6.0,
+        interpolation_subdivisions::Int = 1,
         progress_callback = nothing,
         accumulators::Tuple = ()
     )
