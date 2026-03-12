@@ -1,5 +1,4 @@
 using LinearAlgebra
-using FiniteDiff
 using Printf
 
 export ReparameterizationTransform, logdet_jacobian, compute_reparameterization
@@ -58,12 +57,17 @@ Computes the reparameterization around the mode and returns it as a
 - `ReparameterizationTransform`: Transform object containing eigendecomposition
 """
 function compute_reparameterization(model::INLAModel, y, θ_star::WorkingHyperparameters)
-    # Compute the positive-definite negative Hessian of the log-posterior at the mode
-    H = -FiniteDiff.finite_difference_hessian(θ_vec -> hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y), θ_star.θ)
+    logpdf_fn = θ_vec -> hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y)
 
+    # Compute the positive-definite negative Hessian of the log-posterior at the mode
+    # using adaptive step size selection (R-INLA-inspired 3pt vs 5pt stencil comparison).
+    # The standard FiniteDiff step size (≈ eps^(1/4) ≈ 1.2e-4) is too small for INLA
+    # models where numerical noise from the Gaussian approximation solve is well above
+    # machine epsilon.
+    H = adaptive_negative_hessian(logpdf_fn, θ_star.θ)
     eigen_result = eigen(H)
 
-    # Regularize for numerical stability if Hessian is not perfectly positive-definite
+    # Clamp non-positive eigenvalues as a fallback
     if any(eigen_result.values .<= 0)
         @warn "Hessian at the mode is not positive definite. Regularizing eigenvalues."
         Λ = max.(eigen_result.values, 1.0e-6)
