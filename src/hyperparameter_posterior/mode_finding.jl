@@ -70,7 +70,7 @@ This is the INLA approximation to the hyperparameter posterior.
 - Main implementation is for `WorkingHyperparameters` (working space)
 - `NaturalHyperparameters` converts to working space and adds Jacobian correction
 """
-function hyperparameter_logpdf(model::INLAModel, θ::WorkingHyperparameters, y, ga = nothing)
+function hyperparameter_logpdf(model::INLAModel, θ::WorkingHyperparameters, y, ga = nothing; x0 = nothing)
     # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
 
     # Evaluate prior in working space
@@ -88,8 +88,8 @@ function hyperparameter_logpdf(model::INLAModel, θ::WorkingHyperparameters, y, 
 
     # Use provided Gaussian approximation or compute it
     if ga === nothing
-        # Find Gaussian approximation
-        x_G = gaussian_approximation(latent_prior, obs_lik)
+        # Find Gaussian approximation (warm-start from x0 if provided)
+        x_G = gaussian_approximation(latent_prior, obs_lik; x0 = x0)
     else
         x_G = ga
     end
