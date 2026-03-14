@@ -23,6 +23,7 @@ makedocs(;
             "Bayesian model averaging" => "tutorials/bayesian_model_averaging.md",
             "Temporal trends" => "tutorials/temporal_trend_earthquakes.md",
             "Nonlinear regression" => "tutorials/nonlinear_regression_gam.md",
+            "Spatio-temporal modeling" => "tutorials/spatio_temporal_separable.md",
         ],
         "Main Interface" => "main_interface.md",
         "Reference" => [
