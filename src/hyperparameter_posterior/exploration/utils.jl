@@ -85,7 +85,7 @@ function evaluate_at_grid_point(
         )
     catch e
         if e isa PosDefException || e isa LinearAlgebra.ZeroPivotException ||
-                e isa LinearAlgebra.SingularException
+                e isa LinearAlgebra.SingularException || e isa DomainError
             @warn "Numerical failure at hyperparams $(θ_natural_nt): $(typeof(e))"
             return (
                 log_density = -Inf,

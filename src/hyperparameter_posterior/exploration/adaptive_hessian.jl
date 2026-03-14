@@ -58,6 +58,21 @@ function _stencil_disagreement(diag_3pt::AbstractVector, diag_5pt::AbstractVecto
 end
 
 """
+    _safe_stencil_error(f, x, f0, h)
+
+Evaluate the stencil disagreement at step size `h`, returning `Inf` if the function
+evaluation fails (e.g., due to non-positive-definite matrices in the inner solve).
+"""
+function _safe_stencil_error(f, x::AbstractVector, f0::Real, h::Real)
+    try
+        diag_3pt, diag_5pt = _diagonal_hessian_3pt_5pt(f, x, f0, h)
+        return _stencil_disagreement(diag_3pt, diag_5pt)
+    catch
+        return Inf
+    end
+end
+
+"""
     _refine_step_size(f, x, f0, log_h_lo, log_h_hi; maxiter=10)
 
 Refine the optimal step size within a bracket `[10^log_h_lo, 10^log_h_hi]` using
@@ -78,11 +93,8 @@ function _refine_step_size(
     c = b - φ * (b - a)
     d = a + φ * (b - a)
 
-    diag_3pt_c, diag_5pt_c = _diagonal_hessian_3pt_5pt(f, x, f0, 10.0^c)
-    fc = _stencil_disagreement(diag_3pt_c, diag_5pt_c)
-
-    diag_3pt_d, diag_5pt_d = _diagonal_hessian_3pt_5pt(f, x, f0, 10.0^d)
-    fd = _stencil_disagreement(diag_3pt_d, diag_5pt_d)
+    fc = _safe_stencil_error(f, x, f0, 10.0^c)
+    fd = _safe_stencil_error(f, x, f0, 10.0^d)
 
     for _ in 1:maxiter
         if fc < fd
@@ -90,21 +102,18 @@ function _refine_step_size(
             d = c
             fd = fc
             c = b - φ * (b - a)
-            diag_3pt_c, diag_5pt_c = _diagonal_hessian_3pt_5pt(f, x, f0, 10.0^c)
-            fc = _stencil_disagreement(diag_3pt_c, diag_5pt_c)
+            fc = _safe_stencil_error(f, x, f0, 10.0^c)
         else
             a = c
             c = d
             fc = fd
             d = a + φ * (b - a)
-            diag_3pt_d, diag_5pt_d = _diagonal_hessian_3pt_5pt(f, x, f0, 10.0^d)
-            fd = _stencil_disagreement(diag_3pt_d, diag_5pt_d)
+            fd = _safe_stencil_error(f, x, f0, 10.0^d)
         end
     end
 
     h_opt = 10.0^((a + b) / 2)
-    diag_3pt_opt, diag_5pt_opt = _diagonal_hessian_3pt_5pt(f, x, f0, h_opt)
-    min_error = _stencil_disagreement(diag_3pt_opt, diag_5pt_opt)
+    min_error = _safe_stencil_error(f, x, f0, h_opt)
 
     return h_opt, min_error
 end
@@ -164,7 +173,7 @@ indicating the noise-truncation sweet spot.
    using the 3pt stencil (which has less noise amplification than 5pt).
 
 # Keyword Arguments
-- `h_candidates`: Log-spaced candidate step sizes for coarse search (default: 7 values from 1e-4 to 1e-1)
+- `h_candidates`: Log-spaced candidate step sizes for coarse search (default: 9 values from 1e-4 to 1.0)
 - `max_error`: Maximum acceptable stencil disagreement (default: 0.05)
 - `refine`: Whether to refine with golden section search (default: true)
 - `fallback_h`: Step size to use if adaptive search fails entirely (default: 0.005)
@@ -174,7 +183,7 @@ indicating the noise-truncation sweet spot.
 """
 function adaptive_negative_hessian(
         f, x::AbstractVector;
-        h_candidates = [1.0e-4, 3.0e-4, 1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2, 1.0e-1],
+        h_candidates = [1.0e-4, 3.0e-4, 1.0e-3, 3.0e-3, 1.0e-2, 3.0e-2, 1.0e-1, 3.0e-1, 1.0],
         max_error::Real = 0.05,
         refine::Bool = true,
         fallback_h::Real = 0.005,

@@ -57,7 +57,13 @@ Computes the reparameterization around the mode and returns it as a
 - `ReparameterizationTransform`: Transform object containing eigendecomposition
 """
 function compute_reparameterization(model::INLAModel, y, θ_star::WorkingHyperparameters)
-    logpdf_fn = θ_vec -> hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y)
+    logpdf_fn = θ_vec -> begin
+        try
+            hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y)
+        catch
+            -Inf
+        end
+    end
 
     # Compute the positive-definite negative Hessian of the log-posterior at the mode
     # using adaptive step size selection (R-INLA-inspired 3pt vs 5pt stencil comparison).
