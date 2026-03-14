@@ -95,7 +95,7 @@ function _marginalize_impl(
     # obs_lik and prior_gmrf are not used in this simplified implementation
     μ = mean(ga)
     Σ = selinv_mat(ga)
-    σ = sqrt.(diag(Σ))
+    σ = sqrt.(max.(diag(Σ), 0.0))
 
     marginals = SkewNormal{Float64}[]
 
@@ -105,6 +105,14 @@ function _marginalize_impl(
         # Get base Gaussian parameters
         μ_i = μ[i]
         σ_i = σ[i]
+
+        # Degenerate case: near-zero variance (constrained variable or numerical artifact).
+        # The skew computation involves division by σ_i, which produces NaN when σ_i ≈ 0.
+        # Return a symmetric SkewNormal (α=0) with a tiny scale instead.
+        if σ_i < 1.0e-10
+            push!(marginals, SkewNormal(μ_i, max(σ_i, 1.0e-30), 0.0))
+            continue
+        end
 
         conditional_column = _compute_conditional_column(ga, i)
         a_coeffs = conditional_column ./ (σ * σ_i)
