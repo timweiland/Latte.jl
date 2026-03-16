@@ -11,8 +11,10 @@
 # - How to specify a **Separable** interaction via the formula interface
 # - How the **Kronecker product** structure `Q_time ⊗ Q_space` enforces smoothness
 #   in both dimensions simultaneously
-# - How to compare an additive model (no interaction) with a space-time interaction model
-# - How to visualise space-time effects using **heatmaps** and **spatial snapshots**
+# - Why a structured interaction term **requires main effects** — and what goes
+#   wrong if you leave them out
+# - How to compare models using **DIC**, **WAIC**, and the **marginal likelihood**
+# - How to visualise space-time effects using **heatmaps** and **animations**
 #
 # ## Simulating spatio-temporal data
 #
@@ -107,6 +109,60 @@ fig
 # You can see both a spatial gradient (left vs right) and a temporal arc (middle rows
 # brighter). Importantly, the bright patch shifts across regions over time — this is
 # the interaction signal that an additive model cannot capture.
+
+## --- Animation utilities (hidden from rendered output) ---                         #hide
+function _to_grids(fit_df, df, n_cols, n_rows, n_time)                               #hide
+    return [                                                                         #hide
+        let mask = df.time .== t                                                     #hide
+                order = sortperm(df.region[mask])                                    #hide
+                reshape(fit_df.median[mask][order], n_cols, n_rows)                  #hide
+        end for t in 1:n_time                                                        #hide
+    ]                                                                                #hide
+end                                                                                  #hide
+#hide
+true_grids = [                                                                       #hide
+    reshape(                                                                         #hide
+            [                                                                        #hide
+                exp(intercept + u_true[r] + v_true[t] + delta_true[t, r])            #hide
+                for r in 1:n_regions                                                 #hide
+            ], n_cols, n_rows                                                        #hide
+        ) for t in 1:n_time                                                          #hide
+]                       #hide
+#hide
+function _animate_vs_truth(true_g, fitted_g, filename, fitted_title)                  #hide
+    cmin = min(minimum(minimum.(true_g)), minimum(minimum.(fitted_g)))                #hide
+    cmax = max(maximum(maximum.(true_g)), maximum(maximum.(fitted_g)))                #hide
+    t_obs = Observable(1)                                                            #hide
+    fig = Figure(size = (700, 350))                                                  #hide
+    a1 = Axis(                                                                       #hide
+        fig[1, 1], title = "True rate",                                        #hide
+        xlabel = "Column", ylabel = "Row", aspect = DataAspect()                     #hide
+    )                    #hide
+    a2 = Axis(                                                                       #hide
+        fig[1, 2], title = fitted_title,                                       #hide
+        xlabel = "Column", aspect = DataAspect()                                     #hide
+    )                                    #hide
+    hideydecorations!(a2, grid = false)                                              #hide
+    hm = heatmap!(                                                                   #hide
+        a1, 1:size(true_g[1], 1), 1:size(true_g[1], 2),                   #hide
+        @lift(true_g[$t_obs]),                                                       #hide
+        colormap = Reverse(:RdYlBu), colorrange = (cmin, cmax)                       #hide
+    )                      #hide
+    heatmap!(                                                                        #hide
+        a2, 1:size(true_g[1], 1), 1:size(true_g[1], 2),                         #hide
+        @lift(fitted_g[$t_obs]),                                                     #hide
+        colormap = Reverse(:RdYlBu), colorrange = (cmin, cmax)                       #hide
+    )                      #hide
+    Colorbar(fig[1, 3], hm, label = "Rate")                                          #hide
+    Label(                                                                           #hide
+        fig[0, :], @lift("Time period $($t_obs) of $(length(true_g))"),             #hide
+        fontsize = 18, font = :bold                                                  #hide
+    )                                                 #hide
+    return record(fig, filename, 1:length(true_g); framerate = 2) do t                      #hide
+        t_obs[] = t                                                                  #hide
+    end                                                                              #hide
+end                                                                                  #hide
+
 #
 # ## Model 1: Additive main effects
 #
@@ -155,51 +211,141 @@ fig
 # temporal pattern, just shifted up or down. It cannot reproduce the sweeping
 # wave visible in the raw data.
 #
-# ## Model 2: Separable space-time interaction
+# The animation below makes this limitation vivid — the additive model's spatial
+# pattern is essentially static, while the true pattern shifts over time:
+
+_animate_vs_truth(                                                                   #hide
+    true_grids, _to_grids(fit_add, df, n_cols, n_rows, n_time),        #hide
+    "anim_additive.gif", "Additive model"                                            #hide
+)                                           #hide
+#md # ![True rates vs additive model fitted rates, animated over time](anim_additive.gif)
+
 #
-# The additive model forces every region to follow the same temporal pattern.
-# A **separable** model relaxes this: each region gets its own smooth temporal
-# curve. The precision matrix is a Kronecker product
+# ## Model 2: Interaction-only (a cautionary tale)
+#
+# Our first instinct might be to replace the additive model with a single
+# **separable** interaction term. The precision matrix is a Kronecker product
 #
 # ```math
 # Q = Q_{\text{time}} \otimes Q_{\text{space}}
 # ```
 #
-# With `RandomWalk()` for time and `IID()` for space, this gives each region an
-# independent first-order random walk — so regions are free to have different
-# temporal evolutions. The RW1 structure still enforces smoothness *within*
-# each region's trend.
-st = Separable(RandomWalk(), IID())
-f_interaction = @formula(y ~ 1 + st(time, region))
+# With `RandomWalk()` for time and `Besag(W)` for space, this enforces smoothness
+# in *both* dimensions simultaneously. Let's try it as the sole random effect:
+st = Separable(RandomWalk(), Besag(W, normalize_var = true))
+f_interaction_only = @formula(y ~ 1 + st(time, region))
 
-hp_interaction = @hyperparams begin
+hp_interaction_only = @hyperparams begin
     (τ_rw1_separable ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
-    (τ_iid_separable ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+    (τ_besag_separable ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
 end
 
-result_interaction = inla(
-    f_interaction, hp_interaction, df;
+result_interaction_only = inla(
+    f_interaction_only, hp_interaction_only, df;
     family = Poisson, exposure = :expected, progress = false
 )
 
-# Fitted rates from the interaction model:
-obs_int = observation_marginals(result_interaction)
-fit_int = summary_df(obs_int)
+obs_int_only = observation_marginals(result_interaction_only)
+fit_int_only = summary_df(obs_int_only)
 
-fitted_int = reshape(fit_int.median, n_regions, n_time)'
+fitted_int_only = reshape(fit_int_only.median, n_regions, n_time)'
 fig = Figure(size = (800, 400))
 ax = Axis(
     fig[1, 1],
     xlabel = "Region", ylabel = "Time period",
-    title = "Separable model — fitted rates"
+    title = "Interaction-only model — fitted rates"
 )
-hm = heatmap!(ax, 1:n_regions, 1:n_time, fitted_int', colormap = Reverse(:RdYlBu))
+hm = heatmap!(ax, 1:n_regions, 1:n_time, fitted_int_only', colormap = Reverse(:RdYlBu))
 Colorbar(fig[1, 2], hm)
 fig
 
-# The Separable model captures the shifting pattern. Each region now has its own
-# smooth temporal trend, so the model can represent the wave-like interaction
-# that the additive model misses.
+# Surprisingly, this model fits *worse* than the additive model! The fitted rates
+# are over-smoothed and barely capture any structure:
+
+_animate_vs_truth(                                                                   #hide
+    true_grids, _to_grids(fit_int_only, df, n_cols, n_rows, n_time),   #hide
+    "anim_interaction_only.gif", "Interaction only"                                  #hide
+)                                  #hide
+#md # ![True rates vs interaction-only model, animated over time](anim_interaction_only.gif)
+
+# What went wrong?
+#
+# ### Why interaction-only fails: the constraint story
+#
+# The answer lies in how **constraints** work in Kronecker product models.
+#
+# Both the RW1 and the Besag components are **rank-deficient** — each has a
+# sum-to-zero constraint. When combined via `Q_time ⊗ Q_space`, these constraints
+# compose:
+#
+# - From RW1: $\sum_t x_{t,s} = 0$ for each region $s$ (25 constraints)
+# - From Besag: $\sum_s x_{t,s} = 0$ for each time $t$ (12 constraints, minus 1 redundant)
+#
+# That gives **36 constraints** total. The crucial consequence: the Besag constraints
+# force the **spatial mean to be zero at every time point**. This means the
+# interaction field $\delta_{t,r}$ cannot capture any temporal main effect $v_t$
+# (which shifts all regions up or down together) or spatial main effect $u_r$
+# (which shifts all time points). It can only represent *pure interaction* —
+# deviations from additivity.
+#
+# Without separate main effect terms to capture $u_r$ and $v_t$, the model is
+# left trying to explain the entire signal through pure interaction alone, which
+# it cannot do.
+#
+# ## Model 3: Main effects + interaction (the right way)
+#
+# The correct formulation adds the interaction term **alongside** main effects,
+# following Knorr-Held's (2000) Type IV interaction structure:
+#
+# ```math
+# \log \lambda_{t,r} = \mu + u_r + v_t + \delta_{t,r}
+# ```
+#
+# where $u_r \sim \text{Besag}$, $v_t \sim \text{RW1}$, and
+# $\delta_{t,r} \sim \text{Separable}(\text{RW1}, \text{Besag})$.
+# The main effects absorb the marginal spatial and temporal patterns, freeing
+# the interaction to capture only what changes across both dimensions:
+f_full = @formula(y ~ 1 + spatial(region) + temporal(time) + st(time, region))
+
+hp_full = @hyperparams begin
+    (τ_besag ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+    (τ_rw1 ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+    (τ_rw1_separable ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+    (τ_besag_separable ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+end
+
+result_full = inla(
+    f_full, hp_full, df;
+    family = Poisson, exposure = :expected, progress = false
+)
+
+# With 4 hyperparameters, INLA automatically switches from a grid exploration to a
+# **Central Composite Design** (CCD), which scales as $O(2d^2 + 1)$ instead of
+# exponentially. Let's see the fitted surface:
+obs_full = observation_marginals(result_full)
+fit_full = summary_df(obs_full)
+
+fitted_full = reshape(fit_full.median, n_regions, n_time)'
+fig = Figure(size = (800, 400))
+ax = Axis(
+    fig[1, 1],
+    xlabel = "Region", ylabel = "Time period",
+    title = "Full model — fitted rates"
+)
+hm = heatmap!(ax, 1:n_regions, 1:n_time, fitted_full', colormap = Reverse(:RdYlBu))
+Colorbar(fig[1, 2], hm)
+fig
+
+# The full model captures the shifting wave pattern beautifully. Main effects
+# handle the spatial gradient and temporal arc, while the interaction term adds
+# the region-specific temporal deviations:
+
+_animate_vs_truth(                                                                   #hide
+    true_grids, _to_grids(fit_full, df, n_cols, n_rows, n_time),                     #hide
+    "anim_full.gif", "Main effects + interaction"                                    #hide
+)                                                                                    #hide
+#md # ![True rates vs full model fitted rates, animated over time](anim_full.gif)
+
 #
 # ## Spatial snapshots at selected time points
 #
@@ -215,7 +361,7 @@ for (k, t) in enumerate(snapshot_times)
         xlabel = k == 1 ? "Column" : "", ylabel = k == 1 ? "Row" : "",
         aspect = DataAspect()
     )
-    rates = fit_int.median[df.time .== t]
+    rates = fit_full.median[df.time .== t]
     grid = reshape(rates[sortperm(df.region[df.time .== t])], n_cols, n_rows)
     heatmap!(ax, 1:n_cols, 1:n_rows, grid, colormap = Reverse(:RdYlBu))
 end
@@ -226,8 +372,8 @@ fig
 #
 # ## Side-by-side comparison
 #
-# Let's put the two models next to each other:
-fig = Figure(size = (900, 400))
+# Let's put all three models next to each other:
+fig = Figure(size = (1200, 400))
 ax1 = Axis(
     fig[1, 1],
     xlabel = "Region", ylabel = "Time period",
@@ -236,19 +382,79 @@ ax1 = Axis(
 ax2 = Axis(
     fig[1, 2],
     xlabel = "Region", ylabel = "Time period",
-    title = "Separable (space-time interaction)"
+    title = "Interaction only (no main effects)"
+)
+ax3 = Axis(
+    fig[1, 3],
+    xlabel = "Region", ylabel = "Time period",
+    title = "Main effects + interaction"
 )
 heatmap!(ax1, 1:n_regions, 1:n_time, fitted_add', colormap = Reverse(:RdYlBu))
-heatmap!(ax2, 1:n_regions, 1:n_time, fitted_int', colormap = Reverse(:RdYlBu))
+heatmap!(ax2, 1:n_regions, 1:n_time, fitted_int_only', colormap = Reverse(:RdYlBu))
+heatmap!(ax3, 1:n_regions, 1:n_time, fitted_full', colormap = Reverse(:RdYlBu))
 fig
 
+# The difference is even more striking in animation — watch how only the full
+# model tracks the true spatial pattern as it evolves:
+
+grids_add = _to_grids(fit_add, df, n_cols, n_rows, n_time)                          #hide
+grids_int_only = _to_grids(fit_int_only, df, n_cols, n_rows, n_time)                 #hide
+grids_full = _to_grids(fit_full, df, n_cols, n_rows, n_time)                         #hide
+all_vals = vcat(                                                                     #hide
+    vec.(true_grids)..., vec.(grids_add)...,                              #hide
+    vec.(grids_int_only)..., vec.(grids_full)...                                     #hide
+)                                    #hide
+cmin, cmax = extrema(all_vals)                                                       #hide
+t_obs = Observable(1)                                                                #hide
+fig_anim = Figure(size = (1100, 380))                                                #hide
+a1 = Axis(                                                                           #hide
+    fig_anim[1, 1], title = "Additive",                                       #hide
+    xlabel = "Column", ylabel = "Row", aspect = DataAspect()                         #hide
+)                        #hide
+a2 = Axis(                                                                           #hide
+    fig_anim[1, 2], title = "Interaction only",                                #hide
+    xlabel = "Column", aspect = DataAspect()                                         #hide
+)                                        #hide
+a3 = Axis(                                                                           #hide
+    fig_anim[1, 3], title = "Main effects +\ninteraction",                     #hide
+    xlabel = "Column", aspect = DataAspect()                                         #hide
+)                                        #hide
+hideydecorations!(a2, grid = false)                                                  #hide
+hideydecorations!(a3, grid = false)                                                  #hide
+hm = heatmap!(                                                                       #hide
+    a1, 1:n_cols, 1:n_rows, @lift(grids_add[$t_obs]),                     #hide
+    colormap = Reverse(:RdYlBu), colorrange = (cmin, cmax)                           #hide
+)                          #hide
+heatmap!(                                                                            #hide
+    a2, 1:n_cols, 1:n_rows, @lift(grids_int_only[$t_obs]),                      #hide
+    colormap = Reverse(:RdYlBu), colorrange = (cmin, cmax)                           #hide
+)                          #hide
+heatmap!(                                                                            #hide
+    a3, 1:n_cols, 1:n_rows, @lift(grids_full[$t_obs]),                          #hide
+    colormap = Reverse(:RdYlBu), colorrange = (cmin, cmax)                           #hide
+)                          #hide
+Colorbar(fig_anim[1, 4], hm, label = "Rate")                                        #hide
+Label(                                                                               #hide
+    fig_anim[0, :], @lift("Time period $($t_obs) of $n_time"),                     #hide
+    fontsize = 18, font = :bold                                                      #hide
+)                                                     #hide
+record(fig_anim, "anim_comparison.gif", 1:n_time; framerate = 2) do t                #hide
+    t_obs[] = t                                                                      #hide
+end                                                                                  #hide
+#md # ![All three models compared side-by-side, animated over time](anim_comparison.gif)
+
+#
 # ## Model comparison
 #
 # INLA computes several model comparison criteria. Let's see which model the data
 # prefer:
 println("Model comparison:")
-println("─"^60)
-for (name, res) in [("Additive", result_additive), ("Separable", result_interaction)]
+println("─"^70)
+for (name, res) in [
+        ("Additive        ", result_additive),
+        ("Interaction only ", result_interaction_only),
+        ("Full (main+inter)", result_full),
+    ]
     dic = res.accumulators[1].DIC
     p_d = res.accumulators[1].p_D
     mll = res.accumulators[2].log_marginal_likelihood
@@ -260,44 +466,37 @@ for (name, res) in [("Additive", result_additive), ("Separable", result_interact
     )
 end
 
-# The separable model should have lower DIC and WAIC and higher marginal likelihood,
-# confirming that the space-time interaction is real and worth modelling.
+# The full model dominates on every criterion: lowest DIC and WAIC, highest marginal
+# likelihood. The interaction-only model is the worst — confirming that a structured
+# interaction term cannot substitute for main effects.
 #
 # ## Hyperparameter posteriors
 #
-# Let's examine what the data tell us about the smoothness in each dimension:
-summary_df(result_interaction.hyperparameter_marginals)
+# The full model has four hyperparameters. Let's examine what the data tell us
+# about the smoothness in each component:
+summary_df(result_full.hyperparameter_marginals)
 
-# We can visualise them:
-fig = Figure(size = (900, 400))
-ax1 = Axis(
-    fig[1, 1],
-    xlabel = "Precision",
-    title = "Temporal precision (τ_rw1)"
-)
-ax2 = Axis(
-    fig[1, 2],
-    xlabel = "Precision",
-    title = "Region precision (τ_iid)"
-)
-plot!(ax1, result_interaction.hyperparameter_marginals.τ_rw1_separable)
-plot!(ax2, result_interaction.hyperparameter_marginals.τ_iid_separable)
-fig
-
-# Higher temporal precision means smoother temporal evolution within regions.
-# Higher IID precision means less variation between regions' temporal patterns.
+# The main-effect precisions ($\tau_\text{besag}$, $\tau_\text{rw1}$) control the
+# smoothness of the spatial and temporal main effects. The interaction precisions
+# ($\tau_\text{rw1,sep}$, $\tau_\text{besag,sep}$) control the smoothness of the
+# space-time deviations.
 #
 # ## Summary
 #
-# Separable space-time models capture interactions that additive models cannot.
-# The key ideas:
+# Separable space-time models capture interactions that additive models cannot,
+# but they must be specified correctly. The key ideas:
 #
 # - **Additive models** assume every region follows the same temporal pattern.
 #   They are simpler and work well when there is no space-time interaction.
-# - **Separable models** use a Kronecker product `Q_time ⊗ Q_space` to allow
-#   region-specific temporal patterns while retaining temporal smoothness.
-# - The `Separable()` constructor makes this easy: just wrap the temporal and
-#   spatial components and use them in a formula.
+# - **Separable interaction terms** use a Kronecker product $Q_\text{time} \otimes
+#   Q_\text{space}$ to enforce smoothness in both dimensions while allowing
+#   region-specific temporal patterns.
+# - Structured spatial components like **Besag** impose **sum-to-zero constraints**
+#   that make the interaction a *pure* interaction — it can only represent deviations
+#   from additive structure. **Main effects must be included separately** to capture
+#   the marginal spatial and temporal patterns.
+# - The `Separable()` constructor makes specification easy: wrap the temporal and
+#   spatial components, then combine with main effects in the formula.
 # - **DIC**, **WAIC**, and the **marginal likelihood** help decide whether the
 #   extra flexibility of the interaction model is justified by the data.
 #
