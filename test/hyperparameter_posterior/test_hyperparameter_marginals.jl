@@ -40,7 +40,7 @@ using Bijectors
 
         # Get posterior approximation
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration, _ = explore_hyperparameter_posterior(model, y_test, θ_star, GaussianMarginal(), 1:3)
+        exploration, _ = explore_hyperparameter_posterior(GridExplorationStrategy(), model, y_test, θ_star, GaussianMarginal(), 1:3)
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test marginal computation
@@ -83,8 +83,8 @@ using Bijectors
         # Get 2D posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
         exploration, _ = explore_hyperparameter_posterior(
-            model, y_test, θ_star, GaussianMarginal(), 1:6;
-            interpolation_subdivisions = 2
+            GridExplorationStrategy(interpolation_subdivisions = 2),
+            model, y_test, θ_star, GaussianMarginal(), 1:6
         )
         posterior_approx = build_posterior_interpolant(exploration)
 
@@ -152,8 +152,8 @@ using Bijectors
         # Get 2D posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
         exploration, _ = explore_hyperparameter_posterior(
-            model, y_test, θ_star, GaussianMarginal(), 1:3;
-            interpolation_subdivisions = 2
+            GridExplorationStrategy(interpolation_subdivisions = 2),
+            model, y_test, θ_star, GaussianMarginal(), 1:3
         )
         posterior_approx = build_posterior_interpolant(exploration)
 
@@ -218,7 +218,7 @@ using Bijectors
 
         # Get posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration, _ = explore_hyperparameter_posterior(model, y_test, θ_star, GaussianMarginal(), 1:1000)
+        exploration, _ = explore_hyperparameter_posterior(GridExplorationStrategy(), model, y_test, θ_star, GaussianMarginal(), 1:1000)
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test bounds checking
@@ -267,7 +267,7 @@ using Bijectors
 
         # Get posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
-        exploration, _ = explore_hyperparameter_posterior(model, y_test, θ_star, GaussianMarginal(), 1:1000)
+        exploration, _ = explore_hyperparameter_posterior(GridExplorationStrategy(), model, y_test, θ_star, GaussianMarginal(), 1:1000)
         posterior_approx = build_posterior_interpolant(exploration)
 
         # Test with different tolerances

@@ -19,15 +19,13 @@ selecting sensible defaults while supporting advanced customization.
 
 # Keyword Arguments
 - `latent_marginalization_method::MarginalApproximation = AdaptiveMarginal()`: Method for latent marginalization
-- `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = GridBasedMarginal()`: Method for hyperparameter marginalization (with adaptive expansion)
+- `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = AutoHyperparameterMarginal()`: Method for hyperparameter marginalization (GridSum for D=1, CCD interpolant for D≥2)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
-- `max_log_drop::Float64 = 6.0`: Initial maximum log-density drop for exploration (can be adaptively increased)
-- `interpolation_subdivisions::Int = 1`: Subdivision factor for interpolation grid
+- `exploration_strategy::ExplorationStrategy = AutoExplorationStrategy()`: Hyperparameter exploration strategy. `AutoExplorationStrategy()` uses grid for D ≤ 2, CCD for D ≥ 3. Can also pass `GridExplorationStrategy(...)` or `CCDExplorationStrategy(...)` directly.
 - `mode_method = BFGS()`: Optimization method for mode finding
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
 - `progress::Bool = true`: Enable progress tracking
 - `accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator())`: Tuple of PosteriorAccumulator objects for model comparison metrics
-- `exploration_strategy::Symbol = :auto`: Hyperparameter exploration strategy. `:auto` uses grid for d ≤ 2, CCD for d ≥ 3. `:grid` forces Cartesian grid. `:ccd` forces Central Composite Design (O(2d²+1) points).
 
 # Returns
 - `INLAResult`: Complete INLA inference results with marginals and diagnostics
@@ -38,7 +36,7 @@ selecting sensible defaults while supporting advanced customization.
 result = inla(model, y)
 
 # Custom exploration parameters
-result = inla(model, y, max_log_drop=3.0, interpolation_subdivisions=3)
+result = inla(model, y, exploration_strategy=GridExplorationStrategy(max_log_drop=3.0, interpolation_subdivisions=3))
 
 # Disable progress tracking
 result = inla(model, y, progress=false)
@@ -48,7 +46,7 @@ result = inla(model, y,
     latent_marginalization_method=SimplifiedLaplace(),
     latent_indices=1:100)
 
-# Custom hyperparameter marginalization (manual mode, no auto-expansion)
+# Force old grid-based approach
 result = inla(model, y,
     hyperparameter_marginalization_method=GridBasedMarginal(auto_adjust=false))
 ```
@@ -65,15 +63,13 @@ function inla(
         model::INLAModel,
         y::AbstractVector;
         latent_marginalization_method = AdaptiveMarginal(),
-        hyperparameter_marginalization_method = GridBasedMarginal(auto_adjust = false),
+        hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
-        max_log_drop::Float64 = 6.0,
-        interpolation_subdivisions::Int = 1,
+        exploration_strategy::ExplorationStrategy = AutoExplorationStrategy(),
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
         progress::Bool = true,
-        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator()),
-        exploration_strategy::Symbol = :auto
+        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator())
     )
 
     # Pre-process missing observations for prediction
@@ -113,33 +109,12 @@ function inla(
     exploration_callback = create_progress_callback(progress_state, "Exploring hyperparameter posterior")
     exploration_start_time = time()
 
-    if exploration_strategy ∉ (:auto, :grid, :ccd)
-        throw(ArgumentError("exploration_strategy must be :auto, :grid, or :ccd, got :$exploration_strategy"))
-    end
-
-    use_ccd = if exploration_strategy == :auto
-        length(θ_star) > 2
-    elseif exploration_strategy == :ccd
-        true
-    else
-        false
-    end
-
-    if use_ccd
-        exploration, accumulators_result = explore_hyperparameter_posterior_ccd(
-            model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
-            progress_callback = exploration_callback,
-            accumulators = accumulators
-        )
-    else
-        exploration, accumulators_result = explore_hyperparameter_posterior(
-            model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
-            max_log_drop = max_log_drop,
-            interpolation_subdivisions = interpolation_subdivisions,
-            progress_callback = exploration_callback,
-            accumulators = accumulators
-        )
-    end
+    exploration, accumulators_result = explore_hyperparameter_posterior(
+        exploration_strategy,
+        model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
+        progress_callback = exploration_callback,
+        accumulators = accumulators
+    )
 
     timing[:exploration] = time() - exploration_start_time
     advance_phase!(progress_state, "Exploration complete", (points = length(exploration.grid_points),))
@@ -192,9 +167,8 @@ function inla(
     options = (
         latent_marginalization_method = latent_marginalization_method,
         hyperparameter_marginalization_method = hyperparameter_marginalization_method,
+        exploration_strategy = exploration_strategy,
         latent_indices = latent_indices,
-        max_log_drop = max_log_drop,
-        interpolation_subdivisions = interpolation_subdivisions,
         mode_method = mode_method,
         mode_iterations = mode_iterations,
         progress = progress,

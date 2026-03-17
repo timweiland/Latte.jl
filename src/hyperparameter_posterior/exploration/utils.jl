@@ -102,20 +102,20 @@ function evaluate_at_grid_point(
 end
 
 """
-    create_weighted_mixtures(exploration::HyperparameterExploration)
+    create_weighted_mixtures(exploration::AbstractHyperparameterExploration)
 
 Creates weighted mixture distributions from the exploration results.
 This function becomes cleaner due to the improved `HyperparameterExploration` struct.
 
 # Arguments
-- `exploration::HyperparameterExploration`: Results from hyperparameter exploration with marginalization
+- `exploration::AbstractHyperparameterExploration`: Results from hyperparameter exploration with marginalization
 
 # Returns
 - `Vector{WeightedMixture}`: Weighted mixture distributions, one per marginalized variable
 
 # Example
 ```julia
-exploration = explore_hyperparameter_posterior(model, y, θ_star, marginalization_method, marginalization_indices)
+exploration = explore_hyperparameter_posterior(GridExplorationStrategy(), model, y, θ_star, marginalization_method, marginalization_indices)
 final_marginals = create_weighted_mixtures(exploration)
 
 # Access final marginal distributions
@@ -123,7 +123,7 @@ final_marginals = create_weighted_mixtures(exploration)
 ci₁ = quantile(final_marginals[1], [0.025, 0.975])
 ```
 """
-function create_weighted_mixtures(exploration::HyperparameterExploration)
+function create_weighted_mixtures(exploration::AbstractHyperparameterExploration)
     # Get the GridPoint objects for the integration points
     integration_points = exploration.grid_points[exploration.integration_indices]
 

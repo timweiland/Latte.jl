@@ -64,7 +64,7 @@ using Bijectors
 
         # Step 2: Explore posterior
         exploration, _ = explore_hyperparameter_posterior(
-            inla_model, y_gt, θ_star, GaussianMarginal(), 1:k
+            GridExplorationStrategy(), inla_model, y_gt, θ_star, GaussianMarginal(), 1:k
         )
 
         # Step 3: Build interpolant

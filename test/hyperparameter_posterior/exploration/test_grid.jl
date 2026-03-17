@@ -225,11 +225,9 @@ end
 
     @testset "Basic Full Exploration" begin
         exploration, _ = explore_hyperparameter_posterior(
+            GridExplorationStrategy(integration_step_z = 1.0, max_log_drop = 2.0, interpolation_subdivisions = 2),
             model, y_test, θ_mode,
-            GaussianMarginal(), 1:1000;
-            integration_step_z = 1.0,
-            max_log_drop = 2.0,
-            interpolation_subdivisions = 2
+            GaussianMarginal(), 1:1000
         )
 
         @test exploration isa HyperparameterExploration
@@ -241,11 +239,9 @@ end
 
     @testset "Mode Point Included" begin
         exploration, _ = explore_hyperparameter_posterior(
+            GridExplorationStrategy(integration_step_z = 1.0, max_log_drop = 2.0, interpolation_subdivisions = 2),
             model, y_test, θ_mode,
-            GaussianMarginal(), 1:1000;
-            integration_step_z = 1.0,
-            max_log_drop = 2.0,
-            interpolation_subdivisions = 2
+            GaussianMarginal(), 1:1000
         )
 
         # Check that mode point is included
@@ -262,11 +258,9 @@ end
 
     @testset "Integration Points Have Marginals" begin
         exploration, _ = explore_hyperparameter_posterior(
+            GridExplorationStrategy(integration_step_z = 1.0, max_log_drop = 2.0, interpolation_subdivisions = 2),
             model, y_test, θ_mode,
-            GaussianMarginal(), 1:1000;
-            integration_step_z = 1.0,
-            max_log_drop = 2.0,
-            interpolation_subdivisions = 2
+            GaussianMarginal(), 1:1000
         )
 
         # Check that all integration points have marginal results
@@ -277,11 +271,9 @@ end
 
     @testset "Normalized Densities" begin
         exploration, _ = explore_hyperparameter_posterior(
+            GridExplorationStrategy(integration_step_z = 1.0, max_log_drop = 2.0, interpolation_subdivisions = 2),
             model, y_test, θ_mode,
-            GaussianMarginal(), 1:1000;
-            integration_step_z = 1.0,
-            max_log_drop = 2.0,
-            interpolation_subdivisions = 2
+            GaussianMarginal(), 1:1000
         )
 
         # Check that integration points can be used to compute normalized weights
@@ -296,11 +288,9 @@ end
 
     @testset "Parameter Bounds" begin
         exploration, _ = explore_hyperparameter_posterior(
+            GridExplorationStrategy(integration_step_z = 0.5, max_log_drop = 1.0, interpolation_subdivisions = 2),
             model, y_test, θ_mode,
-            GaussianMarginal(), 1:1000;
-            integration_step_z = 0.5,  # Smaller step size
-            max_log_drop = 1.0,        # Smaller drop
-            interpolation_subdivisions = 2
+            GaussianMarginal(), 1:1000
         )
 
         # Check that exploration respects parameter bounds

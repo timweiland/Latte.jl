@@ -24,7 +24,7 @@ NamedTuple mapping parameter names to `HyperparameterMarginalDistribution` objec
 """
 function _marginalize_impl(
         method::GridBasedMarginal,
-        exploration::HyperparameterExploration,
+        exploration::AbstractHyperparameterExploration,
         model::INLAModel,
         y,
         progress_callback
@@ -165,14 +165,14 @@ function _marginalize_impl(
 end
 
 """
-    estimate_initial_max_log_drop(exploration::HyperparameterExploration)
+    estimate_initial_max_log_drop(exploration::AbstractHyperparameterExploration)
 
 Estimate the max_log_drop used in the initial exploration.
 
 This is extracted from the exploration grid by finding the maximum log-density
 drop from the mode to the boundary points.
 """
-function estimate_initial_max_log_drop(exploration::HyperparameterExploration)
+function estimate_initial_max_log_drop(exploration::AbstractHyperparameterExploration)
     if isempty(exploration.grid_points)
         return 6.0  # Default fallback
     end

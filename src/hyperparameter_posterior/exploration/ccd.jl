@@ -1,5 +1,3 @@
-export explore_hyperparameter_posterior_ccd
-
 """
     ccd_integration_weights(n_points::Int, d::Int, f0::Float64) -> (w_sphere, w_center)
 
@@ -110,11 +108,7 @@ function generate_ccd_points(d::Int; f0::Float64 = 1.1)
 end
 
 """
-    explore_hyperparameter_posterior_ccd(
-        model::INLAModel, y, θ_star::WorkingHyperparameters,
-        marginalization_method, marginalization_indices;
-        f0=1.1, progress_callback=nothing, accumulators::Tuple=()
-    )
+    explore_hyperparameter_posterior(::CCDExplorationStrategy, model, y, θ_star, ...)
 
 CCD-based exploration of the hyperparameter posterior (Rue et al. 2009, Section 6.5).
 
@@ -122,20 +116,15 @@ Uses O(2d² + 1) design points instead of a full Cartesian grid (O(m^d)),
 enabling models with 3+ hyperparameters. Integration weights are computed
 analytically following R-INLA's convention, which is exact when the posterior
 in z-space is standard Gaussian.
-
-The `f0` parameter (default 1.1, matching R-INLA) controls how far design points
-are placed from the mode: all non-center points lie on a sphere of radius `f0 * √d`.
-
-Returns `(HyperparameterExploration, accumulators)`, the same output type as
-`explore_hyperparameter_posterior`, so all downstream code works unchanged.
 """
-function explore_hyperparameter_posterior_ccd(
+function explore_hyperparameter_posterior(
+        strategy::CCDExplorationStrategy,
         model::INLAModel, y, θ_star::WorkingHyperparameters,
         marginalization_method, marginalization_indices;
-        f0::Float64 = 1.1,
         progress_callback = nothing,
         accumulators::Tuple = ()
     )
+    f0 = strategy.f0
     if progress_callback === nothing
         progress_callback = (; kwargs...) -> nothing
     end
@@ -154,9 +143,13 @@ function explore_hyperparameter_posterior_ccd(
     # Step 3: Compute analytical CCD integration weights (Rue et al. 2009)
     w_sphere, w_center = ccd_integration_weights(n_design, d, f0)
 
-    # Step 4: Evaluate all CCD points
+    # Step 4: Evaluate all CCD points, capturing raw log-densities for CCD interpolant
     grid_points = Vector{GridPoint}()
     sizehint!(grid_points, n_design)
+
+    mode_raw_logp = NaN
+    axial_raw_logp_plus = fill(NaN, d)
+    axial_raw_logp_minus = fill(NaN, d)
 
     for (point_idx, z) in enumerate(z_points)
         θ = transform(z)
@@ -177,6 +170,18 @@ function explore_hyperparameter_posterior_ccd(
         )
 
         if result.log_density > -Inf
+            # Capture raw log-density at mode and axial points for CCD interpolant
+            if center
+                mode_raw_logp = result.log_density
+            elseif count(!iszero, z) == 1
+                dim_idx = findfirst(!iszero, z)
+                if z[dim_idx] > 0
+                    axial_raw_logp_plus[dim_idx] = result.log_density
+                else
+                    axial_raw_logp_minus[dim_idx] = result.log_density
+                end
+            end
+
             # Store log(Δ_k * π̃(θ_k|y)) as the log_density for this point.
             # The quadrature weight Δ_k differs for center vs sphere points.
             Δ_k = center ? w_center : w_sphere
@@ -214,11 +219,15 @@ function explore_hyperparameter_posterior_ccd(
     integration_indices = collect(1:length(normalized_points))
     accumulator_reorder = collect(1:length(normalized_points))
 
-    exploration = HyperparameterExploration(
+    exploration = CCDExploration(
         normalized_points,
         integration_indices,
         transform,
-        log_normalization_constant;
+        log_normalization_constant,
+        mode_raw_logp,
+        axial_raw_logp_plus,
+        axial_raw_logp_minus,
+        f0;
         accumulator_reorder = accumulator_reorder
     )
 

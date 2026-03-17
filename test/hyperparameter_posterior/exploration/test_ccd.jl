@@ -1,7 +1,7 @@
 using Test
 using IntegratedNestedLaplace
 using IntegratedNestedLaplace: generate_ccd_points, generate_factorial_points,
-    explore_hyperparameter_posterior_ccd, ccd_integration_weights
+    ccd_integration_weights
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -259,7 +259,8 @@ using Random
         θ_star, _, _ = find_hyperparameter_mode(model, y)
 
         # Run CCD exploration
-        exploration, accs = explore_hyperparameter_posterior_ccd(
+        exploration, accs = explore_hyperparameter_posterior(
+            CCDExplorationStrategy(),
             model, y, θ_star,
             GaussianMarginal(), collect(1:k);
             accumulators = (DICAccumulator(), WAICAccumulator())
@@ -327,12 +328,12 @@ using Random
         @test length(result_auto.exploration.grid_points) > 3  # Grid produces more than CCD's 3
 
         # Explicit :ccd on 1D → should use CCD (only 3 points)
-        result_ccd = inla(model_1d, y_1d; progress = false, exploration_strategy = :ccd)
+        result_ccd = inla(model_1d, y_1d; progress = false, exploration_strategy = CCDExplorationStrategy())
         @test length(result_ccd.exploration.grid_points) == 3
         @test all(isfinite(mean(m)) for m in result_ccd.latent_marginals)
 
-        # Explicit :grid on 1D → should use grid
-        result_grid = inla(model_1d, y_1d; progress = false, exploration_strategy = :grid)
+        # Explicit grid on 1D → should use grid
+        result_grid = inla(model_1d, y_1d; progress = false, exploration_strategy = GridExplorationStrategy())
         @test length(result_grid.exploration.grid_points) > 3
     end
 
@@ -346,7 +347,7 @@ using Random
         x_true = rand(model.latent_prior(; σ_latent = σ_latent_true, σ = σ_true, τ = τ_true))
         y = x_true .+ σ_true .* randn(k)
 
-        result = inla(model, y; progress = false, exploration_strategy = :ccd)
+        result = inla(model, y; progress = false, exploration_strategy = CCDExplorationStrategy())
 
         # Result should be complete
         @test result isa INLAResult

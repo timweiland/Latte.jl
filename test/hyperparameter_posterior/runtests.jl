@@ -7,4 +7,6 @@ using Test
     include("test_hyperparameter_marginals.jl")
     include("test_hyperparameter_marginal_distribution.jl")
     include("test_type_stability.jl")
+    include("test_ccd_interpolant.jl")
+    include("test_spline_marginals.jl")
 end

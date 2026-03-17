@@ -26,7 +26,7 @@ abstract type HyperparameterMarginalizationMethod end
 """
     marginalize_hyperparameters(
         method::HyperparameterMarginalizationMethod,
-        exploration::HyperparameterExploration,
+        exploration::AbstractHyperparameterExploration,
         model::INLAModel,
         y;
         progress_callback = nothing
@@ -36,7 +36,7 @@ Compute hyperparameter marginal distributions from exploration results.
 
 # Arguments
 - `method::HyperparameterMarginalizationMethod`: Marginalization method to use
-- `exploration::HyperparameterExploration`: Results from step 2 (exploration around mode)
+- `exploration::AbstractHyperparameterExploration`: Results from step 2 (exploration around mode)
 - `model::INLAModel`: INLA model specification
 - `y`: Observed data
 - `progress_callback`: Optional callback for progress tracking
@@ -59,7 +59,7 @@ Different methods have different strategies:
 # After mode finding and exploration
 θ_mode, _, _ = find_hyperparameter_mode(model, y)
 exploration = explore_hyperparameter_posterior(
-    model, y, θ_mode,
+    GridExplorationStrategy(), model, y, θ_mode,
     latent_method, latent_indices
 )
 
@@ -74,7 +74,7 @@ quantile(hp_marginals[1], [0.025, 0.975])  # 95% credible interval
 """
 function marginalize_hyperparameters(
         method::HyperparameterMarginalizationMethod,
-        exploration::HyperparameterExploration,
+        exploration::AbstractHyperparameterExploration,
         model::INLAModel,
         y;
         progress_callback = nothing
@@ -91,7 +91,7 @@ Must be implemented by each concrete marginalization method.
 """
 function _marginalize_impl(
         method::HyperparameterMarginalizationMethod,
-        exploration::HyperparameterExploration,
+        exploration::AbstractHyperparameterExploration,
         model::INLAModel,
         y,
         progress_callback

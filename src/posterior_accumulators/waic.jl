@@ -143,7 +143,7 @@ function accumulate!(
     return nothing
 end
 
-function finalize!(acc::WAICAccumulator, exploration::HyperparameterExploration)
+function finalize!(acc::WAICAccumulator, exploration::AbstractHyperparameterExploration)
     weights = get_integration_weights(exploration)
     n_points = length(weights)
     n_obs = length(acc.integrated_lls[1])
