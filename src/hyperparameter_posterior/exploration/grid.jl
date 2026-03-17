@@ -1,4 +1,4 @@
-export explore_hyperparameter_posterior, explore_half_axis_by_steps, explore_dimension_and_build_lookup
+export explore_hyperparameter_posterior
 
 using StatsFuns: logsumexp
 
@@ -104,33 +104,40 @@ function explore_dimension_and_build_lookup(
 end
 
 """
-    explore_hyperparameter_posterior(model, y, θ_star, marginalization_method, marginalization_indices; kwargs...)
+    explore_hyperparameter_posterior(strategy, model, y, θ_star, marginalization_method, marginalization_indices; kwargs...)
 
-Explore the hyperparameter posterior around the mode `θ_star` using a robust,
-integer-based grid construction method.
+Explore the hyperparameter posterior around the mode `θ_star`.
+
+Dispatches on the `strategy` argument:
+- `GridExplorationStrategy`: Cartesian grid exploration
+- `CCDExplorationStrategy`: Central Composite Design exploration
+- `AutoExplorationStrategy`: Automatic selection (grid for D ≤ 2, CCD for D ≥ 3)
 
 # Arguments
+- `strategy::ExplorationStrategy`: Exploration strategy (controls grid layout and parameters)
+- `model::INLAModel`: The INLA model
+- `y`: Observed data
 - `θ_star::WorkingHyperparameters`: The posterior mode in working space
+- `marginalization_method`: Method for latent marginalization at each grid point
+- `marginalization_indices`: Indices of latent field to marginalize
 
 # Keyword Arguments
-- `integration_step_z::Float64 = 0.75`: The step size in the standardized z-space for the coarse *integration* grid. A step of 1.0 corresponds to one standard deviation.
-- `interpolation_subdivisions::Int = 1`: The number of fine-grid steps per coarse integration step.
-- `max_log_drop::Float64 = 6.0`: Exploration along any axis stops when the log-density drops by this much from the mode.
 - `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
 - `accumulators::Tuple = ()`: Tuple of PosteriorAccumulator objects to process integration points
 
 # Returns
-- `HyperparameterExploration`: A struct containing the complete, normalized results of the exploration.
+- `AbstractHyperparameterExploration`: Exploration results (GridExploration or CCDExploration)
 - `accumulators`: Tuple of finalized accumulators (if provided)
 """
 function explore_hyperparameter_posterior(
+        strategy::GridExplorationStrategy,
         model::INLAModel, y, θ_star::WorkingHyperparameters, marginalization_method, marginalization_indices;
-        integration_step_z::Float64 = 0.75,
-        max_log_drop::Float64 = 6.0,
-        interpolation_subdivisions::Int = 1,
         progress_callback = nothing,
         accumulators::Tuple = ()
     )
+    integration_step_z = strategy.integration_step_z
+    max_log_drop = strategy.max_log_drop
+    interpolation_subdivisions = strategy.interpolation_subdivisions
     # Handle progress callback
     if progress_callback === nothing
         progress_callback = (; kwargs...) -> nothing
@@ -283,7 +290,7 @@ function explore_hyperparameter_posterior(
     end
 
     # Create exploration object
-    exploration = HyperparameterExploration(
+    exploration = GridExploration(
         final_grid_points,
         integration_indices,
         transform,

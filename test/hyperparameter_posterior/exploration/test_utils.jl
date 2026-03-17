@@ -71,7 +71,7 @@ end
             Diagonal([1.0, 1.0]),
             Matrix{Float64}(I, 2, 2)
         )
-        exploration = HyperparameterExploration(
+        exploration = GridExploration(
             points, integration_indices, mock_transform, -10.0
         )
 
@@ -106,7 +106,7 @@ end
             Diagonal([1.0]),
             reshape([1.0], 1, 1)
         )
-        exploration = HyperparameterExploration(
+        exploration = GridExploration(
             points, integration_indices, mock_transform, -10.0
         )
 
@@ -133,7 +133,7 @@ end
             Diagonal([1.0]),
             reshape([1.0], 1, 1)
         )
-        exploration = HyperparameterExploration(
+        exploration = GridExploration(
             points, integration_indices, mock_transform, -10.0
         )
 
@@ -150,7 +150,7 @@ end
             Diagonal([1.0]),
             reshape([1.0], 1, 1)
         )
-        exploration = HyperparameterExploration(
+        exploration = GridExploration(
             points, integration_indices, mock_transform, -10.0
         )
 

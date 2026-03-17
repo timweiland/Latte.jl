@@ -292,7 +292,7 @@ function accumulate!(
     return nothing
 end
 
-function finalize!(acc::CPOAccumulator, exploration::HyperparameterExploration)
+function finalize!(acc::CPOAccumulator, exploration::AbstractHyperparameterExploration)
     weights = get_integration_weights(exploration)
     log_weights = log.(weights)
     n_obs = length(acc.log_inv_lik_expectations[1])

@@ -29,7 +29,7 @@ function accumulate!(acc::MarginalLogLikelihoodAccumulator; kwargs...)
 end
 
 # Extract from exploration
-function finalize!(acc::MarginalLogLikelihoodAccumulator, exploration::HyperparameterExploration)
+function finalize!(acc::MarginalLogLikelihoodAccumulator, exploration::AbstractHyperparameterExploration)
     acc.log_marginal_likelihood = exploration.log_normalization_constant
     return nothing
 end

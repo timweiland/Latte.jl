@@ -52,7 +52,7 @@ function accumulate!(
     return nothing
 end
 
-function finalize!(acc::DICAccumulator, exploration::HyperparameterExploration)
+function finalize!(acc::DICAccumulator, exploration::AbstractHyperparameterExploration)
     weights = get_integration_weights(exploration)
 
     # Weighted mean deviance

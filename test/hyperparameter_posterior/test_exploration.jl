@@ -72,8 +72,8 @@ using FiniteDiff
 
         # Explore around mode
         exploration, _ = explore_hyperparameter_posterior(
-            model, y_test, θ_star, GaussianMarginal(), 1:6;
-            integration_step_z = 2.0, interpolation_subdivisions = 2
+            GridExplorationStrategy(integration_step_z = 2.0, interpolation_subdivisions = 2),
+            model, y_test, θ_star, GaussianMarginal(), 1:6
         )
 
         # Find mode (point with highest log density)
@@ -127,8 +127,8 @@ using FiniteDiff
         # Get 2D posterior
         θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(model, y_test)
         exploration, _ = explore_hyperparameter_posterior(
-            model, y_test, θ_star, GaussianMarginal(), 1:4;
-            interpolation_subdivisions = 2
+            GridExplorationStrategy(interpolation_subdivisions = 2),
+            model, y_test, θ_star, GaussianMarginal(), 1:4
         )
 
         @test length(θ_star) == 2

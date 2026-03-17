@@ -87,7 +87,7 @@ All existing grid points are reused to avoid redundant computation.
 2. Merge new points with existing exploration
 
 # Arguments
-- `exploration::HyperparameterExploration`: Current exploration
+- `exploration::AbstractHyperparameterExploration`: Current exploration
 - `model::INLAModel`: Model specification
 - `y`: Observed data
 - `new_limits::AsymmetricLogDropLimits`: Updated exploration limits
@@ -97,7 +97,7 @@ All existing grid points are reused to avoid redundant computation.
 New `HyperparameterExploration` with extended grid.
 """
 function extend_exploration_asymmetric(
-        exploration::HyperparameterExploration,
+        exploration::AbstractHyperparameterExploration,
         model::INLAModel,
         y,
         new_limits::AsymmetricLogDropLimits,
@@ -162,7 +162,7 @@ Infer the current max_log_drop limits from the exploration grid.
 Finds the furthest explored point in each dimension/direction and computes
 the log-density drop from the mode.
 """
-function infer_current_limits(exploration::HyperparameterExploration)
+function infer_current_limits(exploration::AbstractHyperparameterExploration)
     θ_star = exploration.transform.θ_star
     n_dim = length(θ_star)
 
@@ -213,7 +213,7 @@ Only evaluates points in the extended region (between old_limit and new_limit).
 Vector of new `GridPoint` objects in the extended region.
 """
 function explore_extended_half_axis(
-        exploration::HyperparameterExploration,
+        exploration::AbstractHyperparameterExploration,
         model::INLAModel,
         y,
         dim::Int,
@@ -286,7 +286,7 @@ Updates integration indices to include the new points for hyperparameter margina
 Note: This does not recompute the normalization constant, which is acceptable
 since we're only using this for interpolation in the marginalization step.
 """
-function merge_with_new_points(exploration::HyperparameterExploration, new_points::Vector{GridPoint})
+function merge_with_new_points(exploration::AbstractHyperparameterExploration, new_points::Vector{GridPoint})
     # Combine grid points
     combined_points = vcat(exploration.grid_points, new_points)
 
@@ -299,7 +299,7 @@ function merge_with_new_points(exploration::HyperparameterExploration, new_point
     # Combine old and new integration indices
     combined_integration_indices = vcat(exploration.integration_indices, new_indices)
 
-    return HyperparameterExploration(
+    return GridExploration(
         combined_points,
         combined_integration_indices,
         exploration.transform,

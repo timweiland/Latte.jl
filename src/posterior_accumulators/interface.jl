@@ -61,7 +61,7 @@ Each accumulator uses only what it needs and ignores the rest via `kwargs...`.
 function accumulate! end
 
 """
-    finalize!(acc::PosteriorAccumulator, exploration::HyperparameterExploration)
+    finalize!(acc::PosteriorAccumulator, exploration::AbstractHyperparameterExploration)
 
 Finalize accumulator after all points processed. Apply integration weights.
 
@@ -74,7 +74,7 @@ Extract weights via helper: `weights = get_integration_weights(exploration)`
 function finalize! end
 
 """
-    get_integration_weights(exploration::HyperparameterExploration) -> Vector{Float64}
+    get_integration_weights(exploration::AbstractHyperparameterExploration) -> Vector{Float64}
 
 Extract normalized integration weights from exploration result, ordered to match
 the accumulator call order (i.e., the order in which `accumulate!` was called).
@@ -85,7 +85,7 @@ The weights are computed from the normalized log densities stored in the grid po
 then reordered via `exploration.accumulator_reorder` so that `weights[k]` corresponds
 to the k-th `accumulate!` call.
 """
-function get_integration_weights(exploration::HyperparameterExploration)
+function get_integration_weights(exploration::AbstractHyperparameterExploration)
     integration_points = exploration.grid_points[exploration.integration_indices]
     log_weights = [p.log_density for p in integration_points]
     weights = exp.(log_weights)

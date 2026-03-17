@@ -146,7 +146,7 @@ using LinearAlgebra
         model_ccd = make_normal_iid_model(n)
         Random.seed!(42)
         y_ccd = randn(n)
-        result_ccd = inla(model_ccd, y_ccd; progress = false, exploration_strategy = :ccd)
+        result_ccd = inla(model_ccd, y_ccd; progress = false, exploration_strategy = CCDExplorationStrategy())
 
         a = ones(n)
         marginal = linear_combinations(result_ccd, a)

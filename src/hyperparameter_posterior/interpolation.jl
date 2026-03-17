@@ -10,11 +10,11 @@ export build_posterior_interpolant, HyperparameterPosteriorApproximation
 Interpolated approximation to the hyperparameter posterior.
 
 # Fields
-- `exploration::HyperparameterExploration`: The underlying exploration data
+- `exploration::AbstractHyperparameterExploration`: The underlying exploration data
 - `interpolant::I`: Interpolation object for log π(θ | y)
 """
 struct HyperparameterPosteriorApproximation{I}
-    exploration::HyperparameterExploration
+    exploration::AbstractHyperparameterExploration
     interpolant::I
 end
 
@@ -59,7 +59,7 @@ function (approx::HyperparameterPosteriorApproximation)(θ_vec::AbstractVector)
 end
 
 """
-    build_posterior_interpolant(exploration::HyperparameterExploration; progress_callback=nothing)
+    build_posterior_interpolant(exploration::AbstractHyperparameterExploration; progress_callback=nothing)
 
 Build an interpolant for the hyperparameter posterior log-density.
 
@@ -70,7 +70,7 @@ Build an interpolant for the hyperparameter posterior log-density.
 # Returns  
 - `HyperparameterPosteriorApproximation`: Interpolated posterior approximation
 """
-function build_posterior_interpolant(exploration::HyperparameterExploration; progress_callback = nothing)
+function build_posterior_interpolant(exploration::AbstractHyperparameterExploration; progress_callback = nothing)
     n_dim = length(exploration.transform.θ_star)
     n_points = length(exploration.grid_points)
 
