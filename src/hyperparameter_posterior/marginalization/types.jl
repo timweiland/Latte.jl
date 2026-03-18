@@ -19,7 +19,9 @@ export HyperparameterMarginalizationMethod, marginalize_hyperparameters
 Abstract base type for hyperparameter marginalization methods.
 
 Concrete implementations include:
-- `GridBasedMarginal`: Grid-based integration with interpolation and adaptive expansion
+- `GridSumMarginal`: Rectangle-rule summation for D=1
+- `CCDInterpolantMarginal`: CCD interpolant + profiling for D≥2
+- `AutoHyperparameterMarginal`: Automatic selection based on dimensionality
 """
 abstract type HyperparameterMarginalizationMethod end
 
@@ -50,9 +52,9 @@ and may be coarse. This function can internally refine the exploration as needed
 to produce accurate hyperparameter marginals.
 
 Different methods have different strategies:
-- Grid-based: Build interpolant, diagnose tail coverage, adaptively expand if needed
-- Importance sampling: Draw samples, compute weights, create empirical distributions
-- Adaptive quadrature: Use adaptive integration schemes
+- GridSumMarginal: Sum grid densities along each axis, fit cubic splines
+- CCDInterpolantMarginal: Build CCD interpolant, profile along each axis, fit cubic splines
+- AutoHyperparameterMarginal: GridSum for D=1, CCDInterpolant for D≥2
 
 # Example
 ```julia
@@ -63,13 +65,10 @@ exploration = explore_hyperparameter_posterior(
     latent_method, latent_indices
 )
 
-# Create hyperparameter marginals
-method = GridBasedMarginal()  # Uses adaptive expansion
-hp_marginals = marginalize_hyperparameters(method, exploration, model, y)
-
-# Access results
-mean(hp_marginals[1])  # Mean of first hyperparameter (natural space)
-quantile(hp_marginals[1], [0.025, 0.975])  # 95% credible interval
+# Create hyperparameter marginals (returns NamedTuple of SplineMarginalDistribution)
+hp_marginals = marginalize_hyperparameters(
+    AutoHyperparameterMarginal(), exploration, model, y
+)
 ```
 """
 function marginalize_hyperparameters(

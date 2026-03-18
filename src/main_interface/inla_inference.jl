@@ -46,9 +46,9 @@ result = inla(model, y,
     latent_marginalization_method=SimplifiedLaplace(),
     latent_indices=1:100)
 
-# Force old grid-based approach
+# Force CCD exploration on a 2D model
 result = inla(model, y,
-    hyperparameter_marginalization_method=GridBasedMarginal(auto_adjust=false))
+    exploration_strategy=CCDExplorationStrategy())
 ```
 
 # Progress Tracking

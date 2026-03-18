@@ -63,7 +63,7 @@ using Statistics
         y_gt,
         progress = false,
         latent_marginalization_method = LaplaceMarginal(),
-        hyperparameter_marginalization_method = GridBasedMarginal(; auto_adjust = false)
+        hyperparameter_marginalization_method = AutoHyperparameterMarginal()
     )
     inla_time = time() - inla_start_time
 
@@ -262,7 +262,7 @@ using Statistics
             y_gt,
             progress = false,
             latent_marginalization_method = SimplifiedLaplace(),
-            hyperparameter_marginalization_method = GridBasedMarginal(; auto_adjust = false),
+            hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
         )
 
         @test isa(inla_result_sl, INLAResult)

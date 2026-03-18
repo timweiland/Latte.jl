@@ -7,7 +7,7 @@ distributions from exploration results.
 This is step 3 in the INLA workflow:
 1. Mode finding
 2. Exploration (creates coarse grid for latent integration)
-3. Hyperparameter marginalization (THIS MODULE - can refine internally)
+3. Hyperparameter marginalization (THIS MODULE)
 4. Latent marginalization (uses exploration from step 2)
 """
 
@@ -15,8 +15,8 @@ This is step 3 in the INLA workflow:
 include("types.jl")
 
 # Concrete implementations
-include("grid_based/grid_based.jl")
+include("spline_based/spline_based.jl")
 
 # Re-export main interface and types
 export HyperparameterMarginalizationMethod, marginalize_hyperparameters
-export GridBasedMarginal, AsymmetricLogDropLimits
+export GridSumMarginal, CCDInterpolantMarginal, AutoHyperparameterMarginal
