@@ -5,7 +5,7 @@ using Makie
 using Distributions
 
 # Import the distribution types we're adding recipes for
-import IntegratedNestedLaplace: HyperparameterMarginalDistribution,
+import IntegratedNestedLaplace: SplineMarginalDistribution,
     WeightedMixture,
     TransformedWeightedMixture,
     joyplot,
@@ -13,7 +13,7 @@ import IntegratedNestedLaplace: HyperparameterMarginalDistribution,
 
 # Convenience union type for all supported distributions
 const PlottableINLADistribution = Union{
-    <:HyperparameterMarginalDistribution,
+    <:SplineMarginalDistribution,
     <:WeightedMixture,
     <:TransformedWeightedMixture,
 }
@@ -27,12 +27,12 @@ const PlottableINLADistribution = Union{
 Plot INLA marginal distributions with optional credible interval shading.
 
 Supports:
-- `HyperparameterMarginalDistribution` (hyperparameter marginals)
+- `SplineMarginalDistribution` (hyperparameter marginals)
 - `WeightedMixture` (latent field marginals)
 - `TransformedWeightedMixture` (observation marginals)
 
 # Arguments
-- `distribution`: An INLA marginal distribution to plot (HyperparameterMarginalDistribution, WeightedMixture, or TransformedWeightedMixture)
+- `distribution`: An INLA marginal distribution to plot (SplineMarginalDistribution, WeightedMixture, or TransformedWeightedMixture)
 
 # Attributes
 - `quantile_range = (0.001, 0.999)`: Initial quantile range for x-axis (refined for heavy tails)
@@ -107,7 +107,7 @@ fig
 end
 
 # Define convert_arguments to pass through the distribution unchanged
-function Makie.convert_arguments(::Type{<:DistPlot}, d::HyperparameterMarginalDistribution)
+function Makie.convert_arguments(::Type{<:DistPlot}, d::SplineMarginalDistribution)
     return (d,)
 end
 
@@ -247,7 +247,7 @@ end
 # ==================== Make `plot()` work nicely ====================
 
 # When users call plot(distribution), use the enhanced distplot by default
-function Makie.plottype(::HyperparameterMarginalDistribution)
+function Makie.plottype(::SplineMarginalDistribution)
     return DistPlot
 end
 
@@ -269,7 +269,7 @@ Create a joy plot (ridgeline plot) for multiple INLA marginal distributions, ins
 by the famous Joy Division "Unknown Pleasures" album cover.
 
 # Arguments
-- `distributions::Vector`: Vector of INLA distributions (HyperparameterMarginalDistribution, WeightedMixture, or TransformedWeightedMixture)
+- `distributions::Vector`: Vector of INLA distributions (SplineMarginalDistribution, WeightedMixture, or TransformedWeightedMixture)
 
 # Attributes
 - `labels::Union{Nothing, Vector{String}} = nothing`: Labels for each distribution (shown on y-axis)
