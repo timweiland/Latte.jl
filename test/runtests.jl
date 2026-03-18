@@ -9,6 +9,7 @@ using Aqua
         Aqua.test_all(IntegratedNestedLaplace; persistent_tasks = false, piracies = false)
     end
 
+    include("parallel/runtests.jl")
     include("utils/runtests.jl")
     include("hyperparameters/runtests.jl")
     include("distributions/runtests.jl")

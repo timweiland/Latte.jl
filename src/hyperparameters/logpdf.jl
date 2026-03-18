@@ -27,13 +27,15 @@ spec = HyperparameterSpec(
 log_p = logpdf_prior(θ_w)  # Evaluates log p(η) in working space
 ```
 """
-function logpdf_prior(θ::WorkingHyperparameters)
-    return mapreduce(+, enumerate(keys(θ.spec.free)); init = 0.0) do (i, name)
+function logpdf_prior(θ::WorkingHyperparameters{T}) where {T}
+    result = zero(T)
+    for (i, name) in enumerate(keys(θ.spec.free))
         hp = θ.spec.free[name]
         working_value = θ.θ[i]
         # Prior is stored in working space, evaluate directly
-        logpdf(hp.prior, working_value)::Float64
+        result += logpdf(hp.prior, working_value)
     end
+    return result::T
 end
 
 """

@@ -1,4 +1,4 @@
-export WAICAccumulator
+export WAICAccumulator, WAICPointSummary
 
 using FastGaussQuadrature: gausshermite
 using StatsFuns: logsumexp
@@ -127,6 +127,23 @@ function _integrated_pointwise_loglik(ga, obs_lik; n_nodes::Int = 15)
     end
 
     return integrated_ll, expected_log_ll
+end
+
+"""Pre-computed summary data for one grid point (WAIC)."""
+struct WAICPointSummary
+    integrated_ll::Vector{Float64}
+    expected_log_ll::Vector{Float64}
+end
+
+function compute_point_summary(acc::WAICAccumulator; ga, obs_lik, kwargs...)
+    ill, ell = _integrated_pointwise_loglik(ga, obs_lik; n_nodes = acc.n_nodes)
+    return WAICPointSummary(ill, ell)
+end
+
+function accumulate!(acc::WAICAccumulator, summary::WAICPointSummary; kwargs...)
+    push!(acc.integrated_lls, summary.integrated_ll)
+    push!(acc.expected_log_lls, summary.expected_log_ll)
+    return nothing
 end
 
 function accumulate!(

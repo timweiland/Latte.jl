@@ -20,6 +20,9 @@ export ObservationModel, ObservationLikelihood, ExponentialFamily,
     conditional_distribution, apply_link, apply_invlink,
     pointwise_loglik
 
+# Parallel execution infrastructure
+include("parallel/parallel.jl")
+
 # Include INLA-specific modules
 include("utils/selinv.jl")
 include("utils/owens_t.jl")

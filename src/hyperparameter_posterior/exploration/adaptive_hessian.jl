@@ -119,36 +119,86 @@ function _refine_step_size(
 end
 
 """
-    _full_hessian_3pt(f, x, f0, h)
+    _full_hessian_3pt(f, x, f0, h; executor=SequentialExecutor())
 
 Compute the full Hessian using the 3-point central difference stencil (less noise
 amplification than 5-point).
 
 Diagonal: `H[i,i] = (f(x+h*eᵢ) - 2f(x) + f(x-h*eᵢ)) / h²`
 Off-diagonal: `H[i,j] = (f(x+h*eᵢ+h*eⱼ) - f(x+h*eᵢ-h*eⱼ) - f(x-h*eᵢ+h*eⱼ) + f(x-h*eᵢ-h*eⱼ)) / (4h²)`
-"""
-function _full_hessian_3pt(f, x::AbstractVector{T}, f0::Real, h::Real) where {T}
-    n = length(x)
-    H = zeros(T, n, n)
-    xp = copy(x)
 
-    # Diagonal: 3-point stencil
+When `executor` is a `ThreadedExecutor`, all perturbation-point evaluations are
+batched and run in parallel.
+"""
+function _full_hessian_3pt(
+        f, x::AbstractVector{T}, f0::Real, h::Real;
+        executor::ParallelExecutor = SequentialExecutor()
+    ) where {T}
+    n = length(x)
+
+    # Collect all perturbation points and their roles
+    eval_points = Vector{Vector{T}}()
+    # Track what each evaluation is for: (:diag, i) or (:offdiag, i, j, which)
+    eval_roles = Vector{Any}()
+
+    # Diagonal: x ± h*eᵢ  (2n points)
     for i in 1:n
-        xp .= x
-        xp[i] = x[i] + h;  fp1 = f(xp)
-        xp[i] = x[i] - h;  fm1 = f(xp)
-        xp[i] = x[i]
-        H[i, i] = (fp1 - 2 * f0 + fm1) / h^2
+        xp = copy(x); xp[i] += h
+        push!(eval_points, xp)
+        push!(eval_roles, (:diag_plus, i))
+
+        xm = copy(x); xm[i] -= h
+        push!(eval_points, xm)
+        push!(eval_roles, (:diag_minus, i))
     end
 
-    # Off-diagonal: 4-point stencil
+    # Off-diagonal: 4 points per (i,j) pair
     for i in 1:n, j in (i + 1):n
-        xp .= x
-        xp[i] = x[i] + h; xp[j] = x[j] + h; fpp = f(xp)
-        xp[i] = x[i] + h; xp[j] = x[j] - h; fpm = f(xp)
-        xp[i] = x[i] - h; xp[j] = x[j] + h; fmp = f(xp)
-        xp[i] = x[i] - h; xp[j] = x[j] - h; fmm = f(xp)
-        xp[i] = x[i]; xp[j] = x[j]
+        xpp = copy(x); xpp[i] += h; xpp[j] += h
+        push!(eval_points, xpp)
+        push!(eval_roles, (:off, i, j, :pp))
+
+        xpm = copy(x); xpm[i] += h; xpm[j] -= h
+        push!(eval_points, xpm)
+        push!(eval_roles, (:off, i, j, :pm))
+
+        xmp = copy(x); xmp[i] -= h; xmp[j] += h
+        push!(eval_points, xmp)
+        push!(eval_roles, (:off, i, j, :mp))
+
+        xmm = copy(x); xmm[i] -= h; xmm[j] -= h
+        push!(eval_points, xmm)
+        push!(eval_roles, (:off, i, j, :mm))
+    end
+
+    # Evaluate all points (PARALLEL)
+    fvals = pmap_executor(f, eval_points, executor)
+
+    # Reconstruct Hessian from results
+    H = zeros(T, n, n)
+    fp = zeros(T, n)  # f(x + h*eᵢ)
+    fm = zeros(T, n)  # f(x - h*eᵢ)
+    off_vals = Dict{Tuple{Int, Int, Symbol}, T}()
+
+    for (k, role) in enumerate(eval_roles)
+        if role[1] === :diag_plus
+            fp[role[2]] = fvals[k]
+        elseif role[1] === :diag_minus
+            fm[role[2]] = fvals[k]
+        elseif role[1] === :off
+            off_vals[(role[2], role[3], role[4])] = fvals[k]
+        end
+    end
+
+    for i in 1:n
+        H[i, i] = (fp[i] - 2 * f0 + fm[i]) / h^2
+    end
+
+    for i in 1:n, j in (i + 1):n
+        fpp = off_vals[(i, j, :pp)]
+        fpm = off_vals[(i, j, :pm)]
+        fmp = off_vals[(i, j, :mp)]
+        fmm = off_vals[(i, j, :mm)]
         H[i, j] = (fpp - fpm - fmp + fmm) / (4 * h^2)
         H[j, i] = H[i, j]
     end
@@ -187,19 +237,15 @@ function adaptive_negative_hessian(
         max_error::Real = 0.05,
         refine::Bool = true,
         fallback_h::Real = 0.005,
+        executor::ParallelExecutor = SequentialExecutor(),
     )
     f0 = f(x)
 
-    # Phase 1: Coarse search over candidate step sizes
-    errors = zeros(length(h_candidates))
-    for (k, h) in enumerate(h_candidates)
-        try
-            diag_3pt, diag_5pt = _diagonal_hessian_3pt_5pt(f, x, f0, h)
-            errors[k] = _stencil_disagreement(diag_3pt, diag_5pt)
-        catch
-            errors[k] = Inf
-        end
+    # Phase 1: Coarse search over candidate step sizes (PARALLEL across candidates)
+    errors_raw = pmap_executor(h_candidates, executor) do h
+        _safe_stencil_error(f, x, f0, h)
     end
+    errors = Float64[e for e in errors_raw]
 
     best_idx = argmin(errors)
     best_error = errors[best_idx]
@@ -228,6 +274,6 @@ function adaptive_negative_hessian(
         @warn "Adaptive Hessian: best stencil disagreement $(round(best_error, digits = 4)) exceeds threshold $max_error. Using h=$(round(h_opt, sigdigits = 3)) (best available)."
     end
 
-    # Phase 3: Full Hessian at optimal step size using 3pt stencil
-    return -_full_hessian_3pt(f, x, f0, h_opt)
+    # Phase 3: Full Hessian at optimal step size using 3pt stencil (PARALLEL)
+    return -_full_hessian_3pt(f, x, f0, h_opt; executor = executor)
 end
