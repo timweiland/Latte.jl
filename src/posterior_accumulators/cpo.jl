@@ -1,4 +1,4 @@
-export CPOAccumulator
+export CPOAccumulator, CPOPointSummary
 
 using FastGaussQuadrature: gausshermite
 using StatsFuns: logsumexp, logaddexp
@@ -274,6 +274,29 @@ function _cpo_pit_integrals(
 end
 
 # ── Accumulator interface ─────────────────────────────────────────────
+
+"""Pre-computed summary data for one grid point (CPO)."""
+struct CPOPointSummary
+    log_inv_lik_exp::Vector{Float64}
+    pit_exp::Vector{Float64}
+    inner_ess::Vector{Float64}
+end
+
+function compute_point_summary(acc::CPOAccumulator; ga, obs_lik, kwargs...)
+    log_h, pit, ess = _cpo_pit_integrals(
+        ga, obs_lik; n_nodes = acc.n_nodes, compute_pit = acc.compute_pit
+    )
+    return CPOPointSummary(log_h, pit, ess)
+end
+
+function accumulate!(acc::CPOAccumulator, summary::CPOPointSummary; kwargs...)
+    push!(acc.log_inv_lik_expectations, summary.log_inv_lik_exp)
+    push!(acc.inner_ess, summary.inner_ess)
+    if acc.compute_pit
+        push!(acc.pit_expectations, summary.pit_exp)
+    end
+    return nothing
+end
 
 function accumulate!(
         acc::CPOAccumulator;

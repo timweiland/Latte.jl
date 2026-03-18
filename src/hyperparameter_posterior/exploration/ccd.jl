@@ -122,7 +122,8 @@ function explore_hyperparameter_posterior(
         model::INLAModel, y, θ_star::WorkingHyperparameters,
         marginalization_method, marginalization_indices;
         progress_callback = nothing,
-        accumulators::Tuple = ()
+        accumulators::Tuple = (),
+        executor::ParallelExecutor = SequentialExecutor()
     )
     f0 = strategy.f0
     if progress_callback === nothing
@@ -133,7 +134,7 @@ function explore_hyperparameter_posterior(
 
     # Step 1: Compute reparameterization (same as grid approach)
     progress_callback(status = "Computing reparameterization", dimensions = d)
-    transform = compute_reparameterization(model, y, θ_star)
+    transform = compute_reparameterization(model, y, θ_star; executor = executor)
 
     # Step 2: Generate CCD points in z-space with f0 scaling
     z_points = generate_ccd_points(d; f0 = f0)
@@ -143,7 +144,32 @@ function explore_hyperparameter_posterior(
     # Step 3: Compute analytical CCD integration weights (Rue et al. 2009)
     w_sphere, w_center = ccd_integration_weights(n_design, d, f0)
 
-    # Step 4: Evaluate all CCD points, capturing raw log-densities for CCD interpolant
+    # Step 4: Evaluate all CCD points (PARALLEL)
+    # Build work items with pre-computed θ values
+    work_items = [(z = z, θ = transform(z), is_center = all(iszero, z)) for z in z_points]
+
+    eval_results = pmap_executor(work_items, executor) do item
+        result = evaluate_at_grid_point(
+            model, y, item.θ;
+            compute_marginals = true,
+            marginalization_method = marginalization_method,
+            marginalization_indices = marginalization_indices
+        )
+        # Compute accumulator summaries while ga/obs_lik are still alive
+        # Skip for rejected points (log_density == -Inf, ga/obs_lik are nothing)
+        summaries = if result.log_density > -Inf
+            map(accumulators) do acc
+                compute_point_summary(acc; result...)
+            end
+        else
+            map(_ -> nothing, accumulators)
+        end
+        return (; result..., θ = item.θ, z = item.z, is_center = item.is_center, summaries)
+    end
+
+    progress_callback(status = "CCD evaluation complete", n_evaluated = length(eval_results))
+
+    # Step 5: Build grid points + accumulate (SEQUENTIAL)
     grid_points = Vector{GridPoint}()
     sizehint!(grid_points, n_design)
 
@@ -151,59 +177,37 @@ function explore_hyperparameter_posterior(
     axial_raw_logp_plus = fill(NaN, d)
     axial_raw_logp_minus = fill(NaN, d)
 
-    for (point_idx, z) in enumerate(z_points)
-        θ = transform(z)
-        center = all(iszero, z)
-
-        progress_callback(
-            status = "Evaluating CCD points",
-            points_evaluated = point_idx,
-            total_points = n_design,
-            current_θ = θ
-        )
-
-        result = evaluate_at_grid_point(
-            model, y, θ;
-            compute_marginals = true,
-            marginalization_method = marginalization_method,
-            marginalization_indices = marginalization_indices
-        )
-
-        if result.log_density > -Inf
+    for r in eval_results
+        if r.log_density > -Inf
             # Capture raw log-density at mode and axial points for CCD interpolant
-            if center
-                mode_raw_logp = result.log_density
-            elseif count(!iszero, z) == 1
-                dim_idx = findfirst(!iszero, z)
-                if z[dim_idx] > 0
-                    axial_raw_logp_plus[dim_idx] = result.log_density
+            if r.is_center
+                mode_raw_logp = r.log_density
+            elseif count(!iszero, r.z) == 1
+                dim_idx = findfirst(!iszero, r.z)
+                if r.z[dim_idx] > 0
+                    axial_raw_logp_plus[dim_idx] = r.log_density
                 else
-                    axial_raw_logp_minus[dim_idx] = result.log_density
+                    axial_raw_logp_minus[dim_idx] = r.log_density
                 end
             end
 
             # Store log(Δ_k * π̃(θ_k|y)) as the log_density for this point.
-            # The quadrature weight Δ_k differs for center vs sphere points.
-            Δ_k = center ? w_center : w_sphere
-            weighted_log_density = log(Δ_k) + result.log_density
-            push!(grid_points, GridPoint(θ, weighted_log_density, result.marginal_result))
+            Δ_k = r.is_center ? w_center : w_sphere
+            weighted_log_density = log(Δ_k) + r.log_density
+            push!(grid_points, GridPoint(r.θ, weighted_log_density, r.marginal_result))
 
-            # Call accumulators eagerly
+            # Accumulate from pre-computed summaries
             if !isempty(accumulators)
-                for acc in accumulators
-                    accumulate!(
-                        acc;
-                        result...,
-                        θ = θ,
-                        y = y,
-                        is_mode = center
-                    )
+                for (acc, summary) in zip(accumulators, r.summaries)
+                    if summary !== nothing
+                        accumulate!(acc, summary; is_mode = r.is_center)
+                    end
                 end
             end
         end
     end
 
-    # Step 5: Normalize
+    # Step 6: Normalize
     progress_callback(status = "Computing normalization", n_valid = length(grid_points))
 
     log_densities = [p.log_density for p in grid_points]
@@ -231,7 +235,7 @@ function explore_hyperparameter_posterior(
         accumulator_reorder = accumulator_reorder
     )
 
-    # Step 6: Finalize accumulators
+    # Step 7: Finalize accumulators
     if !isempty(accumulators)
         progress_callback(status = "Finalizing accumulators", n_accumulators = length(accumulators))
         for acc in accumulators

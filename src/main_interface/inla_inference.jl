@@ -69,7 +69,8 @@ function inla(
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
         progress::Bool = true,
-        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator())
+        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator()),
+        executor::ParallelExecutor = SequentialExecutor()
     )
 
     # Pre-process missing observations for prediction
@@ -113,7 +114,8 @@ function inla(
         exploration_strategy,
         model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
         progress_callback = exploration_callback,
-        accumulators = accumulators
+        accumulators = accumulators,
+        executor = executor
     )
 
     timing[:exploration] = time() - exploration_start_time

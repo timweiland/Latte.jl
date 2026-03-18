@@ -1,4 +1,4 @@
-export PosteriorAccumulator, accumulate!, finalize!, get_integration_weights
+export PosteriorAccumulator, accumulate!, finalize!, get_integration_weights, compute_point_summary
 
 """
     PosteriorAccumulator
@@ -59,6 +59,19 @@ Process information from one integration point (unweighted).
 Each accumulator uses only what it needs and ignores the rest via `kwargs...`.
 """
 function accumulate! end
+
+"""
+    compute_point_summary(acc::PosteriorAccumulator; kwargs...) -> summary
+
+Compute per-point summary data for this accumulator. This is the expensive,
+thread-safe, pure computation that can be run in parallel.
+
+Returns a typed summary struct that can be passed to `accumulate!(acc, summary)`.
+Default implementation returns `nothing` (no per-point computation needed).
+"""
+function compute_point_summary(acc::PosteriorAccumulator; kwargs...)
+    return nothing
+end
 
 """
     finalize!(acc::PosteriorAccumulator, exploration::AbstractHyperparameterExploration)

@@ -133,7 +133,8 @@ function explore_hyperparameter_posterior(
         strategy::GridExplorationStrategy,
         model::INLAModel, y, θ_star::WorkingHyperparameters, marginalization_method, marginalization_indices;
         progress_callback = nothing,
-        accumulators::Tuple = ()
+        accumulators::Tuple = (),
+        executor::ParallelExecutor = SequentialExecutor()
     )
     integration_step_z = strategy.integration_step_z
     max_log_drop = strategy.max_log_drop
@@ -147,7 +148,7 @@ function explore_hyperparameter_posterior(
 
     # Step 1: Compute the transformation object
     progress_callback(status = "Computing reparameterization", dimensions = n_dim)
-    transform = compute_reparameterization(model, y, θ_star)
+    transform = compute_reparameterization(model, y, θ_star; executor = executor)
 
     # Step 2: Evaluate the mode point once, authoritatively
     progress_callback(status = "Evaluating mode point", mode = θ_star)
@@ -198,52 +199,74 @@ function explore_hyperparameter_posterior(
     progress_callback(status = "Building full grid", estimated_total_points = total_grid_points)
 
     raw_interpolation_points = typeof(mode_point)[]
-    points_evaluated = 0
 
-    for key_tuple in Iterators.product(step_ranges_per_dim...)
-        points_evaluated += 1
+    # Separate on-axis (already computed) from off-axis (need evaluation)
+    # We must preserve grid iteration order for raw_interpolation_points
+    grid_keys_in_order = collect(Iterators.product(step_ranges_per_dim...))
 
-        if haskey(point_lookup, key_tuple)
-            push!(raw_interpolation_points, point_lookup[key_tuple])
-            continue
+    # Collect off-axis work items
+    off_axis_work = NamedTuple[]
+    off_axis_indices = Int[]  # position in grid_keys_in_order
+    for (idx, key_tuple) in enumerate(grid_keys_in_order)
+        if !haskey(point_lookup, key_tuple)
+            is_integration = all(iszero, collect(key_tuple) .% interpolation_subdivisions)
+            θ = transform(evaluation_step_z .* collect(key_tuple))
+            push!(off_axis_work, (; key_tuple, θ, is_integration))
+            push!(off_axis_indices, idx)
         end
+    end
 
-        is_integration_point = all(iszero, collect(key_tuple) .% interpolation_subdivisions)
-        θ_off_axis = transform(evaluation_step_z .* collect(key_tuple))  # Returns WorkingHyperparameters
-
+    # Phase 1: Evaluate off-axis points (PARALLEL)
+    off_axis_results = pmap_executor(off_axis_work, executor) do item
         result = evaluate_at_grid_point(
-            model, y, θ_off_axis;
-            compute_marginals = is_integration_point,
+            model, y, item.θ;
+            compute_marginals = item.is_integration,
             marginalization_method = marginalization_method,
             marginalization_indices = marginalization_indices
         )
-
-        if mode_log_density - result.log_density <= max_log_drop
-            push!(raw_interpolation_points, GridPoint(θ_off_axis, result.log_density, result.marginal_result))
-
-            # Call accumulators eagerly and record the grid key for ordering
-            if is_integration_point && !isempty(accumulators)
-                for acc in accumulators
-                    accumulate!(
-                        acc;
-                        result...,
-                        θ = θ_off_axis,
-                        y = y,
-                        is_mode = false
-                    )
-                end
-                push!(accumulator_call_keys, key_tuple)
+        summaries = if result.log_density > -Inf
+            map(accumulators) do acc
+                compute_point_summary(acc; result...)
             end
+        else
+            map(_ -> nothing, accumulators)
         end
+        return (; result..., item.key_tuple, item.θ, item.is_integration, summaries)
+    end
 
-        # Update progress for every grid point
-        progress_callback(
-            status = "Evaluating grid points",
-            points_evaluated = points_evaluated,
-            total_points = total_grid_points,
-            current_θ = θ_off_axis,
-            log_density = result.log_density
-        )
+    # Build lookup of off-axis results by grid index
+    off_axis_result_map = Dict{Int, eltype(off_axis_results)}()
+    for (i, grid_idx) in enumerate(off_axis_indices)
+        off_axis_result_map[grid_idx] = off_axis_results[i]
+    end
+
+    # Phase 2: Assemble grid in iteration order + accumulate (SEQUENTIAL)
+    for (idx, key_tuple) in enumerate(grid_keys_in_order)
+        if haskey(point_lookup, key_tuple)
+            push!(raw_interpolation_points, point_lookup[key_tuple])
+        elseif haskey(off_axis_result_map, idx)
+            r = off_axis_result_map[idx]
+            if mode_log_density - r.log_density <= max_log_drop
+                push!(raw_interpolation_points, GridPoint(r.θ, r.log_density, r.marginal_result))
+
+                if r.is_integration && !isempty(accumulators)
+                    for (acc, summary) in zip(accumulators, r.summaries)
+                        if summary !== nothing
+                            accumulate!(acc, summary; is_mode = false)
+                        end
+                    end
+                    push!(accumulator_call_keys, r.key_tuple)
+                end
+            end
+
+            progress_callback(
+                status = "Evaluating grid points",
+                points_evaluated = idx,
+                total_points = total_grid_points,
+                current_θ = r.θ,
+                log_density = r.log_density
+            )
+        end
     end
 
     # Step 5: Compute permutation from grid order → accumulator call order.

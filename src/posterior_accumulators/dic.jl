@@ -1,4 +1,4 @@
-export DICAccumulator
+export DICAccumulator, DICPointSummary
 
 """
     DICAccumulator()
@@ -34,6 +34,23 @@ mutable struct DICAccumulator <: PosteriorAccumulator
     DIC::Float64
 
     DICAccumulator() = new(Float64[], 0.0, 0.0, 0.0, 0.0)
+end
+
+"""Pre-computed summary data for one grid point (DIC)."""
+struct DICPointSummary
+    deviance::Float64
+end
+
+function compute_point_summary(acc::DICAccumulator; total_loglikelihood, kwargs...)
+    return DICPointSummary(-2 * total_loglikelihood)
+end
+
+function accumulate!(acc::DICAccumulator, summary::DICPointSummary; is_mode::Bool = false, kwargs...)
+    push!(acc.deviances, summary.deviance)
+    if is_mode
+        acc.mode_deviance = summary.deviance
+    end
+    return nothing
 end
 
 function accumulate!(
