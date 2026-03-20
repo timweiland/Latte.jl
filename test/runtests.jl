@@ -10,6 +10,7 @@ using Aqua
     end
 
     include("parallel/runtests.jl")
+    include("differentiation/runtests.jl")
     include("utils/runtests.jl")
     include("hyperparameters/runtests.jl")
     include("distributions/runtests.jl")

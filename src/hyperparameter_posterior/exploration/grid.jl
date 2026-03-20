@@ -134,7 +134,8 @@ function explore_hyperparameter_posterior(
         model::INLAModel, y, θ_star::WorkingHyperparameters, marginalization_method, marginalization_indices;
         progress_callback = nothing,
         accumulators::Tuple = (),
-        executor::ParallelExecutor = SequentialExecutor()
+        executor::ParallelExecutor = SequentialExecutor(),
+        diff_strategy::DifferentiationStrategy = ADStrategy()
     )
     integration_step_z = strategy.integration_step_z
     max_log_drop = strategy.max_log_drop
@@ -148,7 +149,7 @@ function explore_hyperparameter_posterior(
 
     # Step 1: Compute the transformation object
     progress_callback(status = "Computing reparameterization", dimensions = n_dim)
-    transform = compute_reparameterization(model, y, θ_star; executor = executor)
+    transform = compute_reparameterization(model, y, θ_star; executor = executor, diff_strategy = diff_strategy)
 
     # Step 2: Evaluate the mode point once, authoritatively
     progress_callback(status = "Evaluating mode point", mode = θ_star)
