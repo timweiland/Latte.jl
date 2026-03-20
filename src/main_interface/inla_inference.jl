@@ -70,7 +70,8 @@ function inla(
         mode_iterations::Int = 1000,
         progress::Bool = true,
         accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator()),
-        executor::ParallelExecutor = SequentialExecutor()
+        executor::ParallelExecutor = SequentialExecutor(),
+        diff_strategy::DifferentiationStrategy = ADStrategy()
     )
 
     # Pre-process missing observations for prediction
@@ -99,7 +100,8 @@ function inla(
         model_pred, y_obs;
         method = mode_method,
         collect_points = true,
-        progress_callback = mode_callback
+        progress_callback = mode_callback,
+        diff_strategy = diff_strategy
     )
 
     timing[:mode_finding] = time() - mode_start_time
@@ -115,7 +117,8 @@ function inla(
         model_pred, y_obs, θ_star, latent_marginalization_method, latent_indices;
         progress_callback = exploration_callback,
         accumulators = accumulators,
-        executor = executor
+        executor = executor,
+        diff_strategy = diff_strategy
     )
 
     timing[:exploration] = time() - exploration_start_time

@@ -141,7 +141,11 @@ Find the mode θ* of the hyperparameter posterior π(θ | y).
 # Details
 Optimization is performed in working (unconstrained) space. The mode is returned in working space.
 """
-function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_points = true, progress_callback = nothing)
+function find_hyperparameter_mode(
+        model::INLAModel, y;
+        method = BFGS(), collect_points = true, progress_callback = nothing,
+        diff_strategy::DifferentiationStrategy = ADStrategy()
+    )
     spec = model.hyperparameter_spec
 
     # Storage for optimization path points
@@ -199,7 +203,8 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
         allow_f_increases = true,  # Allow occasional increases during search
         callback = optim_callback  # Add progress callback
     )
-    result = Optim.optimize(objective, θ_init.θ, method, options)
+
+    result = _run_optimization(diff_strategy, objective, model, y, spec, θ_init, method, options)
 
     if !Optim.converged(result)
         @warn "Hyperparameter mode optimization did not converge"
@@ -212,4 +217,28 @@ function find_hyperparameter_mode(model::INLAModel, y; method = BFGS(), collect_
     else
         return θ_star, nothing, nothing
     end
+end
+
+function _run_optimization(::FiniteDiffStrategy, objective, model, y, spec, θ_init, method, options)
+    return Optim.optimize(objective, θ_init.θ, method, options)
+end
+
+function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_init, method, options)
+    # Clean objective for AD (no side effects, safe for Dual numbers)
+    function objective_clean(θ_vec)
+        θ = WorkingHyperparameters(θ_vec, spec)
+        logpdf_val = try
+            hyperparameter_logpdf(model, θ, y)
+        catch
+            oftype(θ_vec[1], -Inf)
+        end
+        return isfinite(logpdf_val) ? -logpdf_val : oftype(logpdf_val, Inf)
+    end
+
+    # Explicit gradient via DifferentiationInterface
+    function gradient!(G, θ_vec)
+        return copyto!(G, DifferentiationInterface.gradient(objective_clean, strategy.backend, θ_vec))
+    end
+
+    return Optim.optimize(objective, gradient!, θ_init.θ, method, options)
 end

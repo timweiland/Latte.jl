@@ -123,7 +123,8 @@ function explore_hyperparameter_posterior(
         marginalization_method, marginalization_indices;
         progress_callback = nothing,
         accumulators::Tuple = (),
-        executor::ParallelExecutor = SequentialExecutor()
+        executor::ParallelExecutor = SequentialExecutor(),
+        diff_strategy::DifferentiationStrategy = ADStrategy()
     )
     f0 = strategy.f0
     if progress_callback === nothing
@@ -134,7 +135,7 @@ function explore_hyperparameter_posterior(
 
     # Step 1: Compute reparameterization (same as grid approach)
     progress_callback(status = "Computing reparameterization", dimensions = d)
-    transform = compute_reparameterization(model, y, θ_star; executor = executor)
+    transform = compute_reparameterization(model, y, θ_star; executor = executor, diff_strategy = diff_strategy)
 
     # Step 2: Generate CCD points in z-space with f0 scaling
     z_points = generate_ccd_points(d; f0 = f0)

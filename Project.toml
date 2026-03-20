@@ -4,10 +4,12 @@ authors = ["Tim Weiland <tim@weiland-lahnstein.de> and contributors"]
 version = "1.0.0-DEV"
 
 [deps]
+ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 Bijectors = "76274a88-744f-5084-9051-94815aaf08c4"
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DataInterpolations = "82cc6244-b520-54b8-b5a6-8a565e85f1d0"
+DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 FastGaussQuadrature = "442a2c76-b920-505d-bb47-c5924d526838"
 FiniteDiff = "6a86dc24-6348-571c-b903-95158fe2bd41"
@@ -35,11 +37,13 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 IntegratedNestedLaplaceMakieExt = "Makie"
 
 [compat]
+ADTypes = "1"
 Aqua = "0.8"
 Bijectors = "0.15"
 ChainRulesCore = "1"
 DataFrames = "1"
 DataInterpolations = "8"
+DifferentiationInterface = "0.6, 0.7"
 Distributions = "0.25"
 FastGaussQuadrature = "1"
 FiniteDiff = "2"

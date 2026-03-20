@@ -23,6 +23,9 @@ export ObservationModel, ObservationLikelihood, ExponentialFamily,
 # Parallel execution infrastructure
 include("parallel/parallel.jl")
 
+# Differentiation strategies
+include("differentiation/differentiation.jl")
+
 # Include INLA-specific modules
 include("utils/selinv.jl")
 include("utils/owens_t.jl")

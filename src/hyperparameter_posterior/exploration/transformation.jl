@@ -58,7 +58,8 @@ Computes the reparameterization around the mode and returns it as a
 """
 function compute_reparameterization(
         model::INLAModel, y, θ_star::WorkingHyperparameters;
-        executor::ParallelExecutor = SequentialExecutor()
+        executor::ParallelExecutor = SequentialExecutor(),
+        diff_strategy::DifferentiationStrategy = ADStrategy()
     )
     logpdf_fn = θ_vec -> begin
         try
@@ -68,12 +69,7 @@ function compute_reparameterization(
         end
     end
 
-    # Compute the positive-definite negative Hessian of the log-posterior at the mode
-    # using adaptive step size selection (R-INLA-inspired 3pt vs 5pt stencil comparison).
-    # The standard FiniteDiff step size (≈ eps^(1/4) ≈ 1.2e-4) is too small for INLA
-    # models where numerical noise from the Gaussian approximation solve is well above
-    # machine epsilon.
-    H = adaptive_negative_hessian(logpdf_fn, θ_star.θ; executor = executor)
+    H = _compute_negative_hessian(diff_strategy, logpdf_fn, θ_star.θ; executor = executor)
     eigen_result = eigen(H)
 
     # Clamp non-positive eigenvalues as a fallback
