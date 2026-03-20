@@ -158,7 +158,7 @@ using SparseArrays
             model, [missing, missing, missing]
         )
 
-        # Augmented model (LTOM) with missing values
+        # Augmented model (LTOM) with missing values — should work (not throw)
         n_base = 5
         n_obs = 10
         A = randn(n_obs, n_base)
@@ -169,9 +169,11 @@ using SparseArrays
         end
         augmented_model = INLAModel(spec, base_model, ltom)
         y_with_missing = Union{Missing, Int}[1, missing, 3, 4, 5, 6, 7, 8, 9, 10]
-        @test_throws ArgumentError IntegratedNestedLaplace._prepare_for_prediction(
+        y_obs, model_pred, pred_info = IntegratedNestedLaplace._prepare_for_prediction(
             augmented_model, y_with_missing
         )
+        @test pred_info isa PredictionInfo
+        @test pred_info.prediction_indices == [2]
     end
 
     @testset "predicted_marginals and observed_marginals accessors" begin
