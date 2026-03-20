@@ -106,13 +106,25 @@ function _prepare_for_prediction(model::INLAModel, y::AbstractVector)
     end
 
     if model.augmentation_info !== nothing
-        throw(
-            ArgumentError(
-                "Prediction via missing values is not supported for augmented models " *
-                    "(LinearlyTransformedObservationModel). Prediction via missing values assumes " *
-                    "a 1:1 mapping between latent variables and observations."
-            )
+        # Augmented model: latent field is [η₁...η_n_obs; x_base₁...x_base_n_base].
+        # The observed_mask applies to y, which corresponds to the η part.
+        # We restrict the obs model to the observed η indices and build PredictionInfo
+        # so that prediction_indices point to the η's with missing observations.
+        aug = model.augmentation_info
+        observed_indices = findall(observed_mask)
+        prediction_info = PredictionInfo(n_latent, observed_mask)
+
+        y_obs = _extract_observed(y, observed_mask, model.observation_model)
+        new_obs_model = _restrict_obs_model_to_indices(model.observation_model, observed_indices)
+
+        model_processed = INLAModel(
+            model.hyperparameter_spec,
+            model.latent_prior,
+            new_obs_model,
+            model.augmentation_info
         )
+
+        return y_obs, model_processed, prediction_info
     end
 
     observed_indices = findall(observed_mask)
