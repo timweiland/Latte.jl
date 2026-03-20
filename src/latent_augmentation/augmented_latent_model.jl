@@ -251,9 +251,10 @@ function _sparse_block_matrix(top_left, top_right, bottom_right)
     n_total = n_obs + n_base
 
     # Assemble efficiently via coordinate format (I, J, V)
+    T = promote_type(eltype(top_left), eltype(top_right), eltype(bottom_right))
     Is = Int[]
     Js = Int[]
-    Vs = Float64[]
+    Vs = T[]
 
     # Top-left block (Q_η): diagonal matrix
     # Q_η = Q_η_scalar * I
