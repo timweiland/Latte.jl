@@ -208,9 +208,52 @@ function inla(
         exposure = nothing,
         kwargs...
     )
+    # Parse formula terms upfront — needed both for build_formula_components and
+    # for storing the parsed terms so predict() can reuse them with predict_cols.
+    sch = StatsModels.schema(formula, df)
+    tf = StatsModels.apply_schema(formula, sch)
+    rhs_terms = tf.rhs isa StatsModels.MatrixTerm ? tf.rhs.terms : [tf.rhs]
+    random_terms = Tuple(t for t in rhs_terms if !_is_fixed_effect_term(t))
+    fixed_terms = Tuple(t for t in rhs_terms if _is_fixed_effect_term(t))
+
     _, y, obs_model, latent_model = build_formula_components(formula, df; family, trials, exposure)
     model = INLAModel(hyperparam_spec, latent_model, obs_model)
-    return inla(
-        model, y; kwargs...
+    result = inla(model, y; kwargs...)
+
+    # Attach formula metadata for predict()
+    return _with_options(
+        result, (
+            formula = formula,
+            formula_random_terms = random_terms,
+            formula_fixed_terms = fixed_terms,
+        )
     )
 end
+
+"""Reconstruct an INLAResult with extra fields merged into options."""
+function _with_options(result::INLAResult, extra::NamedTuple)
+    return INLAResult(
+        result.hyperparameter_marginals,
+        result.latent_marginals,
+        result.hyperparameter_mode,
+        result.exploration,
+        result.convergence,
+        result.computation_time,
+        result.model,
+        merge(result.options, extra),
+        result.accumulators;
+        linear_predictor_marginals = result.linear_predictor_marginals,
+        base_latent_marginals = result.base_latent_marginals,
+        augmentation_info = result.augmentation_info,
+        prediction_info = result.prediction_info,
+        kld = result.kld
+    )
+end
+
+# Helper for partitioning formula terms into random vs fixed effects.
+# Defaults to false (= random effect) so that custom GMRF term types
+# are automatically treated as random effects.
+_is_fixed_effect_term(::Any) = false
+_is_fixed_effect_term(::StatsModels.InterceptTerm) = true
+_is_fixed_effect_term(::StatsModels.ContinuousTerm) = true
+_is_fixed_effect_term(::StatsModels.CategoricalTerm) = true

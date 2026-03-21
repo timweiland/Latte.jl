@@ -149,34 +149,20 @@ fig
 # ## Posterior spatial field
 #
 # Now we project the estimated field onto a regular grid for visualisation.
-# The `evaluation_matrix` constructs the FEM projector from mesh nodes to
-# arbitrary prediction locations.
-
-matern_component = base_model.matern
+# The `predict` function handles all the details: it reuses the trained SPDE
+# mesh, builds the FEM projector, includes the intercept, and delegates to
+# `linear_combinations` — which gives proper posterior marginals that account
+# for hyperparameter uncertainty.
 
 n_grid = 50
 xs_grid = range(0, 10; length = n_grid)
 ys_grid = range(0, 10; length = n_grid)
-grid_coords = hcat(
-    vec([x for x in xs_grid, _ in ys_grid]),
-    vec([y for _ in xs_grid, y in ys_grid])
+
+pred_df = DataFrame(
+    x = vec([x for x in xs_grid, _ in ys_grid]),
+    y_coord = vec([y for _ in xs_grid, y in ys_grid])
 )
-
-# Build the projector from the full augmented latent field to prediction locations.
-# The augmented field is [η₁...η_nobs; x_mesh₁...x_mesh_n; x_intercept].
-# We project x_mesh through the FEM evaluation matrix and add the intercept.
-A_mesh = evaluation_matrix(matern_component, grid_coords)
-n_total = length(result.latent_marginals)
-n_pred = size(A_mesh, 1)
-using SparseArrays
-A_pred = spzeros(n_pred, n_total)
-A_pred[:, (n_obs + 1):(n_obs + n_mesh)] = A_mesh   # mesh DOFs
-A_pred[:, n_obs + n_mesh + 1] .= 1.0                # intercept
-
-# `linear_combinations` gives proper posterior marginals that account for
-# hyperparameter uncertainty — a weighted mixture of Gaussians across
-# integration points, rather than a plug-in estimate.
-pred_marginals = linear_combinations(result, A_pred)
+pred_marginals = predict(result, pred_df)
 
 field_mean = [mean(m) for m in pred_marginals]
 field_sd = [std(m) for m in pred_marginals]
