@@ -87,10 +87,11 @@ using Distributions
 f = @formula(y ~ 1 + Matern()(x, y_coord))
 
 # The formula interface renames hyperparameters to avoid collisions when combining
-# multiple latent components. For the Matérn model, the range parameter becomes
-# `range_matern`.
+# multiple latent components. For the Matérn model, the field precision becomes
+# `τ_matern` and the range parameter becomes `range_matern`.
 hp = @hyperparams begin
     (σ ~ PCPrior.Sigma(5.0, α = 0.01), transform = log)
+    (τ_matern ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
     (range_matern ~ Exponential(5.0), transform = log, space = natural)
 end
 
@@ -106,16 +107,18 @@ hp_df
 
 #
 
-println("True values: σ = $σ_noise, range = $range_true")
+# The true field precision is τ = 1/σ_field²:
+τ_true = 1 / σ_field^2
+println("True values: σ = $σ_noise, τ = $τ_true, range = $range_true")
 
 # The posterior distributions show the uncertainty in these estimates:
 
-fig = Figure(size = (700, 300))
+fig = Figure(size = (1000, 300))
 for (i, (name, truth, label)) in enumerate(
         zip(
-            [:σ, :range_matern],
-            [σ_noise, range_true],
-            ["Noise σ", "Spatial range"]
+            [:σ, :τ_matern, :range_matern],
+            [σ_noise, τ_true, range_true],
+            ["Noise σ", "Field precision τ", "Spatial range"]
         )
     )
     ax = Axis(fig[1, i]; title = label, xlabel = "value", ylabel = "density")

@@ -54,7 +54,13 @@ accel = [
     0.0, 10.7, 10.7, -26.8, -14.7, -13.3, 0.0, 10.7, -14.7, -2.7, 10.7,
     -2.7, 10.7,
 ]
-df = DataFrame(times = times, accel = accel)
+# The RW2 model needs integer-valued time indices. We rank the unique time
+# values so the random walk operates on evenly spaced discrete positions.
+unique_times = sort(unique(times))
+time_to_idx = Dict(t => i for (i, t) in enumerate(unique_times))
+time_idx = [time_to_idx[t] for t in times]
+
+df = DataFrame(times = times, time_idx = time_idx, accel = accel)
 first(df, 5)
 
 # Let's visualise the data:
@@ -105,7 +111,7 @@ using IntegratedNestedLaplace
 using Distributions
 
 rw2 = RandomWalk(2)
-f_rw2 = @formula(accel ~ 1 + rw2(times))
+f_rw2 = @formula(accel ~ 1 + rw2(time_idx))
 
 # We need priors for two hyperparameters. The observation noise standard
 # deviation $\sigma$ gets a PC prior saying "I believe there is only a 1%
