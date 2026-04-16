@@ -12,8 +12,12 @@ function create_test_model(k = 10)
         return spdiagm(-1 => -ρ * ones(k - 1), 0 => ones(k), 1 => -ρ * ones(k - 1))
     end
 
-    # Hyperparameter prior (matching the working example)
-    θ_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
+    # Hyperparameter spec (matching test_grid.jl)
+    spec = @hyperparams begin
+        (σ_gmrf ~ Gamma(2, 3), transform = log, space = natural)
+        (ρ ~ Uniform(0, 0.5), transform = logit, space = natural)
+        σ = 1.0e-6  # Fixed parameter
+    end
 
     # Function to create latent GMRF (matching the working example)
     function latent_gmrf(; σ_gmrf, ρ, kwargs...)
@@ -26,7 +30,7 @@ function create_test_model(k = 10)
     obs_model = ExponentialFamily(Normal)
 
     # Create INLA model
-    return INLAModel(θ_prior, FunctionLatentModel(latent_gmrf, k), obs_model), k
+    return INLAModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model), k
 end
 
 # Generate test data using the exact same method as the working example
@@ -36,25 +40,34 @@ function generate_stable_test_data(model, k)
     ρ_true = 0.4        # autocorrelation coefficient
 
     # Generate synthetic data (exactly from the example)
-    x_gt = rand(latent_gmrf(model, (σ_gmrf = σ_gmrf_true, ρ = ρ_true)))
-    y_gt = rand(likelihood(model.observation_model, x_gt, (σ = 1.0e-6,)))
+    x_gt = rand(model.latent_prior(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
+    y_gt = rand(conditional_distribution(model.observation_model, x_gt; σ = 1.0e-6))
 
     return y_gt, [σ_gmrf_true, ρ_true]
 end
 
+# Minimal spec for mock tests that exercise GridPoint/ReparameterizationTransform
+# directly with hand-crafted vectors rather than running inference.
+mock_spec(n) = HyperparameterSpec(
+    free = NamedTuple(Symbol(:p, i) => Hyperparameter(Normal(0, 1)) for i in 1:n)
+)
+
 @testset "create_weighted_mixtures Tests" begin
     @testset "Valid WeightedMixture Creation" begin
-        # Create mock marginal results
+        # Create mock marginal results (kld_values is the 5th positional arg)
         component1 = Normal(0.0, 1.0)
         component2 = Normal(1.0, 1.5)
         component3 = Normal(-0.5, 0.8)
 
-        mock_marginal_result1 = MarginalResult([1, 2], [component1, component2], GaussianMarginal(), 0.1)
-        mock_marginal_result2 = MarginalResult([1, 2], [component2, component3], GaussianMarginal(), 0.1)
-        mock_marginal_result3 = MarginalResult([1, 2], [component3, component1], GaussianMarginal(), 0.1)
+        mock_marginal_result1 = MarginalResult([1, 2], [component1, component2], GaussianMarginal(), 0.1, zeros(2))
+        mock_marginal_result2 = MarginalResult([1, 2], [component2, component3], GaussianMarginal(), 0.1, zeros(2))
+        mock_marginal_result3 = MarginalResult([1, 2], [component3, component1], GaussianMarginal(), 0.1, zeros(2))
 
         # Create GridPoints with marginal results
-        θ1, θ2, θ3 = [1.0, 2.0], [1.5, 2.5], [2.0, 3.0]
+        spec2 = mock_spec(2)
+        θ1 = WorkingHyperparameters([1.0, 2.0], spec2)
+        θ2 = WorkingHyperparameters([1.5, 2.5], spec2)
+        θ3 = WorkingHyperparameters([2.0, 3.0], spec2)
         points = [
             GridPoint(θ1, -1.0, mock_marginal_result1),
             GridPoint(θ2, -1.5, mock_marginal_result2),
@@ -74,13 +87,13 @@ end
         )
 
         # Test the function
-        mixtures = create_weighted_mixtures(exploration)
+        mixture_result = create_weighted_mixtures(exploration)
 
-        @test length(mixtures) == 2  # Two variables
-        @test all(m isa WeightedMixture for m in mixtures)
+        @test length(mixture_result.marginals) == 2  # Two variables
+        @test all(m isa WeightedMixture for m in mixture_result.marginals)
 
         # Test that weights are properly normalized
-        for mixture in mixtures
+        for mixture in mixture_result.marginals
             @test sum(mixture.weights) ≈ 1.0 atol = 1.0e-10
         end
     end
@@ -88,18 +101,19 @@ end
     @testset "Weight Normalization" begin
         # Test that weights are computed correctly from log densities
         component = Normal(0.0, 1.0)
-        mock_marginal_result = MarginalResult([1], [component], GaussianMarginal(), 0.1)
+        mock_marginal_result = MarginalResult([1], [component], GaussianMarginal(), 0.1, zeros(1))
 
         # Create points with different log densities
+        spec1 = mock_spec(1)
         points = [
-            GridPoint([1.0], -1.0, mock_marginal_result),
-            GridPoint([2.0], -2.0, mock_marginal_result),
-            GridPoint([3.0], -3.0, mock_marginal_result),
+            GridPoint(WorkingHyperparameters([1.0], spec1), -1.0, mock_marginal_result),
+            GridPoint(WorkingHyperparameters([2.0], spec1), -2.0, mock_marginal_result),
+            GridPoint(WorkingHyperparameters([3.0], spec1), -3.0, mock_marginal_result),
         ]
 
         integration_indices = [1, 2, 3]
         mock_transform = ReparameterizationTransform(
-            [1.0],
+            WorkingHyperparameters([1.0], spec1),
             reshape([1.0], 1, 1),
             Diagonal([1.0]),
             reshape([1.0], 1, 1)
@@ -108,25 +122,26 @@ end
             points, integration_indices, mock_transform, -10.0
         )
 
-        mixtures = create_weighted_mixtures(exploration)
+        mixture_result = create_weighted_mixtures(exploration)
 
         # Check that weights correspond to normalized exponentials of log densities
         expected_weights = exp.([-1.0, -2.0, -3.0])
         expected_weights ./= sum(expected_weights)
 
-        @test mixtures[1].weights ≈ expected_weights
+        @test mixture_result.marginals[1].weights ≈ expected_weights
     end
 
     @testset "Error Handling" begin
         # Test error when no marginal results available
+        spec1 = mock_spec(1)
         points = [
-            GridPoint([1.0], -1.0, nothing),
-            GridPoint([2.0], -2.0, nothing),
+            GridPoint(WorkingHyperparameters([1.0], spec1), -1.0, nothing),
+            GridPoint(WorkingHyperparameters([2.0], spec1), -2.0, nothing),
         ]
 
         integration_indices = [1, 2]
         mock_transform = ReparameterizationTransform(
-            [1.0],
+            WorkingHyperparameters([1.0], spec1),
             reshape([1.0], 1, 1),
             Diagonal([1.0]),
             reshape([1.0], 1, 1)
@@ -139,67 +154,68 @@ end
     end
 
     @testset "Empty Integration Points" begin
-        # Test error when no integration points
-        points = [GridPoint([1.0], -1.0, nothing)]
-        integration_indices = Int[]
+        # The GridExploration constructor itself rejects empty integration indices
+        # (via _compute_integration_bounds), so the error surfaces at construction
+        # rather than inside create_weighted_mixtures.
+        spec1 = mock_spec(1)
+        points = [GridPoint(WorkingHyperparameters([1.0], spec1), -1.0, nothing)]
         mock_transform = ReparameterizationTransform(
-            [1.0],
+            WorkingHyperparameters([1.0], spec1),
             reshape([1.0], 1, 1),
             Diagonal([1.0]),
             reshape([1.0], 1, 1)
         )
-        exploration = GridExploration(
-            points, integration_indices, mock_transform, -10.0
-        )
 
-        @test_throws AssertionError create_weighted_mixtures(exploration)
+        @test_throws ErrorException GridExploration(points, Int[], mock_transform, -10.0)
     end
 end
 
-@testset "evaluate_logpdf_and_marginals Tests" begin
+@testset "evaluate_at_grid_point Tests" begin
     model, k = create_test_model(50)  # Stable model for testing
 
     # Generate stable test data
-    y_test, θ_true = generate_stable_test_data(model, k)
-    θ_test = θ_true
+    y_test, _ = generate_stable_test_data(model, k)
+
+    # Evaluate at the mode, which is returned as a WorkingHyperparameters.
+    θ_mode, _, _ = find_hyperparameter_mode(model, y_test)
 
     @testset "Basic Function Call" begin
-        log_density, marginal_result = evaluate_logpdf_and_marginals(
-            model, y_test, θ_test;
+        result = evaluate_at_grid_point(
+            model, y_test, θ_mode;
             compute_marginals = false
         )
 
-        @test log_density isa Float64
-        @test marginal_result === nothing
+        @test result.log_density isa Float64
+        @test result.marginal_result === nothing
     end
 
     @testset "Marginal Computation" begin
         # Test with marginals enabled
-        log_density, marginal_result = evaluate_logpdf_and_marginals(
-            model, y_test, θ_test;
+        result = evaluate_at_grid_point(
+            model, y_test, θ_mode;
             compute_marginals = true,
             marginalization_method = GaussianMarginal(),
             marginalization_indices = 1:5
         )
 
-        @test log_density isa Float64
-        @test marginal_result !== nothing
-        @test hasfield(typeof(marginal_result), :marginals)
+        @test result.log_density isa Float64
+        @test result.marginal_result !== nothing
+        @test hasfield(typeof(result.marginal_result), :marginals)
     end
 
     @testset "Consistency Check" begin
         # Test that same θ gives same log_density regardless of marginal computation
-        log_density1, _ = evaluate_logpdf_and_marginals(
-            model, y_test, θ_test; compute_marginals = false
+        result1 = evaluate_at_grid_point(
+            model, y_test, θ_mode; compute_marginals = false
         )
 
-        log_density2, _ = evaluate_logpdf_and_marginals(
-            model, y_test, θ_test;
+        result2 = evaluate_at_grid_point(
+            model, y_test, θ_mode;
             compute_marginals = true,
             marginalization_method = GaussianMarginal(),
             marginalization_indices = 1:5
         )
 
-        @test log_density1 ≈ log_density2 atol = 1.0e-10
+        @test result1.log_density ≈ result2.log_density atol = 1.0e-10
     end
 end

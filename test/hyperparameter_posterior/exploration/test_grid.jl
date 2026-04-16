@@ -41,7 +41,7 @@ function generate_stable_test_data(model, k)
 
     # Generate synthetic data (exactly from the example)
     x_gt = rand(model.latent_prior(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
-    y_gt = rand(conditional_distribution(model.observation_model, x_gt))
+    y_gt = rand(conditional_distribution(model.observation_model, x_gt; σ = 1.0e-6))
 
     return y_gt, [σ_gmrf_true, ρ_true]
 end
@@ -61,10 +61,11 @@ end
 
     @testset "Basic Exploration" begin
         # Test exploring in positive direction along first dimension
-        keyed_points = explore_half_axis_by_steps(
+        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5  # Smaller subset for testing
+            GaussianMarginal(), 1:5,  # Smaller subset for testing
+            (), NTuple{2, Int}[]
         )
 
         @test length(keyed_points) > 0
@@ -80,10 +81,11 @@ end
 
     @testset "Negative Direction" begin
         # Test exploring in negative direction
-        keyed_points = explore_half_axis_by_steps(
+        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, -1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5
+            GaussianMarginal(), 1:5,
+            (), NTuple{2, Int}[]
         )
 
         @test length(keyed_points) > 0
@@ -97,10 +99,11 @@ end
 
     @testset "Log Density Decreases" begin
         # Test that log density decreases as we move away from mode
-        keyed_points = explore_half_axis_by_steps(
+        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5
+            GaussianMarginal(), 1:5,
+            (), NTuple{2, Int}[]
         )
 
         if length(keyed_points) > 1
@@ -115,10 +118,11 @@ end
 
     @testset "Stopping Condition" begin
         # Test with small max_log_drop to ensure early stopping
-        keyed_points = explore_half_axis_by_steps(
+        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 0.5, 2,  # Small max_log_drop
-            GaussianMarginal(), 1:5
+            GaussianMarginal(), 1:5,
+            (), NTuple{2, Int}[]
         )
 
         # Should stop earlier with smaller max_log_drop
@@ -130,10 +134,11 @@ end
 
     @testset "Integration Point Marking" begin
         # Test that integration points are correctly marked
-        keyed_points = explore_half_axis_by_steps(
+        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,  # interpolation_subdivisions = 2
-            GaussianMarginal(), 1:5
+            GaussianMarginal(), 1:5,
+            (), NTuple{2, Int}[]
         )
 
         # Check that marginal results are computed for integration points
@@ -162,10 +167,11 @@ end
     mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test)
 
     @testset "Basic Dimension Exploration" begin
-        point_lookup, step_range = explore_dimension_and_build_lookup(
+        point_lookup, step_range = IntegratedNestedLaplace.explore_dimension_and_build_lookup(
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5
+            GaussianMarginal(), 1:5,
+            (), NTuple{2, Int}[]
         )
 
         @test point_lookup isa Dict
@@ -178,10 +184,11 @@ end
     end
 
     @testset "Lookup Table Structure" begin
-        point_lookup, step_range = explore_dimension_and_build_lookup(
+        point_lookup, step_range = IntegratedNestedLaplace.explore_dimension_and_build_lookup(
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5
+            GaussianMarginal(), 1:5,
+            (), NTuple{2, Int}[]
         )
 
         # Check that all keys in the lookup table have the right structure
@@ -199,10 +206,11 @@ end
 
     @testset "Symmetry Check" begin
         # Test that exploration finds points in both directions
-        point_lookup, step_range = explore_dimension_and_build_lookup(
+        point_lookup, step_range = IntegratedNestedLaplace.explore_dimension_and_build_lookup(
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5
+            GaussianMarginal(), 1:5,
+            (), NTuple{2, Int}[]
         )
 
         step_indices = [key[1] for key in keys(point_lookup)]
@@ -294,9 +302,9 @@ end
         )
 
         # Check that exploration respects parameter bounds
+        # point.θ is already a WorkingHyperparameters (no re-wrapping needed).
         for point in exploration.grid_points
-            θ_w = WorkingHyperparameters(point.θ, model.hyperparameter_spec)
-            θ_n = convert(NaturalHyperparameters, θ_w)
+            θ_n = convert(NaturalHyperparameters, point.θ)
             θ_n_nt = convert(NamedTuple, θ_n)
             @test θ_n_nt.σ_gmrf > 0      # Sigma should be positive
             @test 0 <= θ_n_nt.ρ <= 0.5   # Rho should be in [0, 0.5]
