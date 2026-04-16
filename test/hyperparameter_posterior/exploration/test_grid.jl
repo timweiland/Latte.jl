@@ -30,7 +30,7 @@ function create_test_model(k = 100)  # Smaller than example but still stable
     obs_model = ExponentialFamily(Normal)
 
     # Create INLA model
-    return INLAModel(spec, latent_gmrf, obs_model), k
+    return INLAModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model), k
 end
 
 # Generate test data using the exact same method as the working example

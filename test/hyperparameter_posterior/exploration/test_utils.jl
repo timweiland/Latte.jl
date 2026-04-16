@@ -16,10 +16,8 @@ function create_test_model(k = 10)
     θ_prior = HyperparameterPrior((σ_gmrf = Gamma(2, 3), ρ = Uniform(0, 0.5)), fixed = (σ = 1.0e-6,))
 
     # Function to create latent GMRF (matching the working example)
-    function latent_gmrf(θ)
-        σ = θ.σ_gmrf
-        ρ = θ.ρ
-        Q = ar_precision(ρ, k) ./ σ^2
+    function latent_gmrf(; σ_gmrf, ρ, kwargs...)
+        Q = ar_precision(ρ, k) ./ σ_gmrf^2
         μ = zeros(k)
         return GMRF(μ, Q)
     end
@@ -28,7 +26,7 @@ function create_test_model(k = 10)
     obs_model = ExponentialFamily(Normal)
 
     # Create INLA model
-    return INLAModel(θ_prior, latent_gmrf, obs_model), k
+    return INLAModel(θ_prior, FunctionLatentModel(latent_gmrf, k), obs_model), k
 end
 
 # Generate test data using the exact same method as the working example
