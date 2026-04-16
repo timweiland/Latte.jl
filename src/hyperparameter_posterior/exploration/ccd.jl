@@ -171,7 +171,8 @@ function explore_hyperparameter_posterior(
     progress_callback(status = "CCD evaluation complete", n_evaluated = length(eval_results))
 
     # Step 5: Build grid points + accumulate (SEQUENTIAL)
-    grid_points = Vector{GridPoint}()
+    GP = GridPoint{typeof(θ_star)}
+    grid_points = Vector{GP}()
     sizehint!(grid_points, n_design)
 
     mode_raw_logp = NaN
