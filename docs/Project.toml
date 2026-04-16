@@ -1,10 +1,12 @@
 [deps]
 AlgebraOfGraphics = "cbdf2221-f076-402e-a563-3d30da359d67"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 CodecBzip2 = "523fee87-0ab8-5b00-afb7-3ecf72e48cfd"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 DocumenterVitepress = "4710194d-e776-4893-9690-8d956a29c365"
+Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 GaussianMarkovRandomFields = "d5f06795-35bb-4323-9f0b-405ef76cfc5b"
 GeoInterface = "cf35fbd7-0cd7-5166-be24-54bfbe79505f"
 IntegratedNestedLaplace = "2effd5db-7349-4d38-b544-5bd2c9a6c666"
