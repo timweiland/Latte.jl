@@ -290,9 +290,9 @@ using Random
         @test sum(weights) ≈ 1.0
 
         # Latent marginals via create_weighted_mixtures should work
-        marginals = create_weighted_mixtures(exploration)
-        @test length(marginals) == k
-        for m in marginals
+        mixture_result = create_weighted_mixtures(exploration)
+        @test length(mixture_result.marginals) == k
+        for m in mixture_result.marginals
             @test isfinite(mean(m))
             @test std(m) > 0
         end

@@ -44,6 +44,7 @@ function evaluate_at_grid_point(
             x_star = nothing,
             obs_loglikelihoods = nothing,
             total_loglikelihood = -Inf,
+            obs_lik = nothing,
         )
     end
 
@@ -94,6 +95,7 @@ function evaluate_at_grid_point(
                 x_star = nothing,
                 obs_loglikelihoods = nothing,
                 total_loglikelihood = -Inf,
+                obs_lik = nothing,
             )
         else
             rethrow(e)

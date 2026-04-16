@@ -42,15 +42,12 @@ function explore_half_axis_by_steps(
         point = GridPoint(θ_test, result.log_density, result.marginal_result)
 
         # Call accumulators eagerly and record the grid key for ordering
-        if is_integration_point && !isempty(accumulators)
+        if is_integration_point && !isempty(accumulators) && result.log_density > -Inf
             for acc in accumulators
-                accumulate!(
-                    acc;
-                    result...,
-                    θ = θ_test,
-                    y = y,
-                    is_mode = false
-                )
+                summary = compute_point_summary(acc; result...)
+                if summary !== nothing
+                    accumulate!(acc, summary; is_mode = false)
+                end
             end
             push!(accumulator_call_keys, key)
         end
@@ -164,16 +161,13 @@ function explore_hyperparameter_posterior(
     mode_key = ntuple(_ -> 0, n_dim)
     accumulator_call_keys = NTuple{n_dim, Int}[mode_key]
 
-    # Call accumulators for the mode point
-    if !isempty(accumulators)
+    # Call accumulators for the mode point (two-phase: compute summary, then accumulate)
+    if !isempty(accumulators) && mode_log_density > -Inf
         for acc in accumulators
-            accumulate!(
-                acc;
-                mode_result...,
-                θ = θ_star,
-                y = y,
-                is_mode = true
-            )
+            summary = compute_point_summary(acc; mode_result...)
+            if summary !== nothing
+                accumulate!(acc, summary; is_mode = true)
+            end
         end
     end
 
