@@ -49,9 +49,8 @@ using Distributions
         # Latent prior function
         function my_latent_prior(; τ)
             Q = Diagonal(fill(τ, n_base))
-            return GMRF(zeros(n_base), Q)
+            return (zeros(n_base), Q)
         end
-
         # Design matrix
         A = randn(n_obs, n_base)
 

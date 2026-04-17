@@ -21,9 +21,8 @@ using HCubature
         function latent(; α, kwargs...)
             n = 5
             Q = spdiagm(0 => fill(α, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Bernoulli)
         model = INLAModel(spec, FunctionLatentModel(latent, 5), obs_model)
         y = [true, false, true, false, true]
@@ -52,15 +51,14 @@ using HCubature
 
         function latent(; σ_gmrf, ρ, kwargs...)
             Q = ar_precision(ρ, k) ./ σ_gmrf^2
-            return GMRF(zeros(k), Q)
+            return (zeros(k), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(latent, k), obs_model)
 
         σ_gmrf_true = 2.5
         ρ_true = 0.4
-        x_gt = rand(latent(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
+        x_gt = rand(GMRF(latent(; σ_gmrf = σ_gmrf_true, ρ = ρ_true)...))
         y = rand(conditional_distribution(obs_model, x_gt; σ = spec.fixed.σ))
 
         θ_star, _, _ = find_hyperparameter_mode(model, y)

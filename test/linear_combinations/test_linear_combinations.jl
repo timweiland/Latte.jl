@@ -16,7 +16,7 @@ using LinearAlgebra
         end
         function latent_func(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
         return INLAModel(spec, FunctionLatentModel(latent_func, n), obs_model)
@@ -34,7 +34,7 @@ using LinearAlgebra
             d .+= 0.01  # small ridge for positive definiteness
             off = fill(-τ, n - 1)
             Q = spdiagm(0 => d, 1 => off, -1 => off)
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
         return INLAModel(spec, FunctionLatentModel(latent_func, n), obs_model)

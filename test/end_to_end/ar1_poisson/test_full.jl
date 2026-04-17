@@ -40,14 +40,13 @@ using LDLFactorizations
         μ₀ = log(1000.0)
         μ = μ₀ .* [ρ^i for i in 1:k]
 
-        return GMRF(μ, Q)
+        return (μ, Q)
     end
-
     obs_model = ExponentialFamily(Poisson)
     model = INLAModel(θ_prior, latent_gmrf, obs_model)
 
     # Generate synthetic data
-    x_gt = rand(latent_gmrf((τ_gmrf_log = τ_gmrf_log_true, η = η_true)))
+    x_gt = rand(GMRF(latent_gmrf((τ_gmrf_log = τ_gmrf_log_true, η = η_true)...)))
     y_gt = rand(obs_model; x = x_gt, θ_named = NamedTuple())
 
     # Run INLA inference
@@ -62,9 +61,8 @@ using LDLFactorizations
         Q = ar_precision(ρ, k) .* τ
         μ₀ = log(1000.0)
         μ = μ₀ .* [ρ^i for i in 1:k]
-        return GMRF(μ, Q)
+        return (μ, Q)
     end
-
     @model function mcmc_model(y)
         τ_gmrf_log ~ Normal(0, 1)
         η ~ Normal(atanh(0.95), desired_std_dev)

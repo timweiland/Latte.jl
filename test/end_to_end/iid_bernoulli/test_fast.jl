@@ -33,9 +33,8 @@ using Statistics
     function latent_gmrf(; log_τ, kwargs...)
         τ = exp(log_τ)
         Q = spdiagm(0 => fill(τ, n))
-        return GMRF(zeros(n), Q)
+        return (zeros(n), Q)
     end
-
     obs_model = ExponentialFamily(Bernoulli)
     model = INLAModel(spec, FunctionLatentModel(latent_gmrf, n), obs_model)
 

@@ -2,13 +2,19 @@ using Distributions
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: LatentModel, hyperparameters, precision_matrix, constraints, model_name
 using Random
+using SparseArrays: SparseMatrixCSC, sparse
 
 import GaussianMarkovRandomFields: hyperparameters, precision_matrix, constraints, model_name
 import Distributions: mean
 
 export INLAModel, FunctionLatentModel, latent_gmrf, log_joint_density
 
-# Helper type for wrapping functions as LatentModels
+# Helper type for wrapping functions as LatentModels.
+#
+# Contract: `func(; kwargs...) -> (μ::AbstractVector, Q::SparseMatrixCSC)`
+# returning the mean vector and sparse precision matrix directly. This avoids
+# constructing a full GMRF (and its eager LinearSolve/CHOLMOD factor) on every
+# hyperparameter evaluation, which is pure waste for the workspace path.
 struct FunctionLatentModel{FuncType} <: LatentModel
     func::FuncType
     n::Int
@@ -16,16 +22,25 @@ end
 
 Base.length(flm::FunctionLatentModel) = flm.n
 hyperparameters(flm::FunctionLatentModel) = NamedTuple()  # Function handles its own params
-function precision_matrix(flm::FunctionLatentModel; kwargs...)
-    gmrf = flm.func(; kwargs...)
-    return GaussianMarkovRandomFields.precision_matrix(gmrf)
-end
-function Distributions.mean(flm::FunctionLatentModel; kwargs...)
-    gmrf = flm.func(; kwargs...)
-    return Distributions.mean(gmrf)
-end
+precision_matrix(flm::FunctionLatentModel; kwargs...) = last(flm.func(; kwargs...))
+Distributions.mean(flm::FunctionLatentModel; kwargs...) = first(flm.func(; kwargs...))
 constraints(flm::FunctionLatentModel; kwargs...) = nothing
-(flm::FunctionLatentModel)(; kwargs...) = flm.func(; kwargs...)
+
+# Cold path: caller wants a full GMRF. Pay the LinearSolve/CHOLMOD init once.
+function (flm::FunctionLatentModel)(; kwargs...)
+    μ, Q = flm.func(; kwargs...)
+    return GMRF(μ, Q)
+end
+
+# Warm path: caller has a workspace. Single `func` call, reuse the workspace's
+# symbolic factorization, no throwaway GMRF allocation.
+function (flm::FunctionLatentModel)(ws::GaussianMarkovRandomFields.GMRFWorkspace; kwargs...)
+    μ, Q = flm.func(; kwargs...)
+    Q_sparse = Q isa SparseMatrixCSC ? Q : sparse(Q)
+    GaussianMarkovRandomFields.update_precision!(ws, Q_sparse)
+    return GaussianMarkovRandomFields.WorkspaceGMRF(μ, Q_sparse, ws)
+end
+
 model_name(::FunctionLatentModel) = :function_latent
 
 """
@@ -223,6 +238,17 @@ Get the latent field GMRF for given hyperparameters θ_named.
 """
 function latent_gmrf(model::INLAModel, θ_named)
     return model.latent_prior(; θ_named...)
+end
+
+"""
+    latent_gmrf(model::INLAModel, ws, θ_named)
+
+Construct the latent GMRF through a persistent workspace `ws`. Reuses the
+workspace's Cholesky symbolic factorization; only the numeric values are
+refactorized. Use this form inside hot loops over hyperparameters.
+"""
+function latent_gmrf(model::INLAModel, ws, θ_named)
+    return model.latent_prior(ws; θ_named...)
 end
 
 """

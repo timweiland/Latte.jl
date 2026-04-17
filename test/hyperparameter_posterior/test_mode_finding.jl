@@ -20,9 +20,8 @@ using FiniteDiff
 
             function simple_latent(; τ, kwargs...)
                 Q = spdiagm(0 => fill(τ, n))  # White noise precision
-                return GMRF(zeros(n), Q)
+                return (zeros(n), Q)
             end
-
             obs_model = ExponentialFamily(Bernoulli)  # No hyperparameters
             return INLAModel(spec, FunctionLatentModel(simple_latent, n), obs_model)
         end
@@ -30,17 +29,18 @@ using FiniteDiff
         model = create_simple_model(5)
         y_test = [true, false, true, false, true]
         spec = model.hyperparameter_spec
+        ws = make_workspace(model.latent_prior; τ = 1.0)
 
         # Test basic hyperparameter_logpdf evaluation
         θ_test_vec = [log(1.5)]  # Working space
         θ_test = WorkingHyperparameters(θ_test_vec, spec)
-        logpdf_val = hyperparameter_logpdf(model, θ_test, y_test)
+        logpdf_val = hyperparameter_logpdf(model, θ_test, y_test; ws = ws)
         @test isfinite(logpdf_val)
 
         # Test that function works at various points
         θ_low_vec = [log(0.5)]
         θ_low = WorkingHyperparameters(θ_low_vec, spec)
-        logpdf_low = hyperparameter_logpdf(model, θ_low, y_test)
+        logpdf_low = hyperparameter_logpdf(model, θ_low, y_test; ws = ws)
         @test isfinite(logpdf_low)
     end
 
@@ -53,9 +53,8 @@ using FiniteDiff
         function precision_latent(; σ, kwargs...)
             n = 8
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(precision_latent, 8), obs_model)
 
@@ -77,9 +76,10 @@ using FiniteDiff
         # Test optimality condition: gradient should be ≈ 0 at mode
         # Use the working space vector for gradient computation
         θ_star_vec = θ_star.θ
+        ws = make_workspace(model.latent_prior; σ = 1.0)
         function objective(θ_vec)
             θ_w = WorkingHyperparameters(θ_vec, spec)
-            return hyperparameter_logpdf(model, θ_w, y_test)
+            return hyperparameter_logpdf(model, θ_w, y_test; ws = ws)
         end
 
         grad_at_mode = FiniteDiff.finite_difference_gradient(objective, θ_star_vec)
@@ -105,9 +105,8 @@ using FiniteDiff
         function test_latent(; τ, kwargs...)
             n = 6
             Q = spdiagm(0 => fill(τ, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Bernoulli)
         model = INLAModel(spec, FunctionLatentModel(test_latent, 6), obs_model)
 
@@ -119,8 +118,9 @@ using FiniteDiff
         # Test that the mode is actually better than nearby points
         δ = 0.1
         θ_nearby = θ_star1 .+ δ  # Broadcasting preserves WorkingHyperparameters type
-        logpdf_mode = hyperparameter_logpdf(model, θ_star1, y_test)
-        logpdf_nearby = hyperparameter_logpdf(model, θ_nearby, y_test)
+        ws = make_workspace(model.latent_prior; τ = 1.0)
+        logpdf_mode = hyperparameter_logpdf(model, θ_star1, y_test; ws = ws)
+        logpdf_nearby = hyperparameter_logpdf(model, θ_nearby, y_test; ws = ws)
 
         @test logpdf_mode >= logpdf_nearby  # Mode should be at least as good
     end
@@ -134,9 +134,8 @@ using FiniteDiff
         function exponential_latent(; λ, kwargs...)
             n = 3
             Q = spdiagm(0 => fill(λ + 1.0e-6, n))  # Add small regularization
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Bernoulli)
         model = INLAModel(spec, FunctionLatentModel(exponential_latent, 3), obs_model)
 

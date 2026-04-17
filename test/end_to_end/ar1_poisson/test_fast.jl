@@ -50,9 +50,8 @@ using Statistics
         Q = ar_precision(ρ, k) .* τ_gmrf
         μ₀ = log(1000.0)
         μ = μ₀ .* [ρ^i for i in 1:k]
-        return GMRF(μ, Q)
+        return (μ, Q)
     end
-
     obs_model = ExponentialFamily(Poisson)
     model = INLAModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model)
 

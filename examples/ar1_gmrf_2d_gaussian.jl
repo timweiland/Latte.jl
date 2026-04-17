@@ -51,9 +51,8 @@ function latent_gmrf(; σ_gmrf, ρ, kwargs...)
     # Zero mean (simpler than the example which used μ*ones(k))
     μ = zeros(k)
 
-    return GMRF(μ, Q)
+    return (μ, Q)
 end
-
 # Observation model (Normal with identity link)
 obs_model = ExponentialFamily(Normal)
 
@@ -63,7 +62,7 @@ inla_model = INLAModel(spec, latent_gmrf, obs_model)
 println("\nGenerating synthetic data...")
 
 # Generate synthetic data
-x_gt = rand(latent_gmrf(; σ_gmrf = σ_gmrf_true, ρ = ρ_true))
+x_gt = rand(GMRF(latent_gmrf(; σ_gmrf = σ_gmrf_true, ρ = ρ_true)...))
 y_gt = rand(conditional_distribution(obs_model, x_gt))
 
 println("Generated $(length(y_gt)) observations")

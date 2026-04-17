@@ -146,6 +146,23 @@ function _compute_conditional_column(base_gmrf::AbstractGMRF, conditioning_index
     return _solve_with_cache!(lsc, e_i)
 end
 
+# WorkspaceGMRF path: use the workspace's solver (reuses factorization without
+# a LinearSolve cache). Constrained case adds a Woodbury correction against the
+# workspace's embedded ConstraintInfo.
+function _compute_conditional_column(base_gmrf::GaussianMarkovRandomFields.WorkspaceGMRF, conditioning_index::Int)
+    GaussianMarkovRandomFields.ensure_loaded!(base_gmrf)
+    n = length(base_gmrf)
+    e_i = zeros(n)
+    e_i[conditioning_index] = 1.0
+    base = GaussianMarkovRandomFields.workspace_solve(base_gmrf.workspace, e_i)
+    if base_gmrf.constraints === nothing
+        return base
+    end
+    ci = base_gmrf.constraints
+    correction = ci.A_tilde_T * (ci.L_c \ (ci.A_tilde_T' * e_i))
+    return base - correction
+end
+
 function _compute_conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int)
     lsc = GaussianMarkovRandomFields.linsolve_cache(constrained_gmrf.base_gmrf)
     return _compute_conditional_column(constrained_gmrf, conditioning_index, lsc)

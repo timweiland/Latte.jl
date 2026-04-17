@@ -22,9 +22,8 @@ using FiniteDiff
             Q_off = fill(-ρ, n - 1)
             Q = spdiagm(0 => Q_diag, 1 => Q_off, -1 => Q_off)
             Q[1, 1] = 1.0; Q[n, n] = 1.0  # Boundary conditions
-            return GMRF(zeros(n), Symmetric(Q))
+            return (zeros(n), Symmetric(Q))
         end
-
         obs_model = ExponentialFamily(Bernoulli)
         model = INLAModel(spec, FunctionLatentModel(correlation_latent, 5), obs_model)
 
@@ -34,7 +33,8 @@ using FiniteDiff
         θ_star, _, _ = find_hyperparameter_mode(model, y_test)
 
         # Compute reparameterization (pass WorkingHyperparameters directly)
-        transform = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star)
+        ws = make_workspace(model.latent_prior; ρ = 0.5)
+        transform = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star; ws = ws)
 
         @test size(transform.H) == (1, 1)
         @test size(transform.V) == (1, 1)
@@ -59,9 +59,8 @@ using FiniteDiff
         function variance_latent(; σ, kwargs...)
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(variance_latent, 6), obs_model)
 
@@ -116,9 +115,8 @@ using FiniteDiff
         function two_variance_latent(; σ_latent, kwargs...)
             n = 4
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)  # Uses σ
         model = INLAModel(spec, FunctionLatentModel(two_variance_latent, 4), obs_model)
 

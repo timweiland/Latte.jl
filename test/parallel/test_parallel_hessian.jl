@@ -50,14 +50,15 @@ using LinearAlgebra
         end
         function latent(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         model = INLAModel(spec, FunctionLatentModel(latent, n), ExponentialFamily(Normal))
         y = randn(n)
         θ_star, _, _ = find_hyperparameter_mode(model, y)
 
-        t_seq = compute_reparameterization(model, y, θ_star; executor = SequentialExecutor())
-        t_par = compute_reparameterization(model, y, θ_star; executor = ThreadedExecutor(nworkers = 2))
+        ws = make_workspace(model.latent_prior; σ = 1.0)
+        t_seq = compute_reparameterization(model, y, θ_star; ws = ws, executor = SequentialExecutor())
+        t_par = compute_reparameterization(model, y, θ_star; ws = ws, executor = ThreadedExecutor(nworkers = 2))
 
         @test t_seq.H ≈ t_par.H atol = 1.0e-10
         @test t_seq.V ≈ t_par.V atol = 1.0e-10

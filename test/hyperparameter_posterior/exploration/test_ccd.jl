@@ -238,7 +238,7 @@ using Random
             # Precision = (1/σ_latent² + 1/τ²) on diagonal
             prec = 1.0 / σ_latent^2 + 1.0 / τ^2
             Q = spdiagm(0 => fill(prec, k))
-            return GMRF(zeros(k), Q)
+            return (zeros(k), Q)
         end
         obs_model = ExponentialFamily(Normal)  # Uses σ hyperparameter
         return INLAModel(spec, FunctionLatentModel(latent_func, k), obs_model), k
@@ -314,7 +314,7 @@ using Random
             end
             function latent_func(; σ, kwargs...)
                 Q = spdiagm(0 => fill(1 / σ^2, n))
-                return GMRF(zeros(n), Q)
+                return (zeros(n), Q)
             end
             return INLAModel(spec, FunctionLatentModel(latent_func, n), ExponentialFamily(Normal))
         end

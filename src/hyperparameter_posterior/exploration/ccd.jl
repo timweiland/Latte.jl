@@ -133,9 +133,15 @@ function explore_hyperparameter_posterior(
 
     d = length(θ_star)
 
+    # One-time symbolic factorization at the mode — reused across every CCD
+    # design-point evaluation below. Shared by reference; SequentialExecutor
+    # is race-free, ThreadedExecutor requires Phase-2 pool support.
+    θ_star_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_star))
+    ws = make_workspace(model.latent_prior; θ_star_nt...)
+
     # Step 1: Compute reparameterization (same as grid approach)
     progress_callback(status = "Computing reparameterization", dimensions = d)
-    transform = compute_reparameterization(model, y, θ_star; executor = executor, diff_strategy = diff_strategy)
+    transform = compute_reparameterization(model, y, θ_star; ws = ws, executor = executor, diff_strategy = diff_strategy)
 
     # Step 2: Generate CCD points in z-space with f0 scaling
     z_points = generate_ccd_points(d; f0 = f0)
@@ -152,9 +158,10 @@ function explore_hyperparameter_posterior(
     eval_results = pmap_executor(work_items, executor) do item
         result = evaluate_at_grid_point(
             model, y, item.θ;
+            ws = ws,
             compute_marginals = true,
             marginalization_method = marginalization_method,
-            marginalization_indices = marginalization_indices
+            marginalization_indices = marginalization_indices,
         )
         # Compute accumulator summaries while ga/obs_lik are still alive
         # Skip for rejected points (log_density == -Inf, ga/obs_lik are nothing)

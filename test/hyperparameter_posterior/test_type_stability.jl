@@ -16,17 +16,17 @@ using SparseArrays
         function beta_latent(; τ_scale, kwargs...)
             n = 2
             Q = spdiagm(0 => fill(τ_scale, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Bernoulli)
         model = INLAModel(spec, FunctionLatentModel(beta_latent, 2), obs_model)
 
         y_test = [true, true]  # Biased data to avoid boundary issues
         θ_test_working = WorkingHyperparameters([1.0], spec)
+        ws = make_workspace(model.latent_prior; τ_scale = 1.0)
 
         # Test type stability of key functions
-        @inferred Float64 hyperparameter_logpdf(model, θ_test_working, y_test)
+        @inferred Float64 hyperparameter_logpdf(model, θ_test_working, y_test; ws = ws)
 
         θ_star, _, _ = find_hyperparameter_mode(model, y_test; collect_points = false)
         @inferred WorkingHyperparameters find_hyperparameter_mode(model, y_test; collect_points = false)[1]
@@ -44,22 +44,22 @@ using SparseArrays
         function allocation_test_latent(; σ, kwargs...)
             n = 5
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(allocation_test_latent, 5), obs_model)
 
         y_test = randn(5)
         θ_test_working = WorkingHyperparameters([1.5], spec)
+        ws = make_workspace(model.latent_prior; σ = 1.0)
 
         # Warm up
-        hyperparameter_logpdf(model, θ_test_working, y_test)
+        hyperparameter_logpdf(model, θ_test_working, y_test; ws = ws)
 
         # Test that repeated calls don't allocate excessively
         initial_memory = Base.gc_bytes()
         for i in 1:10
-            hyperparameter_logpdf(model, θ_test_working, y_test)
+            hyperparameter_logpdf(model, θ_test_working, y_test; ws = ws)
         end
         final_memory = Base.gc_bytes()
 
@@ -79,9 +79,8 @@ using SparseArrays
         function latent_1d(; τ, kwargs...)
             n = 3
             Q = spdiagm(0 => fill(τ, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Bernoulli)
         model_1d = INLAModel(spec_1d, FunctionLatentModel(latent_1d, 3), obs_model)
         y_test_1d = [true, false, true]
@@ -98,9 +97,8 @@ using SparseArrays
         function latent_2d(; α, β, kwargs...)
             n = 4
             Q = spdiagm(0 => [α, α, β, β])
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         model_2d = INLAModel(spec_2d, FunctionLatentModel(latent_2d, 4), obs_model)
         y_test_2d = [true, false, true, false]
 
@@ -117,9 +115,8 @@ using SparseArrays
         function latent_3d(; γ₁, γ₂, γ₃, kwargs...)
             n = 6
             Q = spdiagm(0 => [γ₁, γ₁, γ₂, γ₂, γ₃, γ₃])
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         model_3d = INLAModel(spec_3d, FunctionLatentModel(latent_3d, 6), obs_model)
         y_test_3d = [true, false, true, false, true, false]
 
@@ -141,9 +138,8 @@ using SparseArrays
         function extreme_latent(; σ, kwargs...)
             n = 3
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(extreme_latent, 3), obs_model)
 
@@ -176,9 +172,8 @@ using SparseArrays
             for i in 2:(n - 1)
                 Q[i, i] = 1 + 2 * ρ^2
             end
-            return GMRF(zeros(n), Symmetric(Q))
+            return (zeros(n), Symmetric(Q))
         end
-
         obs_model = ExponentialFamily(Bernoulli)
         model = INLAModel(spec, FunctionLatentModel(consistent_latent, 4), obs_model)
 
