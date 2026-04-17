@@ -58,11 +58,17 @@ Cache for efficient evaluation of Laplace approximation marginals.
 - `μ`: Precomputed mean
 - `σ`: Precomputed standard deviations
 - `prior_gmrf`: Original prior GMRF (before observations)
+- `Q_prior_block`: Precomputed prior precision restricted to the active set —
+  reused to build Q_conditional at every spline node
+- `conditional_workspace`: Persistent GMRFWorkspace keyed to Q_prior_block's
+  sparsity pattern. Reused across all spline-node evaluations for this
+  cache, saving the CHOLMOD symbolic + numeric factorization that a fresh
+  `GMRF(μ, Q_conditional)` would otherwise pay per call.
 
 This struct caches the expensive computations that are independent of x_i,
 allowing efficient evaluation at multiple points.
 """
-struct LaplaceApproximationCache{G, O, P}
+struct LaplaceApproximationCache{G, O, P, Qb, W}
     base_gmrf::G
     obs_lik::O
     conditioning_index::Int
@@ -71,6 +77,8 @@ struct LaplaceApproximationCache{G, O, P}
     μ::Vector{Float64}  # Precomputed mean
     σ::Vector{Float64}  # Precomputed standard deviations
     prior_gmrf::P  # Original prior GMRF (complete with mean and precision)
+    Q_prior_block::Qb  # Prior precision restricted to active_set (pattern-stable)
+    conditional_workspace::W
 end
 
 """
@@ -89,10 +97,32 @@ Create a cache for Laplace approximation computations.
 """
 function LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf; threshold = 0.001)
     conditional_column, active_set = setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold = threshold)
+    Q_prior_block, conditional_workspace = _build_conditional_workspace(prior_gmrf, obs_lik, μ, active_set)
     return LaplaceApproximationCache(
         base_gmrf, obs_lik, conditioning_index,
-        conditional_column, active_set, μ, σ, prior_gmrf
+        conditional_column, active_set, μ, σ, prior_gmrf,
+        Q_prior_block, conditional_workspace
     )
+end
+
+"""
+    _build_conditional_workspace(prior_gmrf, obs_lik, μ, active_set)
+
+Precompute the prior-precision restriction to `active_set` and allocate a
+`GMRFWorkspace` whose sparsity pattern covers `Q_prior_block - H_obs_block`.
+This workspace is then reused across every spline-node evaluation of
+`evaluate_laplace_logpdf`, avoiding a fresh CHOLMOD factor per call.
+"""
+function _build_conditional_workspace(prior_gmrf, obs_lik, μ::Vector{Float64}, active_set::Vector{Int})
+    Q_prior = precision_matrix(prior_gmrf)
+    Q_prior_block = submatrix(Q_prior, active_set)
+    # Seed the workspace at μ so any initial factor is well-defined. The
+    # pattern is what matters; values get rewritten per spline node.
+    H_obs = loghessian(μ, obs_lik)
+    H_obs_block = submatrix(H_obs, active_set)
+    Q_init = sparse(Q_prior_block - H_obs_block)
+    ws = GaussianMarkovRandomFields.GMRFWorkspace(Q_init)
+    return Q_prior_block, ws
 end
 
 """
@@ -103,9 +133,11 @@ The `lsc` should be obtained via `linsolve_cache(base_gmrf)`.
 """
 function LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf, lsc::LinearSolve.LinearCache; threshold = 0.001)
     conditional_column, active_set = setup_conditional_computation(base_gmrf, conditioning_index, μ, σ, lsc; threshold = threshold)
+    Q_prior_block, conditional_workspace = _build_conditional_workspace(prior_gmrf, obs_lik, μ, active_set)
     return LaplaceApproximationCache(
         base_gmrf, obs_lik, conditioning_index,
-        conditional_column, active_set, μ, σ, prior_gmrf
+        conditional_column, active_set, μ, σ, prior_gmrf,
+        Q_prior_block, conditional_workspace
     )
 end
 
@@ -251,31 +283,31 @@ Construct the conditional GMRF π̃_GG(x_{R_i} | x_i, θ, y) for the Laplace app
 A GMRF representing π̃_GG(x_{active_set} | x_i, θ, y) with proper mean and precision.
 """
 function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{Int}, μ_conditional::Vector{Float64})
-    # Use the original prior precision matrix (not the Gaussian approximation precision)
-    Q_prior = precision_matrix(cache.prior_gmrf)
-
-    # Extract conditional mean and prior precision for active set
+    # Extract conditional mean for active set
     μ_cond_active = μ_conditional[active_set]
-    # Use structure-preserving indexing to avoid densification
-    Q_prior_block = submatrix(Q_prior, active_set)
 
     # Compute observation Hessian at conditional configuration
     H_obs = loghessian(μ_conditional, cache.obs_lik)
     # Use structure-preserving indexing (H_obs is typically Diagonal for exponential family)
     H_obs_block = submatrix(H_obs, active_set)
 
-    # Build conditional precision matrix: Q_prior - H_obs (correct formula)
-    # Result stays sparse since both blocks are sparse
-    Q_conditional = Symmetric(Q_prior_block - H_obs_block)
+    # Build conditional precision values: Q_prior_block (cached, pattern-stable)
+    # minus H_obs_block. Sparsity pattern matches what the cached workspace
+    # was built against, so `update_precision!` inside the WorkspaceGMRF
+    # constructor only rewrites nzval — no fresh CHOLMOD factor.
+    Q_conditional = sparse(cache.Q_prior_block - H_obs_block)
 
-    base_gmrf = GMRF(μ_cond_active, Q_conditional)
-    constraint_mat = zeros(1, length(base_gmrf))
+    # Construct a constrained workspace-backed GMRF directly. This reuses
+    # the cache's symbolic factorization across all spline-node evaluations.
     c_idx = only(indexin(cache.conditioning_index, active_set))
+    constraint_mat = zeros(1, length(μ_cond_active))
     constraint_mat[1, c_idx] = 1.0
     constraint_vec = [μ_conditional[c_idx]]
-    out_gmrf = ConstrainedGMRF(base_gmrf, constraint_mat, constraint_vec)
 
-    return out_gmrf
+    return GaussianMarkovRandomFields.WorkspaceGMRF(
+        μ_cond_active, Q_conditional, cache.conditional_workspace,
+        constraint_mat, constraint_vec,
+    )
 end
 
 """
