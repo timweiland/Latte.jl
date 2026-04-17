@@ -85,9 +85,8 @@ using ADTypes
 
         function precision_latent(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         model = INLAModel(spec, FunctionLatentModel(precision_latent, n), ExponentialFamily(Normal))
         y_test = randn(n)
 
@@ -101,8 +100,9 @@ using ADTypes
             @test isfinite(θ_star_ad[1])
 
             # Check optimality: gradient should be ≈ 0 at mode
+            ws = make_workspace(model.latent_prior; σ = 1.0)
             objective(θ_vec) = -hyperparameter_logpdf(
-                model, WorkingHyperparameters(θ_vec, spec), y_test
+                model, WorkingHyperparameters(θ_vec, spec), y_test; ws = ws
             )
             grad = ForwardDiff.gradient(objective, θ_star_ad.θ)
             @test norm(grad) < 1.0e-3
@@ -131,16 +131,17 @@ using ADTypes
         end
         function latent(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         model = INLAModel(spec, FunctionLatentModel(latent, n), ExponentialFamily(Normal))
         y = randn(n)
         θ_star, _, _ = find_hyperparameter_mode(model, y)
+        ws = make_workspace(model.latent_prior; σ = 1.0)
 
         @testset "ADStrategy produces valid reparameterization" begin
             t = compute_reparameterization(
                 model, y, θ_star;
-                diff_strategy = ADStrategy()
+                ws = ws, diff_strategy = ADStrategy(),
             )
             @test all(isfinite, t.H)
             @test issymmetric(t.H) || t.H ≈ t.H'
@@ -149,11 +150,11 @@ using ADTypes
         @testset "ADStrategy matches FiniteDiffStrategy" begin
             t_ad = compute_reparameterization(
                 model, y, θ_star;
-                diff_strategy = ADStrategy()
+                ws = ws, diff_strategy = ADStrategy(),
             )
             t_fd = compute_reparameterization(
                 model, y, θ_star;
-                diff_strategy = FiniteDiffStrategy()
+                ws = ws, diff_strategy = FiniteDiffStrategy(),
             )
             @test t_ad.H ≈ t_fd.H atol = 0.1
             @test t_ad.V ≈ t_fd.V atol = 0.1
@@ -162,11 +163,11 @@ using ADTypes
         @testset "ADStrategy with executor" begin
             t_seq = compute_reparameterization(
                 model, y, θ_star;
-                diff_strategy = ADStrategy(), executor = SequentialExecutor()
+                ws = ws, diff_strategy = ADStrategy(), executor = SequentialExecutor(),
             )
             t_par = compute_reparameterization(
                 model, y, θ_star;
-                diff_strategy = ADStrategy(), executor = ThreadedExecutor(nworkers = 2)
+                ws = ws, diff_strategy = ADStrategy(), executor = ThreadedExecutor(nworkers = 2),
             )
             @test t_par.H ≈ t_seq.H atol = 1.0e-10
         end
@@ -179,7 +180,7 @@ using ADTypes
         end
         model = INLAModel(
             spec,
-            FunctionLatentModel((; τ, kwargs...) -> GMRF(zeros(n), spdiagm(0 => fill(τ, n))), n),
+            FunctionLatentModel((; τ, kwargs...) -> (zeros(n), spdiagm(0 => fill(τ, n))), n),
             ExponentialFamily(Bernoulli)
         )
         y = rand(Bool, n)

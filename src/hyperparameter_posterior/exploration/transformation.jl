@@ -58,12 +58,13 @@ Computes the reparameterization around the mode and returns it as a
 """
 function compute_reparameterization(
         model::INLAModel, y, θ_star::WorkingHyperparameters;
+        ws,
         executor::ParallelExecutor = SequentialExecutor(),
-        diff_strategy::DifferentiationStrategy = ADStrategy()
+        diff_strategy::DifferentiationStrategy = ADStrategy(),
     )
     logpdf_fn = θ_vec -> begin
         try
-            hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y)
+            hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y; ws = ws)
         catch
             -Inf
         end

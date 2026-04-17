@@ -19,13 +19,15 @@ function create_test_model(k = 10)
         σ = 1.0e-6  # Fixed parameter
     end
 
-    # Function to create latent GMRF (matching the working example)
+    # Function to create latent GMRF (matching the working example).
+    # Scale nzval in place rather than broadcasting `./` so the sparsity pattern
+    # stays stable under Float64 overflow (required by GMRFWorkspace).
     function latent_gmrf(; σ_gmrf, ρ, kwargs...)
-        Q = ar_precision(ρ, k) ./ σ_gmrf^2
+        Q = ar_precision(ρ, k)
+        Q.nzval ./= σ_gmrf^2
         μ = zeros(k)
-        return GMRF(μ, Q)
+        return (μ, Q)
     end
-
     # Observation model
     obs_model = ExponentialFamily(Normal)
 
@@ -179,10 +181,15 @@ end
     # Evaluate at the mode, which is returned as a WorkingHyperparameters.
     θ_mode, _, _ = find_hyperparameter_mode(model, y_test)
 
+    # One workspace reused across the testset
+    θ_mode_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_mode))
+    ws = make_workspace(model.latent_prior; θ_mode_nt...)
+
     @testset "Basic Function Call" begin
         result = evaluate_at_grid_point(
             model, y_test, θ_mode;
-            compute_marginals = false
+            ws = ws,
+            compute_marginals = false,
         )
 
         @test result.log_density isa Float64
@@ -193,9 +200,10 @@ end
         # Test with marginals enabled
         result = evaluate_at_grid_point(
             model, y_test, θ_mode;
+            ws = ws,
             compute_marginals = true,
             marginalization_method = GaussianMarginal(),
-            marginalization_indices = 1:5
+            marginalization_indices = 1:5,
         )
 
         @test result.log_density isa Float64
@@ -206,14 +214,15 @@ end
     @testset "Consistency Check" begin
         # Test that same θ gives same log_density regardless of marginal computation
         result1 = evaluate_at_grid_point(
-            model, y_test, θ_mode; compute_marginals = false
+            model, y_test, θ_mode; ws = ws, compute_marginals = false,
         )
 
         result2 = evaluate_at_grid_point(
             model, y_test, θ_mode;
+            ws = ws,
             compute_marginals = true,
             marginalization_method = GaussianMarginal(),
-            marginalization_indices = 1:5
+            marginalization_indices = 1:5,
         )
 
         @test result1.log_density ≈ result2.log_density atol = 1.0e-10

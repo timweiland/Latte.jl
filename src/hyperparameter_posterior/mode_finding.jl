@@ -70,7 +70,10 @@ This is the INLA approximation to the hyperparameter posterior.
 - Main implementation is for `WorkingHyperparameters` (working space)
 - `NaturalHyperparameters` converts to working space and adds Jacobian correction
 """
-function hyperparameter_logpdf(model::INLAModel, θ::WorkingHyperparameters, y, ga = nothing; x0 = nothing)
+function hyperparameter_logpdf(
+        model::INLAModel, θ::WorkingHyperparameters, y, ga = nothing;
+        ws, x0 = nothing,
+    )
     # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
 
     # Evaluate prior in working space
@@ -84,7 +87,7 @@ function hyperparameter_logpdf(model::INLAModel, θ::WorkingHyperparameters, y, 
     θ_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ))
 
     obs_lik = model.observation_model(y; θ_nt...)
-    latent_prior = latent_gmrf(model, θ_nt)
+    latent_prior = latent_gmrf(model, ws, θ_nt)
 
     # Use provided Gaussian approximation or compute it
     if ga === nothing
@@ -112,10 +115,10 @@ function hyperparameter_logpdf(model::INLAModel, θ::WorkingHyperparameters, y, 
     return joint_logpdf - gaussian_logpdf
 end
 
-function hyperparameter_logpdf(model::INLAModel, θ::NaturalHyperparameters, y, ga = nothing)
+function hyperparameter_logpdf(model::INLAModel, θ::NaturalHyperparameters, y, ga = nothing; ws)
     # Convert to working space and evaluate
     θ_working = convert(WorkingHyperparameters, θ)
-    log_p_working = hyperparameter_logpdf(model, θ_working, y, ga)
+    log_p_working = hyperparameter_logpdf(model, θ_working, y, ga; ws = ws)
 
     # Add Jacobian correction to get natural-space density
     return log_p_working + logdetjac(θ)
@@ -152,12 +155,19 @@ function find_hyperparameter_mode(
     mode_points = WorkingHyperparameters[]
     mode_logdensities = Float64[]
 
+    # Initial guess (mode of hyperparameter prior in working space)
+    θ_init = initial_hyperparameter_guess(spec)
+    θ_init_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_init))
+
+    # One-time symbolic factorization — reused across every θ iteration below.
+    ws = make_workspace(model.latent_prior; θ_init_nt...)
+
     # Objective function (negative log-density for minimization)
     function objective(θ_vec)
         θ = WorkingHyperparameters(θ_vec, spec)
         logpdf_val = 0.0
         try
-            logpdf_val = hyperparameter_logpdf(model, θ, y)
+            logpdf_val = hyperparameter_logpdf(model, θ, y; ws = ws)
         catch e
             return Inf
         end
@@ -173,9 +183,6 @@ function find_hyperparameter_mode(
 
         return -logpdf_val  # Minimize negative log-density
     end
-
-    # Initial guess (mode of hyperparameter prior in working space)
-    θ_init = initial_hyperparameter_guess(spec)
 
     # Handle progress callback
     if progress_callback === nothing
@@ -204,7 +211,7 @@ function find_hyperparameter_mode(
         callback = optim_callback  # Add progress callback
     )
 
-    result = _run_optimization(diff_strategy, objective, model, y, spec, θ_init, method, options)
+    result = _run_optimization(diff_strategy, objective, model, y, spec, θ_init, ws, method, options)
 
     if !Optim.converged(result)
         @warn "Hyperparameter mode optimization did not converge"
@@ -219,16 +226,17 @@ function find_hyperparameter_mode(
     end
 end
 
-function _run_optimization(::FiniteDiffStrategy, objective, model, y, spec, θ_init, method, options)
+function _run_optimization(::FiniteDiffStrategy, objective, model, y, spec, θ_init, ws, method, options)
     return Optim.optimize(objective, θ_init.θ, method, options)
 end
 
-function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_init, method, options)
-    # Clean objective for AD (no side effects, safe for Dual numbers)
+function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_init, ws, method, options)
+    # Clean objective for AD (no side effects, safe for Dual numbers).
+    # ws is captured by the closure; AD flows through the numeric values only.
     function objective_clean(θ_vec)
         θ = WorkingHyperparameters(θ_vec, spec)
         logpdf_val = try
-            hyperparameter_logpdf(model, θ, y)
+            hyperparameter_logpdf(model, θ, y; ws = ws)
         catch
             oftype(θ_vec[1], -Inf)
         end

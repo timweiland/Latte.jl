@@ -19,13 +19,15 @@ function create_test_model(k = 100)  # Smaller than example but still stable
         σ = 1.0e-6  # Fixed parameter
     end
 
-    # Function to create latent GMRF (updated for new API with keyword arguments)
+    # Function to create latent GMRF (updated for new API with keyword arguments).
+    # Scale nzval in place rather than broadcasting `./` so the sparsity pattern
+    # stays stable under Float64 overflow (required by GMRFWorkspace).
     function latent_gmrf(; σ_gmrf, ρ, kwargs...)
-        Q = ar_precision(ρ, k) ./ σ_gmrf^2
+        Q = ar_precision(ρ, k)
+        Q.nzval ./= σ_gmrf^2
         μ = zeros(k)
-        return GMRF(μ, Q)
+        return (μ, Q)
     end
-
     # Observation model (exactly from the example)
     obs_model = ExponentialFamily(Normal)
 
@@ -55,9 +57,13 @@ end
     # Find the actual mode
     θ_mode, _, _ = find_hyperparameter_mode(model, y_test)
 
+    # One workspace reused across the testset
+    θ_mode_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_mode))
+    ws = make_workspace(model.latent_prior; θ_mode_nt...)
+
     # Create transformation (pass WorkingHyperparameters directly)
-    transform = compute_reparameterization(model, y_test, θ_mode)
-    mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test)
+    transform = compute_reparameterization(model, y_test, θ_mode; ws = ws)
+    mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test; ws = ws)
 
     @testset "Basic Exploration" begin
         # Test exploring in positive direction along first dimension
@@ -65,7 +71,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,  # Smaller subset for testing
-            (), NTuple{2, Int}[]
+            (), NTuple{2, Int}[], ws
         )
 
         @test length(keyed_points) > 0
@@ -85,7 +91,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, -1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[]
+            (), NTuple{2, Int}[], ws
         )
 
         @test length(keyed_points) > 0
@@ -103,7 +109,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[]
+            (), NTuple{2, Int}[], ws
         )
 
         if length(keyed_points) > 1
@@ -122,7 +128,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 0.5, 2,  # Small max_log_drop
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[]
+            (), NTuple{2, Int}[], ws
         )
 
         # Should stop earlier with smaller max_log_drop
@@ -138,7 +144,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,  # interpolation_subdivisions = 2
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[]
+            (), NTuple{2, Int}[], ws
         )
 
         # Check that marginal results are computed for integration points
@@ -162,16 +168,20 @@ end
     # Find the actual mode
     θ_mode, _, _ = find_hyperparameter_mode(model, y_test)
 
+    # One workspace reused across the testset
+    θ_mode_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_mode))
+    ws = make_workspace(model.latent_prior; θ_mode_nt...)
+
     # Create transformation (pass WorkingHyperparameters directly)
-    transform = compute_reparameterization(model, y_test, θ_mode)
-    mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test)
+    transform = compute_reparameterization(model, y_test, θ_mode; ws = ws)
+    mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test; ws = ws)
 
     @testset "Basic Dimension Exploration" begin
         point_lookup, step_range = IntegratedNestedLaplace.explore_dimension_and_build_lookup(
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[]
+            (), NTuple{2, Int}[], ws
         )
 
         @test point_lookup isa Dict
@@ -188,7 +198,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[]
+            (), NTuple{2, Int}[], ws
         )
 
         # Check that all keys in the lookup table have the right structure
@@ -210,7 +220,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[]
+            (), NTuple{2, Int}[], ws
         )
 
         step_indices = [key[1] for key in keys(point_lookup)]

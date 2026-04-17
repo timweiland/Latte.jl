@@ -85,7 +85,7 @@ using Statistics
         end
         function latent_func_normal(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(latent_func_normal, n), obs_model)
@@ -120,7 +120,7 @@ using Statistics
         end
         function latent_func_poisson(; τ, kwargs...)
             Q = spdiagm(0 => fill(τ, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Poisson)
         model = INLAModel(spec, FunctionLatentModel(latent_func_poisson, n), obs_model)

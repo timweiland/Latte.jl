@@ -8,6 +8,15 @@ function selinv_mat(x::GMRF)
     return GaussianMarkovRandomFields.selinv(GaussianMarkovRandomFields.linsolve_cache(x))
 end
 
+function selinv_mat(x::GaussianMarkovRandomFields.WorkspaceGMRF)
+    GaussianMarkovRandomFields.ensure_loaded!(x)
+    base_selinv = GaussianMarkovRandomFields.selinv(x.workspace)
+    if x.constraints !== nothing
+        _update_sparsely!(base_selinv, x.constraints.A_tilde_T, x.constraints.L_c)
+    end
+    return base_selinv
+end
+
 # Woodbury correction for constrained selected inverse:
 #   Σ_constrained = Σ - Σ A' (A Σ A')⁻¹ A Σ
 # Only updates existing nonzero positions (the selected inverse sparsity pattern).

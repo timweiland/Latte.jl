@@ -12,10 +12,10 @@ Converts θ to natural space, builds the prior GMRF and observation likelihood,
 and returns the Gaussian approximation along with the natural-space NamedTuple.
 Used by `linear_combinations` and `rand(::INLAResult)`.
 """
-function _reconstruct_ga(model, y_obs, θ)
+function _reconstruct_ga(model, y_obs, θ, ws)
     θ_natural = convert(NaturalHyperparameters, θ)
     θ_natural_nt = convert(NamedTuple, θ_natural)
-    prior_gmrf = latent_gmrf(model, θ_natural_nt)
+    prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
     obs_lik = model.observation_model(y_obs; θ_natural_nt...)
     return gaussian_approximation(prior_gmrf, obs_lik), θ_natural_nt
 end
@@ -103,23 +103,27 @@ function linear_combinations(result::INLAResult, A::AbstractMatrix)
     integration_points = exploration.grid_points[exploration.integration_indices]
     n_points = length(integration_points)
 
+    # One-time symbolic factorization, reused for every integration point.
+    θ_ref_nt = convert(NamedTuple, convert(NaturalHyperparameters, integration_points[1].θ))
+    ws = make_workspace(model.latent_prior; θ_ref_nt...)
+
     # For each linear combination, collect Normal components across integration points
     components = [Vector{Normal{Float64}}(undef, n_points) for _ in 1:m]
 
     for (j, point) in enumerate(integration_points)
-        ga, _ = _reconstruct_ga(model, y_obs, point.θ)
+        ga, _ = _reconstruct_ga(model, y_obs, point.θ, ws)
         μ = mean(ga)
 
-        # Reuse the GA's linsolve cache (already has the factored precision matrix)
-        cache = GaussianMarkovRandomFields.linsolve_cache(ga)
+        # Solve Q \ aₖ using the workspace's factorization (or a fresh
+        # LinearSolve cache on the cold path).
+        base_ga = ga isa ConstrainedGMRF ? ga.base_gmrf : ga
+        GaussianMarkovRandomFields.ensure_loaded!(base_ga)
 
-        # Solve Q \ aₖ and compute mean/variance for each linear combination
         for k in 1:m
             a_k = view(A, k, :)
-            cache.b .= a_k
-            sol = solve!(cache)
+            sol_u = GaussianMarkovRandomFields.workspace_solve(base_ga.workspace, collect(a_k))
             z_mean = dot(a_k, μ)
-            z_var = dot(a_k, sol.u)
+            z_var = dot(a_k, sol_u)
             components[k][j] = Normal(z_mean, sqrt(max(z_var, 0.0)))
         end
     end

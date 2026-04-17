@@ -173,7 +173,7 @@ using Statistics
         end
         function latent_func_normal_cpo(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(latent_func_normal_cpo, n), obs_model)
@@ -218,7 +218,7 @@ using Statistics
         end
         function latent_func_poisson_cpo(; τ, kwargs...)
             Q = spdiagm(0 => fill(τ, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Poisson)
         model = INLAModel(spec, FunctionLatentModel(latent_func_poisson_cpo, n), obs_model)
@@ -279,7 +279,7 @@ using Statistics
         end
         function latent_func_nopit(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
         model = INLAModel(
             spec, FunctionLatentModel(latent_func_nopit, n), ExponentialFamily(Normal)

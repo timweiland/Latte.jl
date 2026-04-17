@@ -19,9 +19,8 @@ using Random
             n = 10
             Q = spdiagm(0 => fill(1 / σ^2, n))
             μ = zeros(n)
-            return GMRF(μ, Q)
+            return (μ, Q)
         end
-
         obs_model = ExponentialFamily(Normal)  # Requires σ hyperparameter
 
         # Test successful construction
@@ -45,9 +44,8 @@ using Random
         function latent_gmrf(; kwargs...)
             n = 5
             Q = spdiagm(0 => ones(n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)  # Requires σ
 
         # Should error due to missing σ
@@ -62,9 +60,8 @@ using Random
         function latent_gmrf_func(; σ, kwargs...)
             n = 8
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 8), obs_model)
 
@@ -93,9 +90,8 @@ using Random
         function latent_gmrf_func(; σ, kwargs...)
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 6), obs_model)
 
@@ -132,9 +128,8 @@ using Random
         function latent_gmrf_func(; σ_latent, kwargs...)
             n = 5
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)  # Uses σ
 
         # Test construction with parameter name matching
@@ -165,9 +160,8 @@ using Random
             diag_main = [τ; fill(τ * (1 + ϕ^2), n - 2); τ]
             diag_off = fill(-τ * ϕ, n - 1)
             Q = spdiagm(0 => diag_main, -1 => diag_off, 1 => diag_off)
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model_bernoulli = ExponentialFamily(Bernoulli)
         model_bernoulli = INLAModel(spec, FunctionLatentModel(ar1_latent, 8), obs_model_bernoulli)
 
@@ -189,9 +183,8 @@ using Random
         function latent_gmrf_func(; σ, kwargs...)
             n = 4
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 4), obs_model)
 
@@ -213,9 +206,8 @@ using Random
 
         function latent_gmrf_func(; σ, kwargs...)
             Q = spdiagm(0 => fill(1 / σ^2, 3))
-            return GMRF(zeros(3), Q)
+            return (zeros(3), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 3), obs_model)
 
@@ -237,9 +229,8 @@ using Random
             # Can use both free (σ) and fixed (df) parameters
             n = 6
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         # Custom observation model that uses both parameters
         struct TestObsModel <: ObservationModel end
         IntegratedNestedLaplace.hyperparameters(::TestObsModel) = (:σ, :df)
@@ -277,9 +268,8 @@ using Random
         function latent_gmrf_func(; σ, kwargs...)
             n = 5
             Q = spdiagm(0 => fill(1 / σ^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         obs_model = ExponentialFamily(Normal)
         model = INLAModel(spec, FunctionLatentModel(latent_gmrf_func, 5), obs_model)
 
@@ -315,9 +305,8 @@ using Random
         function latent_gmrf_fixed(; σ_latent, kwargs...)
             n = 3
             Q = spdiagm(0 => fill(1 / σ_latent^2, n))
-            return GMRF(zeros(n), Q)
+            return (zeros(n), Q)
         end
-
         model_fixed = INLAModel(spec_fixed, FunctionLatentModel(latent_gmrf_fixed, 3), obs_model)
         sample_fixed = rand(model_fixed)
         # θ should include both free and fixed parameters in natural space

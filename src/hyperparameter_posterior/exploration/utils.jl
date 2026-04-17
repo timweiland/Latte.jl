@@ -28,7 +28,8 @@ NamedTuple with:
 """
 function evaluate_at_grid_point(
         model::INLAModel, y, θ::WorkingHyperparameters;
-        compute_marginals::Bool = false, marginalization_method = nothing, marginalization_indices = nothing
+        ws,
+        compute_marginals::Bool = false, marginalization_method = nothing, marginalization_indices = nothing,
     )
     # Convert to natural space for model evaluation
     θ_natural = convert(NaturalHyperparameters, θ)
@@ -53,13 +54,13 @@ function evaluate_at_grid_point(
     # ZeroPivotException, SingularException) that can occur at extreme
     # hyperparameter values — especially with CCD design points far from the mode.
     try
-        prior_gmrf = latent_gmrf(model, θ_natural_nt)
+        prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
         obs_lik = model.observation_model(y; θ_natural_nt...)
         ga = gaussian_approximation(prior_gmrf, obs_lik)
         x_star = mean(ga)
 
         # Compute log posterior density using the pre-computed GA
-        log_density = hyperparameter_logpdf(model, θ, y, ga)
+        log_density = hyperparameter_logpdf(model, θ, y, ga; ws = ws)
 
         # Compute per-observation log-likelihoods
         obs_loglikelihoods = pointwise_loglik(x_star, obs_lik)

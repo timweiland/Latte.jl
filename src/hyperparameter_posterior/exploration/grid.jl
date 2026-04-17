@@ -12,7 +12,7 @@ function explore_half_axis_by_steps(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, direction::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
         marginalization_method, marginalization_indices, accumulators::Tuple,
-        accumulator_call_keys::Vector
+        accumulator_call_keys::Vector, ws
     )
     n_dim = length(transform.θ_star)
     keyed_points = []
@@ -30,9 +30,10 @@ function explore_half_axis_by_steps(
 
         result = evaluate_at_grid_point(
             model, y, θ_test;
+            ws = ws,
             compute_marginals = is_integration_point,
             marginalization_method = marginalization_method,
-            marginalization_indices = marginalization_indices
+            marginalization_indices = marginalization_indices,
         )
 
         if mode_logpdf - result.log_density > max_log_drop
@@ -73,20 +74,20 @@ function explore_dimension_and_build_lookup(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
         marginalization_method, marginalization_indices, accumulators::Tuple,
-        accumulator_call_keys::Vector
+        accumulator_call_keys::Vector, ws
     )
     # Call our helper function for both directions
     pos_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, 1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
         marginalization_method, marginalization_indices, accumulators,
-        accumulator_call_keys
+        accumulator_call_keys, ws
     )
     neg_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, -1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
         marginalization_method, marginalization_indices, accumulators,
-        accumulator_call_keys
+        accumulator_call_keys, ws
     )
 
     # Return a dictionary for fast, safe lookups
@@ -144,14 +145,21 @@ function explore_hyperparameter_posterior(
 
     n_dim = length(θ_star)
 
+    # One-time symbolic factorization at the mode — reused across every
+    # grid-point evaluation below. The workspace is mutable and shared by
+    # reference through the sequential exploration loop; threaded executors
+    # introduce races and will require the Phase-2 pool-aware path.
+    θ_star_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_star))
+    ws = make_workspace(model.latent_prior; θ_star_nt...)
+
     # Step 1: Compute the transformation object
     progress_callback(status = "Computing reparameterization", dimensions = n_dim)
-    transform = compute_reparameterization(model, y, θ_star; executor = executor, diff_strategy = diff_strategy)
+    transform = compute_reparameterization(model, y, θ_star; ws = ws, executor = executor, diff_strategy = diff_strategy)
 
     # Step 2: Evaluate the mode point once, authoritatively
     progress_callback(status = "Evaluating mode point", mode = θ_star)
     mode_result = evaluate_at_grid_point(
-        model, y, θ_star; compute_marginals = true, marginalization_method, marginalization_indices
+        model, y, θ_star; ws = ws, compute_marginals = true, marginalization_method, marginalization_indices
     )
     mode_point = GridPoint(θ_star, mode_result.log_density, mode_result.marginal_result)
     mode_log_density = mode_result.log_density
@@ -183,7 +191,7 @@ function explore_hyperparameter_posterior(
         axis_points, axis_range = explore_dimension_and_build_lookup(
             model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
             interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators,
-            accumulator_call_keys
+            accumulator_call_keys, ws
         )
         merge!(point_lookup, axis_points) # Add all on-axis points to the master table
         step_ranges_per_dim[d] = axis_range
@@ -212,12 +220,15 @@ function explore_hyperparameter_posterior(
     end
 
     # Phase 1: Evaluate off-axis points (PARALLEL)
+    # NOTE: ws is captured by reference; safe under SequentialExecutor (no
+    # concurrency). ThreadedExecutor requires a workspace pool — Phase 2.
     off_axis_results = pmap_executor(off_axis_work, executor) do item
         result = evaluate_at_grid_point(
             model, y, item.θ;
+            ws = ws,
             compute_marginals = item.is_integration,
             marginalization_method = marginalization_method,
-            marginalization_indices = marginalization_indices
+            marginalization_indices = marginalization_indices,
         )
         summaries = if result.log_density > -Inf
             map(accumulators) do acc

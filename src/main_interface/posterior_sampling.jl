@@ -56,7 +56,11 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
     # Sample integration point indices
     point_indices = rand(rng, Categorical(weights), n)
 
-    # Batch by unique integration point to minimize GA reconstructions
+    # Batch by unique integration point to minimize GA reconstructions.
+    # One-time symbolic factorization, reused for every GA reconstruction.
+    θ_ref_nt = convert(NamedTuple, convert(NaturalHyperparameters, integration_points[1].θ))
+    ws = make_workspace(model.latent_prior; θ_ref_nt...)
+
     unique_indices = unique(point_indices)
     samples = Vector{NamedTuple}(undef, n)
 
@@ -65,7 +69,7 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
         θ = point.θ
 
         # Reconstruct Gaussian approximation
-        ga, θ_natural_nt = _reconstruct_ga(model, y_obs, θ)
+        ga, θ_natural_nt = _reconstruct_ga(model, y_obs, θ, ws)
 
         # Draw samples for all occurrences of this integration point
         for i in findall(==(idx), point_indices)

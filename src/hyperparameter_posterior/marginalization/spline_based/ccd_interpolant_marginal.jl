@@ -22,9 +22,13 @@ function _marginalize_impl(
     n_dim = length(θ_star)
     param_names = collect(keys(spec.free))
 
+    # One workspace reused across the skewness-correction evaluations.
+    θ_star_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_star))
+    ws = make_workspace(model.latent_prior; θ_star_nt...)
+
     # Step 1: Build CCD interpolant with skewness corrections
     progress_callback(status = "Building CCD interpolant", dimensions = n_dim)
-    interp = _build_ccd_interpolant(exploration, model, y)
+    interp = _build_ccd_interpolant(exploration, model, y, ws)
 
     # Step 2: Profile each dimension and build spline marginals
     bounds = exploration.integration_bounds
@@ -49,7 +53,7 @@ Zero additional `hyperparameter_logpdf` evaluations needed.
 function _build_ccd_interpolant(
         exploration::CCDExploration,
         model::INLAModel,
-        y
+        y, ws,
     )
     transform = exploration.transform
     n_dim = length(transform.θ_star)
@@ -72,14 +76,14 @@ function _build_ccd_interpolant(
             sigma_corr_plus[i] = sqrt(expected_drop / max(drop_plus, 1.0e-6))
         else
             # Fallback: fresh evaluation at z=+√2 for this dimension
-            sigma_corr_plus[i] = _fresh_sigma_corr(transform, model, y, mode_logp, i, +1, n_dim)
+            sigma_corr_plus[i] = _fresh_sigma_corr(transform, model, y, mode_logp, i, +1, n_dim, ws)
         end
 
         if isfinite(axial_minus) && isfinite(mode_logp)
             drop_minus = mode_logp - axial_minus
             sigma_corr_minus[i] = sqrt(expected_drop / max(drop_minus, 1.0e-6))
         else
-            sigma_corr_minus[i] = _fresh_sigma_corr(transform, model, y, mode_logp, i, -1, n_dim)
+            sigma_corr_minus[i] = _fresh_sigma_corr(transform, model, y, mode_logp, i, -1, n_dim, ws)
         end
     end
 
@@ -98,20 +102,20 @@ Performs 1 + 2d evaluations of `hyperparameter_logpdf`.
 function _build_ccd_interpolant(
         exploration::AbstractHyperparameterExploration,
         model::INLAModel,
-        y
+        y, ws,
     )
     transform = exploration.transform
     θ_star = transform.θ_star
     n_dim = length(θ_star)
 
-    mode_logp = hyperparameter_logpdf(model, θ_star, y)
+    mode_logp = hyperparameter_logpdf(model, θ_star, y; ws = ws)
 
     sigma_corr_plus = Vector{Float64}(undef, n_dim)
     sigma_corr_minus = Vector{Float64}(undef, n_dim)
 
     for i in 1:n_dim
-        sigma_corr_plus[i] = _fresh_sigma_corr(transform, model, y, mode_logp, i, +1, n_dim)
-        sigma_corr_minus[i] = _fresh_sigma_corr(transform, model, y, mode_logp, i, -1, n_dim)
+        sigma_corr_plus[i] = _fresh_sigma_corr(transform, model, y, mode_logp, i, +1, n_dim, ws)
+        sigma_corr_minus[i] = _fresh_sigma_corr(transform, model, y, mode_logp, i, -1, n_dim, ws)
     end
 
     inv_hessian = inv(transform.H)
@@ -119,12 +123,12 @@ function _build_ccd_interpolant(
 end
 
 """Compute sigma_corr for one dimension/direction via fresh evaluation at z=±√2."""
-function _fresh_sigma_corr(transform, model, y, mode_logp, dim, sign, n_dim)
+function _fresh_sigma_corr(transform, model, y, mode_logp, dim, sign, n_dim, ws)
     δ = sqrt(2.0)
     z = zeros(n_dim)
     z[dim] = sign * δ
     θ = transform(z)
-    logp = hyperparameter_logpdf(model, θ, y)
+    logp = hyperparameter_logpdf(model, θ, y; ws = ws)
     drop = mode_logp - logp
     return 1.0 / sqrt(max(drop, 1.0e-6))
 end

@@ -32,9 +32,8 @@ function latent_gmrf(; τ_gmrf, ρ)
 
     #@show (τ, ρ)
 
-    return GMRF(μ, Q)
+    return (μ, Q)
 end
-
 spec = @hyperparams begin
     (τ_gmrf ~ Exponential(50.0), transform = log, space = natural)
     (ρ ~ Normal(2.9444, 1.0), transform = logit, space = working)
@@ -50,7 +49,7 @@ Random.seed!(83498)
 ρ_true = 0.98   # autocorrelation coefficient
 θ_true_named = (τ_gmrf = τ_gmrf_true, ρ = ρ_true)
 
-x_gt = rand(latent_gmrf(; θ_true_named...))
+x_gt = rand(GMRF(latent_gmrf(; θ_true_named...)...))
 y_gt = rand(conditional_distribution(obs_model, x_gt))
 
 res = inla(model, y_gt)
@@ -89,9 +88,8 @@ function latent_gmrf_ad(θ)
     μ₀ = log(1000.0)
     μ = μ₀ .* [ρ^i for i in 1:k]
 
-    return GMRF(μ, Q)
+    return (μ, Q)
 end
-
 @model function my_inla(y)
     σ ~ Gamma(2, 3)
     ρ ~ Uniform(0.9, 0.99)
