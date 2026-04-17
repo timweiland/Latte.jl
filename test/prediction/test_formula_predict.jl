@@ -129,6 +129,7 @@ using StatsModels
         f = @formula(y ~ 1 + matern(x, y_coord))
         hp = @hyperparams begin
             (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+            (τ_matern ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
             (range_matern ~ Exponential(5.0), transform = log, space = natural)
         end
 
