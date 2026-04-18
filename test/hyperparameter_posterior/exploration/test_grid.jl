@@ -60,9 +60,10 @@ end
     # One workspace reused across the testset
     θ_mode_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_mode))
     ws = make_workspace(model.latent_prior; θ_mode_nt...)
+    pool = make_workspace_pool(model.latent_prior; size = 1, θ_mode_nt...)
 
     # Create transformation (pass WorkingHyperparameters directly)
-    transform = compute_reparameterization(model, y_test, θ_mode; ws = ws)
+    transform = compute_reparameterization(model, y_test, θ_mode; pool = pool)
     mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test; ws = ws)
 
     @testset "Basic Exploration" begin
@@ -171,9 +172,10 @@ end
     # One workspace reused across the testset
     θ_mode_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_mode))
     ws = make_workspace(model.latent_prior; θ_mode_nt...)
+    pool = make_workspace_pool(model.latent_prior; size = 1, θ_mode_nt...)
 
     # Create transformation (pass WorkingHyperparameters directly)
-    transform = compute_reparameterization(model, y_test, θ_mode; ws = ws)
+    transform = compute_reparameterization(model, y_test, θ_mode; pool = pool)
     mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test; ws = ws)
 
     @testset "Basic Dimension Exploration" begin

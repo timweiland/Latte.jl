@@ -145,56 +145,61 @@ function explore_hyperparameter_posterior(
 
     n_dim = length(θ_star)
 
-    # One-time symbolic factorization at the mode — reused across every
-    # grid-point evaluation below. The workspace is mutable and shared by
-    # reference through the sequential exploration loop; threaded executors
-    # introduce races and will require the Phase-2 pool-aware path.
+    # Build a pool sized for the active executor. Sequential phases below
+    # check out a single workspace via `with_workspace`; the parallel
+    # off-axis loop uses the pool-aware `pmap_executor` so each task gets
+    # its own workspace without racing on a shared one.
     θ_star_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_star))
-    ws = make_workspace(model.latent_prior; θ_star_nt...)
+    pool = make_workspace_pool(model.latent_prior; size = _pool_size(executor), θ_star_nt...)
 
-    # Step 1: Compute the transformation object
+    # Step 1: Compute the transformation object. `compute_reparameterization`
+    # manages its own pool-aware workspace checkouts internally (for the
+    # finite-diff or AD Hessian evaluations), so we pass the pool directly.
     progress_callback(status = "Computing reparameterization", dimensions = n_dim)
-    transform = compute_reparameterization(model, y, θ_star; ws = ws, executor = executor, diff_strategy = diff_strategy)
+    transform = compute_reparameterization(model, y, θ_star; pool = pool, executor = executor, diff_strategy = diff_strategy)
 
-    # Step 2: Evaluate the mode point once, authoritatively
-    progress_callback(status = "Evaluating mode point", mode = θ_star)
-    mode_result = evaluate_at_grid_point(
-        model, y, θ_star; ws = ws, compute_marginals = true, marginalization_method, marginalization_indices
-    )
-    mode_point = GridPoint(θ_star, mode_result.log_density, mode_result.marginal_result)
-    mode_log_density = mode_result.log_density
-
-    # Track the order in which accumulators are called (grid coordinate keys).
-    # This lets us compute the permutation from call order → grid order in finalize!.
     mode_key = ntuple(_ -> 0, n_dim)
     accumulator_call_keys = NTuple{n_dim, Int}[mode_key]
-
-    # Call accumulators for the mode point (two-phase: compute summary, then accumulate)
-    if !isempty(accumulators) && mode_log_density > -Inf
-        for acc in accumulators
-            summary = compute_point_summary(acc; mode_result...)
-            if summary !== nothing
-                accumulate!(acc, summary; is_mode = true)
-            end
-        end
-    end
-
-    # Step 3: Explore axes and build the lookup table of raw (unnormalized) points
-    progress_callback(status = "Starting axis exploration", dimensions = n_dim)
-    point_lookup = Dict{NTuple{n_dim, Int}, typeof(mode_point)}()
-    point_lookup[mode_key] = mode_point
+    point_lookup = Dict{NTuple{n_dim, Int}, GridPoint{typeof(θ_star)}}()
     step_ranges_per_dim = Vector{UnitRange{Int}}(undef, n_dim)
     evaluation_step_z = integration_step_z / interpolation_subdivisions
+    mode_log_density = 0.0
 
-    for d in 1:n_dim
-        progress_callback(status = "Exploring axis", current_dimension = d, total_dimensions = n_dim)
-        axis_points, axis_range = explore_dimension_and_build_lookup(
-            model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
-            interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators,
-            accumulator_call_keys, ws
+    # Steps 2-3: mode-point evaluation + on-axis exploration are both
+    # sequential. Hold a single workspace for the whole stretch.
+    mode_point = with_workspace(pool) do ws
+        progress_callback(status = "Evaluating mode point", mode = θ_star)
+        mode_result = evaluate_at_grid_point(
+            model, y, θ_star; ws = ws, compute_marginals = true, marginalization_method, marginalization_indices
         )
-        merge!(point_lookup, axis_points) # Add all on-axis points to the master table
-        step_ranges_per_dim[d] = axis_range
+        mp = GridPoint(θ_star, mode_result.log_density, mode_result.marginal_result)
+        mode_log_density = mode_result.log_density
+
+        # Call accumulators for the mode point
+        if !isempty(accumulators) && mode_log_density > -Inf
+            for acc in accumulators
+                summary = compute_point_summary(acc; mode_result...)
+                if summary !== nothing
+                    accumulate!(acc, summary; is_mode = true)
+                end
+            end
+        end
+
+        point_lookup[mode_key] = mp
+
+        progress_callback(status = "Starting axis exploration", dimensions = n_dim)
+        for d in 1:n_dim
+            progress_callback(status = "Exploring axis", current_dimension = d, total_dimensions = n_dim)
+            axis_points, axis_range = explore_dimension_and_build_lookup(
+                model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
+                interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators,
+                accumulator_call_keys, ws
+            )
+            merge!(point_lookup, axis_points)
+            step_ranges_per_dim[d] = axis_range
+        end
+
+        mp
     end
 
     # Step 4: Build the full grid by evaluating off-axis points
@@ -219,10 +224,8 @@ function explore_hyperparameter_posterior(
         end
     end
 
-    # Phase 1: Evaluate off-axis points (PARALLEL)
-    # NOTE: ws is captured by reference; safe under SequentialExecutor (no
-    # concurrency). ThreadedExecutor requires a workspace pool — Phase 2.
-    off_axis_results = pmap_executor(off_axis_work, executor) do item
+    # Phase 1: Evaluate off-axis points (PARALLEL with per-task workspaces)
+    off_axis_results = pmap_executor(off_axis_work, executor, pool) do item, ws
         result = evaluate_at_grid_point(
             model, y, item.θ;
             ws = ws,

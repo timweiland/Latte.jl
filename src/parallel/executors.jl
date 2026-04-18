@@ -1,4 +1,5 @@
 using LinearAlgebra: BLAS
+using GaussianMarkovRandomFields: AbstractLatentWorkspacePool, with_workspace
 
 export ParallelExecutor, SequentialExecutor, ThreadedExecutor, pmap_executor
 
@@ -79,3 +80,63 @@ function pmap_executor(f, xs, executor::ThreadedExecutor)
         BLAS.set_num_threads(old_blas)
     end
 end
+
+# ---------------------------------------------------------------------------
+# Pool-aware overloads (Phase 2).
+#
+# Signature: `f(item, ws) -> result`. Each evaluation receives a workspace
+# checked out from the pool via `with_workspace`. Sequential path uses one
+# workspace for the entire loop; threaded path checks out a workspace per
+# task so concurrent Newton/factor-update work never races on a shared
+# GMRFWorkspace.
+# ---------------------------------------------------------------------------
+
+"""
+    pmap_executor(f, xs, executor::ParallelExecutor, pool::AbstractLatentWorkspacePool) -> Vector
+
+Pool-aware variant of [`pmap_executor`](@ref). `f` has signature
+`f(item, ws)` and receives a workspace checked out from `pool` for each
+evaluation. Returns results in `xs` order.
+"""
+function pmap_executor(f, xs, ::SequentialExecutor, pool::AbstractLatentWorkspacePool)
+    return with_workspace(pool) do ws
+        map(x -> f(x, ws), xs)
+    end
+end
+
+function pmap_executor(f, xs, executor::ThreadedExecutor, pool::AbstractLatentWorkspacePool)
+    n = length(xs)
+    n == 0 && return []
+
+    old_blas = BLAS.get_num_threads()
+    BLAS.set_num_threads(1)
+    try
+        nw = executor.nworkers
+        results = Vector{Any}(undef, n)
+        for batch_start in 1:nw:n
+            batch_end = min(batch_start + nw - 1, n)
+            tasks = map(batch_start:batch_end) do i
+                Threads.@spawn with_workspace(pool) do ws
+                    f(xs[i], ws)
+                end
+            end
+            for (j, task) in enumerate(tasks)
+                results[batch_start + j - 1] = fetch(task)
+            end
+        end
+        return results
+    finally
+        BLAS.set_num_threads(old_blas)
+    end
+end
+
+"""
+    _pool_size(executor::ParallelExecutor) -> Int
+
+How many workspaces a pool needs to cover the active concurrency of a
+given executor. Sequential → 1; Threaded → `nworkers`. Custom executors
+default to 1; override by dispatching on the executor subtype.
+"""
+_pool_size(::SequentialExecutor) = 1
+_pool_size(e::ThreadedExecutor) = e.nworkers
+_pool_size(::ParallelExecutor) = 1

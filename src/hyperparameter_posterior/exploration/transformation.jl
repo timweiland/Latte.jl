@@ -1,5 +1,6 @@
 using LinearAlgebra
 using Printf
+using GaussianMarkovRandomFields: with_workspace
 
 export ReparameterizationTransform, logdet_jacobian, compute_reparameterization
 
@@ -58,11 +59,16 @@ Computes the reparameterization around the mode and returns it as a
 """
 function compute_reparameterization(
         model::INLAModel, y, θ_star::WorkingHyperparameters;
-        ws,
+        pool,
         executor::ParallelExecutor = SequentialExecutor(),
         diff_strategy::DifferentiationStrategy = ADStrategy(),
     )
-    logpdf_fn = θ_vec -> begin
+    # Each Hessian evaluation checks out a workspace from the pool. For
+    # SequentialExecutor the pool has size 1 and the single workspace is
+    # checked out + returned on every call. Under ThreadedExecutor the pool
+    # is sized to `nworkers`, so concurrent tasks each get their own
+    # workspace without racing.
+    logpdf_fn = θ_vec -> with_workspace(pool) do ws
         try
             hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y; ws = ws)
         catch
