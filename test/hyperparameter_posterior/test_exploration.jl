@@ -33,8 +33,8 @@ using FiniteDiff
         θ_star, _, _ = find_hyperparameter_mode(model, y_test)
 
         # Compute reparameterization (pass WorkingHyperparameters directly)
-        ws = make_workspace(model.latent_prior; ρ = 0.5)
-        transform = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star; ws = ws)
+        pool = make_workspace_pool(model.latent_prior; size = 1, ρ = 0.5)
+        transform = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star; pool = pool)
 
         @test size(transform.H) == (1, 1)
         @test size(transform.V) == (1, 1)

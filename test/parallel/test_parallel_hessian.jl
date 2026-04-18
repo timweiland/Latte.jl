@@ -56,11 +56,60 @@ using LinearAlgebra
         y = randn(n)
         θ_star, _, _ = find_hyperparameter_mode(model, y)
 
-        ws = make_workspace(model.latent_prior; σ = 1.0)
-        t_seq = compute_reparameterization(model, y, θ_star; ws = ws, executor = SequentialExecutor())
-        t_par = compute_reparameterization(model, y, θ_star; ws = ws, executor = ThreadedExecutor(nworkers = 2))
+        pool_seq = make_workspace_pool(model.latent_prior; size = 1, σ = 1.0)
+        pool_par = make_workspace_pool(model.latent_prior; size = 2, σ = 1.0)
+        t_seq = compute_reparameterization(model, y, θ_star; pool = pool_seq, executor = SequentialExecutor())
+        t_par = compute_reparameterization(model, y, θ_star; pool = pool_par, executor = ThreadedExecutor(nworkers = 2))
 
         @test t_seq.H ≈ t_par.H atol = 1.0e-10
         @test t_seq.V ≈ t_par.V atol = 1.0e-10
+    end
+
+    @testset "Full inla() — Threaded matches Sequential" begin
+        # Phase 2 contract: pool-aware pmap_executor gives numerically
+        # identical results under SequentialExecutor vs ThreadedExecutor.
+        # Bit-for-bit equality is the expected behavior since all per-task
+        # work is deterministic given the same inputs.
+        using Random
+        using SparseArrays
+        using GaussianMarkovRandomFields
+        using Distributions
+
+        Random.seed!(2026)
+        n = 20
+        spec = @hyperparams begin
+            (τ ~ Gamma(2, 1), transform = log, space = natural)
+            (α ~ Beta(2, 2), transform = logit, space = natural)
+        end
+        function latent_2hp(; τ, α, kwargs...)
+            ρ = 2 * α - 1
+            Q = spdiagm(-1 => fill(-ρ * τ, n - 1), 0 => fill((1 + ρ^2) * τ, n), 1 => fill(-ρ * τ, n - 1))
+            Q[1, 1] = τ
+            Q[n, n] = τ
+            (zeros(n), Q)
+        end
+        model = INLAModel(spec, FunctionLatentModel(latent_2hp, n), ExponentialFamily(Poisson))
+        y = PoissonObservations(rand(Poisson(2.0), n))
+
+        r_seq = inla(
+            model, y; progress = false,
+            latent_marginalization_method = SimplifiedLaplace(),
+            hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
+            executor = SequentialExecutor(),
+        )
+        r_thr = inla(
+            model, y; progress = false,
+            latent_marginalization_method = SimplifiedLaplace(),
+            hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
+            executor = ThreadedExecutor(nworkers = max(2, min(4, Threads.nthreads()))),
+        )
+
+        @test r_seq.exploration.log_normalization_constant ≈ r_thr.exploration.log_normalization_constant atol = 1.0e-10
+        @test r_seq.hyperparameter_mode ≈ r_thr.hyperparameter_mode atol = 1.0e-10
+        @test length(r_seq.latent_marginals) == length(r_thr.latent_marginals)
+        for i in eachindex(r_seq.latent_marginals)
+            @test mean(r_seq.latent_marginals[i]) ≈ mean(r_thr.latent_marginals[i]) atol = 1.0e-10
+            @test std(r_seq.latent_marginals[i]) ≈ std(r_thr.latent_marginals[i]) atol = 1.0e-10
+        end
     end
 end

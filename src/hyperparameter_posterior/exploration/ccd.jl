@@ -133,15 +133,15 @@ function explore_hyperparameter_posterior(
 
     d = length(θ_star)
 
-    # One-time symbolic factorization at the mode — reused across every CCD
-    # design-point evaluation below. Shared by reference; SequentialExecutor
-    # is race-free, ThreadedExecutor requires Phase-2 pool support.
+    # Build a pool sized for the active executor. CCD's per-design-point
+    # evaluation runs through the pool-aware pmap_executor so each threaded
+    # task gets its own workspace without racing.
     θ_star_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_star))
-    ws = make_workspace(model.latent_prior; θ_star_nt...)
+    pool = make_workspace_pool(model.latent_prior; size = _pool_size(executor), θ_star_nt...)
 
     # Step 1: Compute reparameterization (same as grid approach)
     progress_callback(status = "Computing reparameterization", dimensions = d)
-    transform = compute_reparameterization(model, y, θ_star; ws = ws, executor = executor, diff_strategy = diff_strategy)
+    transform = compute_reparameterization(model, y, θ_star; pool = pool, executor = executor, diff_strategy = diff_strategy)
 
     # Step 2: Generate CCD points in z-space with f0 scaling
     z_points = generate_ccd_points(d; f0 = f0)
@@ -151,11 +151,11 @@ function explore_hyperparameter_posterior(
     # Step 3: Compute analytical CCD integration weights (Rue et al. 2009)
     w_sphere, w_center = ccd_integration_weights(n_design, d, f0)
 
-    # Step 4: Evaluate all CCD points (PARALLEL)
+    # Step 4: Evaluate all CCD points (PARALLEL with per-task workspaces)
     # Build work items with pre-computed θ values
     work_items = [(z = z, θ = transform(z), is_center = all(iszero, z)) for z in z_points]
 
-    eval_results = pmap_executor(work_items, executor) do item
+    eval_results = pmap_executor(work_items, executor, pool) do item, ws
         result = evaluate_at_grid_point(
             model, y, item.θ;
             ws = ws,

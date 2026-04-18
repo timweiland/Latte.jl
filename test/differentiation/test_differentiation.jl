@@ -136,12 +136,13 @@ using ADTypes
         model = INLAModel(spec, FunctionLatentModel(latent, n), ExponentialFamily(Normal))
         y = randn(n)
         θ_star, _, _ = find_hyperparameter_mode(model, y)
-        ws = make_workspace(model.latent_prior; σ = 1.0)
+        pool = make_workspace_pool(model.latent_prior; size = 1, σ = 1.0)
+        pool_par = make_workspace_pool(model.latent_prior; size = 2, σ = 1.0)
 
         @testset "ADStrategy produces valid reparameterization" begin
             t = compute_reparameterization(
                 model, y, θ_star;
-                ws = ws, diff_strategy = ADStrategy(),
+                pool = pool, diff_strategy = ADStrategy(),
             )
             @test all(isfinite, t.H)
             @test issymmetric(t.H) || t.H ≈ t.H'
@@ -150,11 +151,11 @@ using ADTypes
         @testset "ADStrategy matches FiniteDiffStrategy" begin
             t_ad = compute_reparameterization(
                 model, y, θ_star;
-                ws = ws, diff_strategy = ADStrategy(),
+                pool = pool, diff_strategy = ADStrategy(),
             )
             t_fd = compute_reparameterization(
                 model, y, θ_star;
-                ws = ws, diff_strategy = FiniteDiffStrategy(),
+                pool = pool, diff_strategy = FiniteDiffStrategy(),
             )
             @test t_ad.H ≈ t_fd.H atol = 0.1
             @test t_ad.V ≈ t_fd.V atol = 0.1
@@ -163,11 +164,11 @@ using ADTypes
         @testset "ADStrategy with executor" begin
             t_seq = compute_reparameterization(
                 model, y, θ_star;
-                ws = ws, diff_strategy = ADStrategy(), executor = SequentialExecutor(),
+                pool = pool, diff_strategy = ADStrategy(), executor = SequentialExecutor(),
             )
             t_par = compute_reparameterization(
                 model, y, θ_star;
-                ws = ws, diff_strategy = ADStrategy(), executor = ThreadedExecutor(nworkers = 2),
+                pool = pool_par, diff_strategy = ADStrategy(), executor = ThreadedExecutor(nworkers = 2),
             )
             @test t_par.H ≈ t_seq.H atol = 1.0e-10
         end
