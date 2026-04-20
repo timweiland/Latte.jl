@@ -20,26 +20,86 @@ export ObservationModel, ObservationLikelihood, ExponentialFamily,
     conditional_distribution, apply_link, apply_invlink,
     pointwise_loglik
 
-# Parallel execution infrastructure
-include("parallel/parallel.jl")
+# Hyperparameter marginalization exports (were previously in an orchestrator file)
+export HyperparameterMarginalizationMethod, marginalize_hyperparameters
 
-# Differentiation strategies
+# ─── Infrastructure (no inter-deps) ──────────────────────────────────────────
+include("parallel/parallel.jl")
 include("differentiation/differentiation.jl")
 
-# Include INLA-specific modules
 include("utils/selinv.jl")
 include("utils/owens_t.jl")
 include("utils/kld.jl")
 include("utils/distribution_summaries.jl")
 include("utils/plotting_stubs.jl")
-include("hyperparameters/hyperparameters.jl")
-include("latent_augmentation/latent_augmentation_module.jl")
-include("inla_model.jl")
-include("latent_marginalization/marginalization_module.jl")
+
 include("distributions/distributions.jl")
-include("hyperparameter_posterior/hyperparameter_posterior.jl")
-include("observation_models/observation_models.jl")
-include("posterior_accumulators/posterior_accumulators.jl")
-include("main_interface/main_interface.jl")
+
+# ─── Model layer (types used throughout) ─────────────────────────────────────
+include("model/hyperparameter.jl")
+include("model/hyperparameter_spec.jl")
+include("model/working_and_natural.jl")
+include("model/logpdf.jl")
+include("model/hyperparams_macro.jl")
+
+include("model/loghessian_derivatives.jl")
+include("model/link_to_bijector.jl")
+include("model/augmentation_info.jl")
+include("model/augmented_latent_model.jl")
+include("model/latent_gaussian_model.jl")
+
+# ─── Laplace approximation (shared inner machinery) ──────────────────────────
+include("laplace/types.jl")
+include("laplace/mode_finding.jl")
+include("laplace/gaussian_marginal.jl")
+include("laplace/spline_augmented_gaussian.jl")
+include("laplace/laplace_cache.jl")
+include("laplace/laplace_marginal.jl")
+include("laplace/simplified_laplace.jl")
+include("laplace/marginalize.jl")
+
+# ─── INLA inference (grid / CCD over θ) ──────────────────────────────────────
+include("inference/inla/exploration/adaptive_hessian.jl")
+include("inference/inla/exploration/transformation.jl")
+include("inference/inla/exploration/types.jl")
+include("inference/inla/exploration/utils.jl")
+include("inference/inla/exploration/grid.jl")
+include("inference/inla/exploration/ccd.jl")
+include("inference/inla/exploration/auto_strategy.jl")
+
+include("inference/inla/interpolation.jl")
+include("inference/inla/spline_marginal_builders.jl")
+
+include("inference/inla/hp_marginals/types.jl")
+include("inference/inla/hp_marginals/spline_based_types.jl")
+include("inference/inla/hp_marginals/gridsum_marginal.jl")
+include("inference/inla/hp_marginals/ccd_interpolant_marginal.jl")
+include("inference/inla/hp_marginals/auto_marginal.jl")
+
+include("inference/inla/latent_marginals/adaptive_marginal.jl")
+
+include("inference/inla/types.jl")        # INLAResult
+include("inference/inla/validation.jl")
+include("inference/inla/progress.jl")
+
+# `posterior/prediction.jl` defines `_prepare_for_prediction` (used inside
+# `inla()`) plus `predicted_marginals(::INLAResult)` (dispatches on INLAResult).
+# It must come after INLAResult is defined but before `inla()` uses it.
+include("posterior/prediction.jl")
+
+include("inference/inla/inference.jl")   # `inla(...)`
+
+# ─── Posterior post-processing (method-agnostic in spirit) ───────────────────
+include("posterior/accumulators/interface.jl")
+include("posterior/accumulators/dic.jl")
+include("posterior/accumulators/marginal_likelihood.jl")
+include("posterior/accumulators/waic.jl")
+include("posterior/accumulators/cpo.jl")
+
+include("posterior/observation_marginals.jl")
+include("posterior/sampling.jl")
+include("posterior/linear_combinations.jl")
+include("posterior/predict.jl")
+include("posterior/model_averaging.jl")
 
 end
