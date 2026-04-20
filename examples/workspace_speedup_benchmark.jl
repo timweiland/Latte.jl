@@ -18,7 +18,7 @@
 #   the cold-path latent_gmrf(model, θ). It over-counts slightly (the old
 #   path didn't go through make_workspace) but is a fair upper bound.
 
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -43,7 +43,7 @@ function build_ar1_model(k::Int)
         Q .*= τ_gmrf
         return (zeros(k), Q)
     end
-    model = INLAModel(spec, FunctionLatentModel(latent_gmrf, k), ExponentialFamily(Poisson))
+    model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, k), ExponentialFamily(Poisson))
 
     Random.seed!(42)
     σ_true = 0.5
@@ -84,7 +84,7 @@ function build_laplacian2d_model(n::Int)
         Q = τ_gmrf .* L + ridge
         return (zeros(k), Q)
     end
-    model = INLAModel(spec, FunctionLatentModel(latent_gmrf, k), ExponentialFamily(Poisson))
+    model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, k), ExponentialFamily(Poisson))
 
     Random.seed!(42)
     x_gt = rand(model.latent_prior(; τ_gmrf = 1.0))

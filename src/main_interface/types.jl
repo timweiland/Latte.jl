@@ -21,7 +21,7 @@ All fields are fully typed for type stability and performance.
 - `exploration::Expl`: Results from posterior exploration (HyperparameterExploration)
 - `convergence::Conv`: Convergence diagnostics and information (NamedTuple)
 - `computation_time::Time`: Timing breakdown by computation phase (NamedTuple)
-- `model::Model`: Original INLA model specification (INLAModel)
+- `model::Model`: Original INLA model specification (LatentGaussianModel)
 - `options::Opts`: Options used for inference (NamedTuple)
 - `accumulators::Acc`: Tuple of PosteriorAccumulator objects with computed metrics (e.g., DIC, marginal likelihood)
 - `linear_predictor_marginals::Union{Nothing, Vector}`: Marginals for linear predictors η (if augmented model)

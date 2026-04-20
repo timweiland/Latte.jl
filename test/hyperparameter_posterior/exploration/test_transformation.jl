@@ -1,7 +1,7 @@
 using Test
 using LinearAlgebra
 using Distributions
-using IntegratedNestedLaplace
+using Latte
 
 @testset "ReparameterizationTransform Tests" begin
     # Setup test data — ReparameterizationTransform expects WorkingHyperparameters

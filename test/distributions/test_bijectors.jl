@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 import Bijectors
 
 @testset "Bijectors" begin

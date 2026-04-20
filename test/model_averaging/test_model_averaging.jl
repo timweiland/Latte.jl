@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using Random
@@ -25,13 +25,13 @@ using Random
     hp1 = @hyperparams begin
         (τ ~ Exponential(10.0), transform = log, space = natural)
     end
-    model1 = INLAModel(hp1, base_latent, obs_model)
+    model1 = LatentGaussianModel(hp1, base_latent, obs_model)
 
     # Model 2: diffuse prior
     hp2 = @hyperparams begin
         (τ ~ Exponential(0.1), transform = log, space = natural)
     end
-    model2 = INLAModel(hp2, base_latent, obs_model)
+    model2 = LatentGaussianModel(hp2, base_latent, obs_model)
 
     result1 = inla(model1, y; progress = false)
     result2 = inla(model2, y; progress = false)
@@ -113,7 +113,7 @@ using Random
         hp_small = @hyperparams begin
             (τ ~ Exponential(1.0), transform = log, space = natural)
         end
-        model_small = INLAModel(hp_small, small_latent, small_obs)
+        model_small = LatentGaussianModel(hp_small, small_latent, small_obs)
         y_small = rand(Poisson(3.0), 1)
         result_small = inla(model_small, y_small; progress = false)
 

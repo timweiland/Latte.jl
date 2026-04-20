@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: generate_ccd_points, generate_factorial_points,
+using Latte
+using Latte: generate_ccd_points, generate_factorial_points,
     ccd_integration_weights
 using GaussianMarkovRandomFields
 using Distributions
@@ -241,7 +241,7 @@ using Random
             return (zeros(k), Q)
         end
         obs_model = ExponentialFamily(Normal)  # Uses σ hyperparameter
-        return INLAModel(spec, FunctionLatentModel(latent_func, k), obs_model), k
+        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, k), obs_model), k
     end
 
     @testset "CCD exploration on 3-HP model" begin
@@ -316,7 +316,7 @@ using Random
                 Q = spdiagm(0 => fill(1 / σ^2, n))
                 return (zeros(n), Q)
             end
-            return INLAModel(spec, FunctionLatentModel(latent_func, n), ExponentialFamily(Normal))
+            return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), ExponentialFamily(Normal))
         end
 
         n = 10

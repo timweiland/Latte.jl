@@ -1,14 +1,14 @@
 # [Observation Models](@id observation-models)
 
 !!! note "Provided by GaussianMarkovRandomFields.jl"
-    Observation models are implemented in [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl) v0.4+ and re-exported by IntegratedNestedLaplace.jl for user convenience. **For detailed API documentation**, see the [GaussianMarkovRandomFields.jl documentation](https://timweiland.github.io/GaussianMarkovRandomFields.jl/).
+    Observation models are implemented in [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl) v0.4+ and re-exported by Latte.jl for user convenience. **For detailed API documentation**, see the [GaussianMarkovRandomFields.jl documentation](https://timweiland.github.io/GaussianMarkovRandomFields.jl/).
 
 This guide shows how to use observation models with INLA. Observation models define the relationship between observations `y` and the latent field `x` through probability distributions and link functions.
 
 ## Quick Start
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 
 # 1. Create observation model (Poisson with canonical log link)
@@ -19,7 +19,7 @@ spec = @hyperparams begin
     (σ ~ Gamma(2, 1), transform = log, space = natural)
 end
 
-model = INLAModel(spec, my_latent_function, obs_model)
+model = LatentGaussianModel(spec, my_latent_function, obs_model)
 
 # 3. Run inference
 result = inla(model, y_observed)
@@ -29,7 +29,7 @@ result = inla(model, y_observed)
 
 Observation models use a **factory pattern** for efficiency:
 1. **Create template**: `obs_model = ExponentialFamily(Distribution)`
-2. **Use in INLA**: Pass to `INLAModel(spec, latent_fn, obs_model)`
+2. **Use in INLA**: Pass to `LatentGaussianModel(spec, latent_fn, obs_model)`
 3. **INLA handles the rest**: Automatic materialization with data and hyperparameters
 
 The `ExponentialFamily` struct supports most common statistical distributions with their canonical link functions.
@@ -47,7 +47,7 @@ The `ExponentialFamily` struct supports most common statistical distributions wi
 
 #### Poisson Model (Count Data)
 ```julia
-using IntegratedNestedLaplace, GaussianMarkovRandomFields, Distributions
+using Latte, GaussianMarkovRandomFields, Distributions
 
 # Poisson uses log link: η = log(λ) where λ is the rate
 obs_model = ExponentialFamily(Poisson)
@@ -59,7 +59,7 @@ end
 # Latent field defines log-rates
 latent_fn(; ρ, kwargs...) = GMRF(zeros(100), ar1_precision(100, ρ))
 
-model = INLAModel(spec, latent_fn, obs_model)
+model = LatentGaussianModel(spec, latent_fn, obs_model)
 ```
 
 #### Bernoulli Model (Binary Data)
@@ -68,7 +68,7 @@ model = INLAModel(spec, latent_fn, obs_model)
 obs_model = ExponentialFamily(Bernoulli)
 
 # Use in INLA model (no observation hyperparameters needed)
-model = INLAModel(spec, latent_fn, obs_model)
+model = LatentGaussianModel(spec, latent_fn, obs_model)
 ```
 
 #### Normal Model (Continuous Data)
@@ -83,7 +83,7 @@ spec = @hyperparams begin
 end
 
 # The σ_obs will be passed to the observation model automatically
-model = INLAModel(spec, latent_fn, obs_model)
+model = LatentGaussianModel(spec, latent_fn, obs_model)
 ```
 
 #### Binomial Model
@@ -97,7 +97,7 @@ spec = @hyperparams begin
     n = 10.0  # Fixed number of trials
 end
 
-model = INLAModel(spec, latent_fn, obs_model)
+model = LatentGaussianModel(spec, latent_fn, obs_model)
 ```
 
 ### Non-Canonical Links
@@ -119,7 +119,7 @@ For most applications, the canonical links (default) are recommended.
 Composite observation models combine multiple observation types (e.g., continuous and count data) in a single INLA model:
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 
 # Create models with index ranges
 normal_model = ExponentialFamily(Normal, indices = 1:3)    # First 3 latent values
@@ -138,7 +138,7 @@ spec = @hyperparams begin
     (σ ~ Gamma(2, 1), transform = log, space = natural)  # For Normal component
 end
 
-model = INLAModel(spec, latent_fn, composite_model)
+model = LatentGaussianModel(spec, latent_fn, composite_model)
 result = inla(model, y_composite)
 ```
 

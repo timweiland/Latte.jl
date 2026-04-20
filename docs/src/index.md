@@ -3,19 +3,19 @@
 layout: home
 
 hero:
-  name: "IntegratedNestedLaplace.jl"
+  name: "Latte.jl"
   text: "Fast Bayesian Inference with INLA"
   tagline: A Julia package for Integrated Nested Laplace Approximation, providing fast Bayesian inference for latent Gaussian models.
   image:
     src: /logo.svg
-    alt: IntegratedNestedLaplace.jl
+    alt: Latte.jl
   actions:
     - theme: brand
       text: Get Started
       link: /main_interface
     - theme: alt
       text: View on GitHub
-      link: https://github.com/timweiland/IntegratedNestedLaplace.jl
+      link: https://github.com/timweiland/Latte.jl
 
 features:
   - icon: 🔗
@@ -45,17 +45,17 @@ features:
 ```
 
 ```@meta
-CurrentModule = IntegratedNestedLaplace
+CurrentModule = Latte
 ```
 
 ## Overview
 
-IntegratedNestedLaplace.jl implements the INLA methodology for approximate Bayesian inference in models with Gaussian latent fields. The package is designed to work seamlessly with [GaussianMarkovRandomFields.jl](https://github.com/JuliaGaussianMarkovRandomFields/GaussianMarkovRandomFields.jl) for efficient handling of structured priors.
+Latte.jl implements the INLA methodology for approximate Bayesian inference in models with Gaussian latent fields. The package is designed to work seamlessly with [GaussianMarkovRandomFields.jl](https://github.com/JuliaGaussianMarkovRandomFields/GaussianMarkovRandomFields.jl) for efficient handling of structured priors.
 
 ## Quick Start
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -82,7 +82,7 @@ end
 
 # Poisson observations with log-link
 obs_model = ExponentialFamily(Poisson)
-model = INLAModel(spec, latent_gmrf, obs_model)
+model = LatentGaussianModel(spec, latent_gmrf, obs_model)
 
 # Run INLA inference
 result = inla(model, y_observed)
@@ -121,7 +121,7 @@ The `examples/` directory contains complete working examples:
 
 ```julia
 using Pkg
-Pkg.add("https://github.com/timweiland/IntegratedNestedLaplace.jl")
+Pkg.add("https://github.com/timweiland/Latte.jl")
 ```
 
 ## Related Packages

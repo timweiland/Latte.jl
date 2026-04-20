@@ -3,7 +3,7 @@ export AugmentationInfo
 """
     AugmentationInfo
 
-Metadata about latent field augmentation, stored in INLAModel for models that use
+Metadata about latent field augmentation, stored in LatentGaussianModel for models that use
 AugmentedLatentModel with LinearlyTransformedObservationModel.
 
 # Fields

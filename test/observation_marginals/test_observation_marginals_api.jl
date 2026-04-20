@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using Random
@@ -22,7 +22,7 @@ using Random
         end
 
         # Create augmented model
-        model = INLAModel(hp_spec, base_latent_model, obs_model)
+        model = LatentGaussianModel(hp_spec, base_latent_model, obs_model)
         @test model.augmentation_info !== nothing
 
         # Generate data
@@ -69,7 +69,7 @@ using Random
             (τ ~ Exponential(1.0), transform = log, space = natural)
         end
 
-        model = INLAModel(hp_spec, latent_model, obs_model)
+        model = LatentGaussianModel(hp_spec, latent_model, obs_model)
 
         # Generate simple data
         y = rand(Poisson(5.0), 10)
@@ -97,7 +97,7 @@ using Random
                 (τ ~ Exponential(1.0), transform = log, space = natural)
             end
 
-            model = INLAModel(hp_spec, base_model, obs_model)
+            model = LatentGaussianModel(hp_spec, base_model, obs_model)
             y = fill(5, n_obs)
 
             result = inla(model, y; progress = false)
@@ -120,7 +120,7 @@ using Random
                 (τ ~ Exponential(1.0), transform = log, space = natural)
             end
 
-            model = INLAModel(hp_spec, base_model, obs_model)
+            model = LatentGaussianModel(hp_spec, base_model, obs_model)
             y = BinomialObservations(fill(5, n_obs), fill(10, n_obs))
 
             result = inla(model, y; progress = false)
@@ -152,7 +152,7 @@ using Random
             (τ ~ Exponential(1.0), transform = log, space = natural)
         end
 
-        model = INLAModel(hp_spec, base_model, obs_model)
+        model = LatentGaussianModel(hp_spec, base_model, obs_model)
         y = fill(5, n_obs)
 
         result = inla(model, y; progress = false)

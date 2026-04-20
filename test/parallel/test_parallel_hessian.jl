@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: adaptive_negative_hessian, pmap_executor
+using Latte
+using Latte: adaptive_negative_hessian, pmap_executor
 using LinearAlgebra
 
 @testset "Parallel Hessian" begin
@@ -39,7 +39,7 @@ using LinearAlgebra
 
     @testset "compute_reparameterization passes executor" begin
         # Just verify the kwarg is accepted without error
-        using IntegratedNestedLaplace: compute_reparameterization, find_hyperparameter_mode
+        using Latte: compute_reparameterization, find_hyperparameter_mode
         using GaussianMarkovRandomFields
         using SparseArrays
         using Distributions
@@ -52,7 +52,7 @@ using LinearAlgebra
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return (zeros(n), Q)
         end
-        model = INLAModel(spec, FunctionLatentModel(latent, n), ExponentialFamily(Normal))
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent, n), ExponentialFamily(Normal))
         y = randn(n)
         θ_star, _, _ = find_hyperparameter_mode(model, y)
 
@@ -88,7 +88,7 @@ using LinearAlgebra
             Q[n, n] = τ
             (zeros(n), Q)
         end
-        model = INLAModel(spec, FunctionLatentModel(latent_2hp, n), ExponentialFamily(Poisson))
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent_2hp, n), ExponentialFamily(Poisson))
         y = PoissonObservations(rand(Poisson(2.0), n))
 
         r_seq = inla(

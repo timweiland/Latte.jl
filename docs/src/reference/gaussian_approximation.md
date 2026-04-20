@@ -1,7 +1,7 @@
 # [Gaussian Approximation](@id gaussian-approximation)
 
 !!! note "Provided by GaussianMarkovRandomFields.jl"
-    The `gaussian_approximation` function is implemented in [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl) v0.4+ and re-exported by IntegratedNestedLaplace.jl for user convenience. This documentation describes the re-exported functionality.
+    The `gaussian_approximation` function is implemented in [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl) v0.4+ and re-exported by Latte.jl for user convenience. This documentation describes the re-exported functionality.
 
 The Gaussian approximation functionality provides efficient Newton-Raphson optimization for finding posterior modes in INLA. This is the core computational engine for constructing Gaussian approximations to non-Gaussian posteriors.
 
@@ -22,7 +22,7 @@ The gaussian_approximation function uses NonlinearSolve.jl with Newton-Raphson o
 ## Basic Usage
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 

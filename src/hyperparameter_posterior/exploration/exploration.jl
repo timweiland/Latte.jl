@@ -9,7 +9,7 @@ include("ccd.jl")          # CCD exploration
 # AutoExplorationStrategy dispatch (needs both grid.jl and ccd.jl loaded)
 function explore_hyperparameter_posterior(
         strategy::AutoExplorationStrategy,
-        model::INLAModel, y, θ_star::WorkingHyperparameters,
+        model::LatentGaussianModel, y, θ_star::WorkingHyperparameters,
         marginalization_method, marginalization_indices;
         kwargs...
     )

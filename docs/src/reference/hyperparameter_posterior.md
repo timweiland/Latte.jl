@@ -16,7 +16,7 @@ INLA approximates the hyperparameter posterior using the Laplace approximation a
 ### Mode Finding
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 using GaussianMarkovRandomFields
 
@@ -30,7 +30,7 @@ function latent_gmrf(; σ, kwargs...)
 end
 
 obs_model = ExponentialFamily(Normal)
-model = INLAModel(spec, latent_gmrf, obs_model)
+model = LatentGaussianModel(spec, latent_gmrf, obs_model)
 
 # Observed data
 y = [0.5, -0.2, 0.8, -0.1, 0.3]

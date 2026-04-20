@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using LDLFactorizations
 using Distributions
@@ -23,7 +23,7 @@ using FiniteDiff
                 return (zeros(n), Q)
             end
             obs_model = ExponentialFamily(Bernoulli)  # No hyperparameters
-            return INLAModel(spec, FunctionLatentModel(simple_latent, n), obs_model)
+            return LatentGaussianModel(spec, FunctionLatentModel(simple_latent, n), obs_model)
         end
 
         model = create_simple_model(5)
@@ -56,7 +56,7 @@ using FiniteDiff
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, FunctionLatentModel(precision_latent, 8), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(precision_latent, 8), obs_model)
 
         # Generate test data
         y_test = randn(8)
@@ -108,7 +108,7 @@ using FiniteDiff
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, FunctionLatentModel(test_latent, 6), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(test_latent, 6), obs_model)
 
         y_test = [true, true, false, true, false, false]
 
@@ -137,7 +137,7 @@ using FiniteDiff
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, FunctionLatentModel(exponential_latent, 3), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(exponential_latent, 3), obs_model)
 
         # Test with moderate data (not too extreme to avoid numerical issues)
         y_moderate = [true, false, true]

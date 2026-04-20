@@ -1,7 +1,7 @@
 # Gaussian Approximation Demo
 # This demonstrates how to use the gaussian_approximation functionality
 
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using LDLFactorizations
 using Distributions

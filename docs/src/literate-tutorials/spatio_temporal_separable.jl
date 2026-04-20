@@ -175,7 +175,7 @@ end                                                                             
 # The spatial component is a Besag (ICAR) model and the temporal component is a
 # first-order random walk:
 using GaussianMarkovRandomFields, StatsModels
-using IntegratedNestedLaplace
+using Latte
 
 spatial = Besag(W, normalize_var = true)
 temporal = RandomWalk()

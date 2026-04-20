@@ -1,6 +1,6 @@
 # Development Guide
 
-Welcome to IntegratedNestedLaplace.jl development! This guide will help you get started with the development workflow.
+Welcome to Latte.jl development! This guide will help you get started with the development workflow.
 
 ## Quick Start
 

@@ -29,7 +29,7 @@ abstract type HyperparameterMarginalizationMethod end
     marginalize_hyperparameters(
         method::HyperparameterMarginalizationMethod,
         exploration::AbstractHyperparameterExploration,
-        model::INLAModel,
+        model::LatentGaussianModel,
         y;
         progress_callback = nothing
     )
@@ -39,7 +39,7 @@ Compute hyperparameter marginal distributions from exploration results.
 # Arguments
 - `method::HyperparameterMarginalizationMethod`: Marginalization method to use
 - `exploration::AbstractHyperparameterExploration`: Results from step 2 (exploration around mode)
-- `model::INLAModel`: INLA model specification
+- `model::LatentGaussianModel`: INLA model specification
 - `y`: Observed data
 - `progress_callback`: Optional callback for progress tracking
 
@@ -74,7 +74,7 @@ hp_marginals = marginalize_hyperparameters(
 function marginalize_hyperparameters(
         method::HyperparameterMarginalizationMethod,
         exploration::AbstractHyperparameterExploration,
-        model::INLAModel,
+        model::LatentGaussianModel,
         y;
         progress_callback = nothing
     )
@@ -91,7 +91,7 @@ Must be implemented by each concrete marginalization method.
 function _marginalize_impl(
         method::HyperparameterMarginalizationMethod,
         exploration::AbstractHyperparameterExploration,
-        model::INLAModel,
+        model::LatentGaussianModel,
         y,
         progress_callback
     )

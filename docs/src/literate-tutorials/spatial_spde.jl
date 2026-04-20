@@ -93,7 +93,7 @@ fig
 # The mesh, FEM discretisation, and projection matrix are all built automatically.
 # We use a Poisson family with cell area as exposure.
 using GaussianMarkovRandomFields, StatsModels
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 
 matern = Matern(smoothness = 1)

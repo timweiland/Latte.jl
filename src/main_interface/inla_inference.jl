@@ -6,7 +6,7 @@ using DataFrames
 export inla
 
 """
-    inla(model::INLAModel, y::AbstractVector; kwargs...)
+    inla(model::LatentGaussianModel, y::AbstractVector; kwargs...)
 
 Unified INLA inference with automatic parameter selection and progress tracking.
 
@@ -14,7 +14,7 @@ This function provides a simplified interface for INLA inference, automatically
 selecting sensible defaults while supporting advanced customization.
 
 # Arguments
-- `model::INLAModel`: The INLA model specification
+- `model::LatentGaussianModel`: The INLA model specification
 - `y::AbstractVector`: Observed data
 
 # Keyword Arguments
@@ -60,7 +60,7 @@ When `progress=true`, displays a 3-phase progress bar:
 Each phase shows detailed real-time information about the computation.
 """
 function inla(
-        model::INLAModel,
+        model::LatentGaussianModel,
         y::AbstractVector;
         latent_marginalization_method = AdaptiveMarginal(),
         hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
@@ -217,7 +217,7 @@ function inla(
     fixed_terms = Tuple(t for t in rhs_terms if _is_fixed_effect_term(t))
 
     _, y, obs_model, latent_model = build_formula_components(formula, df; family, trials, exposure)
-    model = INLAModel(hyperparam_spec, latent_model, obs_model)
+    model = LatentGaussianModel(hyperparam_spec, latent_model, obs_model)
     result = inla(model, y; kwargs...)
 
     # Attach formula metadata for predict()

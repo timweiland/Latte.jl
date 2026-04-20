@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -18,7 +18,7 @@ using Random
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        return INLAModel(spec, FunctionLatentModel(latent_func, n), obs_model)
+        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
     end
 
     function make_poisson_iid_model(n)
@@ -30,7 +30,7 @@ using Random
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Poisson)
-        return INLAModel(spec, FunctionLatentModel(latent_func, n), obs_model)
+        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
     end
 
     @testset "Deterministic with seed" begin

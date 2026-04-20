@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-IntegratedNestedLaplace.jl is a Julia package for Integrated Nested Laplace Approximation (INLA), a Bayesian inference method. The package is currently in early development (v1.0.0-DEV) and uses the Julia package ecosystem structure.
+Latte.jl is a Julia package for Integrated Nested Laplace Approximation (INLA), a Bayesian inference method. The package is currently in early development (v1.0.0-DEV) and uses the Julia package ecosystem structure.
 
 ## Common Commands
 

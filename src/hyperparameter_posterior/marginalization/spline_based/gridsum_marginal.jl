@@ -7,7 +7,7 @@ Sort by θ (working space), then feed to `_build_spline_marginal`.
 function _marginalize_impl(
         method::GridSumMarginal,
         exploration::AbstractHyperparameterExploration,
-        model::INLAModel,
+        model::LatentGaussianModel,
         y,
         progress_callback
     )

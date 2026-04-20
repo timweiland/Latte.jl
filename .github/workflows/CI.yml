@@ -72,6 +72,6 @@ jobs:
         shell: julia --project=docs --color=yes {0}
         run: |
           using Documenter: DocMeta, doctest
-          using IntegratedNestedLaplace
-          DocMeta.setdocmeta!(IntegratedNestedLaplace, :DocTestSetup, :(using IntegratedNestedLaplace); recursive=true)
-          doctest(IntegratedNestedLaplace)
+          using Latte
+          DocMeta.setdocmeta!(Latte, :DocTestSetup, :(using Latte); recursive=true)
+          doctest(Latte)

@@ -33,7 +33,7 @@ y = rand.(Poisson.(exp.(η_true)))
 #
 # We'll fit three models that differ in which covariates they include.
 # All share the same IID latent structure and Poisson likelihood.
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 
 base_obs = ExponentialFamily(Poisson)
@@ -44,7 +44,7 @@ obs1 = LinearlyTransformedObservationModel(base_obs, A1)
 hp1 = @hyperparams begin
     (τ ~ Exponential(1.0), transform = log, space = natural)
 end
-m1 = INLAModel(hp1, IIDModel(2), obs1)
+m1 = LatentGaussianModel(hp1, IIDModel(2), obs1)
 r1 = inla(m1, y; progress = false)
 
 # **Model 2**: Intercept + x2 only
@@ -53,7 +53,7 @@ obs2 = LinearlyTransformedObservationModel(base_obs, A2)
 hp2 = @hyperparams begin
     (τ ~ Exponential(1.0), transform = log, space = natural)
 end
-m2 = INLAModel(hp2, IIDModel(2), obs2)
+m2 = LatentGaussianModel(hp2, IIDModel(2), obs2)
 r2 = inla(m2, y; progress = false)
 
 # **Model 3**: Intercept + x1 + x2 (the true model)
@@ -62,7 +62,7 @@ obs3 = LinearlyTransformedObservationModel(base_obs, A3)
 hp3 = @hyperparams begin
     (τ ~ Exponential(1.0), transform = log, space = natural)
 end
-m3 = INLAModel(hp3, IIDModel(3), obs3)
+m3 = LatentGaussianModel(hp3, IIDModel(3), obs3)
 r3 = inla(m3, y; progress = false)
 
 # ## Comparing marginal likelihoods

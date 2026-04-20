@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra
@@ -24,7 +24,7 @@ using HCubature
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, FunctionLatentModel(latent, 5), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent, 5), obs_model)
         y = [true, false, true, false, true]
 
         θ_star, _, _ = find_hyperparameter_mode(model, y)
@@ -54,7 +54,7 @@ using HCubature
             return (zeros(k), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, FunctionLatentModel(latent, k), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent, k), obs_model)
 
         σ_gmrf_true = 2.5
         ρ_true = 0.4

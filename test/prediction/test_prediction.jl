@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: PoissonObservations
 using Distributions
@@ -17,7 +17,7 @@ using SparseArrays
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        return INLAModel(spec, FunctionLatentModel(latent_func, n), obs_model)
+        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
     end
 
     function make_poisson_model(n)
@@ -29,7 +29,7 @@ using SparseArrays
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Poisson)
-        return INLAModel(spec, FunctionLatentModel(latent_func, n), obs_model)
+        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
     end
 
     @testset "PredictionInfo" begin
@@ -51,24 +51,24 @@ using SparseArrays
 
         # Plain integer vector + Poisson → PoissonObservations
         y_int = [3, 1, 4, 1, 5]
-        y_norm = IntegratedNestedLaplace._normalize_observations(y_int, poisson_obs)
+        y_norm = Latte._normalize_observations(y_int, poisson_obs)
         @test y_norm isa PoissonObservations
         @test y_norm.counts == y_int
 
         # Float vector + Normal → passthrough
         y_float = [1.0, 2.0, 3.0]
-        @test IntegratedNestedLaplace._normalize_observations(y_float, normal_obs) === y_float
+        @test Latte._normalize_observations(y_float, normal_obs) === y_float
 
         # Already-wrapped PoissonObservations → passthrough
         y_po = PoissonObservations([1, 2, 3])
-        @test IntegratedNestedLaplace._normalize_observations(y_po, poisson_obs) === y_po
+        @test Latte._normalize_observations(y_po, poisson_obs) === y_po
     end
 
     @testset "_prepare_for_prediction passthrough" begin
         model = make_normal_model(5)
         y = [1.0, 2.0, 3.0, 4.0, 5.0]
 
-        y_out, model_out, pred_info = IntegratedNestedLaplace._prepare_for_prediction(model, y)
+        y_out, model_out, pred_info = Latte._prepare_for_prediction(model, y)
         @test y_out == y
         @test model_out === model
         @test pred_info === nothing
@@ -78,7 +78,7 @@ using SparseArrays
         model = make_poisson_model(5)
         y = [3, 1, 4, 1, 5]
 
-        y_out, model_out, pred_info = IntegratedNestedLaplace._prepare_for_prediction(model, y)
+        y_out, model_out, pred_info = Latte._prepare_for_prediction(model, y)
         @test y_out isa PoissonObservations
         @test y_out.counts == y
         @test model_out === model
@@ -89,7 +89,7 @@ using SparseArrays
         model = make_normal_model(5)
         y = [1.0, missing, 3.0, 4.0, missing]
 
-        y_obs, model_pred, pred_info = IntegratedNestedLaplace._prepare_for_prediction(model, y)
+        y_obs, model_pred, pred_info = Latte._prepare_for_prediction(model, y)
 
         @test y_obs == [1.0, 3.0, 4.0]
         @test pred_info isa PredictionInfo
@@ -104,7 +104,7 @@ using SparseArrays
         model = make_poisson_model(5)
         y = Union{Missing, Int}[3, missing, 4, 1, missing]
 
-        y_obs, model_pred, pred_info = IntegratedNestedLaplace._prepare_for_prediction(model, y)
+        y_obs, model_pred, pred_info = Latte._prepare_for_prediction(model, y)
 
         @test y_obs isa PoissonObservations
         @test y_obs.counts == [3, 4, 1]
@@ -119,7 +119,7 @@ using SparseArrays
             exposure = [1.0, 2.0, 0.5, 1.5]
         )
 
-        y_obs, model_pred, pred_info = IntegratedNestedLaplace._prepare_for_prediction(model, y)
+        y_obs, model_pred, pred_info = Latte._prepare_for_prediction(model, y)
 
         @test y_obs isa PoissonObservations
         @test y_obs.counts == [3, 4]
@@ -142,11 +142,11 @@ using SparseArrays
 
         # With missing, no exposure
         y3 = poisson_observations(counts = [1, missing, 3])
-        @test y3 isa IntegratedNestedLaplace.MissingPoissonObservations
+        @test y3 isa Latte.MissingPoissonObservations
 
         # With missing, with exposure
         y4 = poisson_observations(counts = [1, missing, 3], exposure = [1.0, 2.0, 3.0])
-        @test y4 isa IntegratedNestedLaplace.MissingPoissonObservations
+        @test y4 isa Latte.MissingPoissonObservations
         @test y4.exposure == [1.0, 2.0, 3.0]
     end
 
@@ -154,7 +154,7 @@ using SparseArrays
         model = make_normal_model(3)
 
         # All missing
-        @test_throws ArgumentError IntegratedNestedLaplace._prepare_for_prediction(
+        @test_throws ArgumentError Latte._prepare_for_prediction(
             model, [missing, missing, missing]
         )
 
@@ -167,9 +167,9 @@ using SparseArrays
         spec = @hyperparams begin
             (τ ~ Gamma(2, 1), transform = log, space = natural)
         end
-        augmented_model = INLAModel(spec, base_model, ltom)
+        augmented_model = LatentGaussianModel(spec, base_model, ltom)
         y_with_missing = Union{Missing, Int}[1, missing, 3, 4, 5, 6, 7, 8, 9, 10]
-        y_obs, model_pred, pred_info = IntegratedNestedLaplace._prepare_for_prediction(
+        y_obs, model_pred, pred_info = Latte._prepare_for_prediction(
             augmented_model, y_with_missing
         )
         @test pred_info isa PredictionInfo

@@ -15,7 +15,7 @@ Integrated Nested Laplace Approximation (INLA) is a method for fast approximate 
 ## Quick Start
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -43,7 +43,7 @@ end
 
 # Observation model: Poisson with log-link
 obs_model = ExponentialFamily(Poisson)
-model = INLAModel(spec, latent_gmrf, obs_model)
+model = LatentGaussianModel(spec, latent_gmrf, obs_model)
 
 # Run INLA on your data
 result = inla(model, y_observed)
@@ -115,7 +115,7 @@ end
 This example demonstrates INLA on a realistic time series model with count observations:
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -154,7 +154,7 @@ end
 obs_model = ExponentialFamily(Poisson)
 
 # Complete model specification
-model = INLAModel(spec, latent_gmrf, obs_model)
+model = LatentGaussianModel(spec, latent_gmrf, obs_model)
 
 # Generate synthetic data for demonstration
 true_params = (τ = 10.0, ρ = 0.98)
@@ -286,7 +286,7 @@ if !result.convergence.mode_converged
         (τ ~ Exponential(0.1), transform = log, space = natural)  # Wider prior
         (ρ ~ Beta(2, 2), transform = logit, space = natural)      # Less informative
     end
-    result = inla(INLAModel(spec_relaxed, latent_gmrf, obs_model), y_observed)
+    result = inla(LatentGaussianModel(spec_relaxed, latent_gmrf, obs_model), y_observed)
 end
 ```
 

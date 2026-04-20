@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra
@@ -53,7 +53,7 @@ using Statistics
         return (μ, Q)
     end
     obs_model = ExponentialFamily(Poisson)
-    model = INLAModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model)
+    model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model)
 
     # Run INLA inference (fast!)
     inla_start_time = time()

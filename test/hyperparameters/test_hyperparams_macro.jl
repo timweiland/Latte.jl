@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 using Bijectors
 
@@ -20,8 +20,8 @@ using Bijectors
         # Test that transforms are applied correctly
         hp_σ = spec.free.σ
         hp_ρ = spec.free.ρ
-        @test IntegratedNestedLaplace.prior_space(hp_σ) == :natural
-        @test IntegratedNestedLaplace.prior_space(hp_ρ) == :natural
+        @test Latte.prior_space(hp_σ) == :natural
+        @test Latte.prior_space(hp_ρ) == :natural
         # When space=natural, priors are transformed to working space
         @test hp_σ.prior isa Bijectors.TransformedDistribution
         @test hp_ρ.prior isa Bijectors.TransformedDistribution
@@ -63,8 +63,8 @@ using Bijectors
         @test keys(spec.free) == (:μ, :σ)
 
         # Default is identity transform, natural space (natural = working when transform is identity)
-        @test IntegratedNestedLaplace.prior_space(spec.free.μ) == :natural
-        @test IntegratedNestedLaplace.prior_space(spec.free.σ) == :natural
+        @test Latte.prior_space(spec.free.μ) == :natural
+        @test Latte.prior_space(spec.free.σ) == :natural
         @test spec.free.μ.prior isa Normal
         @test spec.free.σ.prior isa Gamma
         @test spec.free.μ.transform === identity
@@ -93,7 +93,7 @@ using Bijectors
         end
 
         @test length(keys(spec.free)) == 1
-        @test IntegratedNestedLaplace.prior_space(spec.free.σ) == :natural
+        @test Latte.prior_space(spec.free.σ) == :natural
         # When prior_space=natural, priors are transformed to working space
         @test spec.free.σ.prior isa Bijectors.TransformedDistribution
     end
@@ -343,7 +343,7 @@ using Bijectors
         spec6 = @hyperparams begin
             (σ ~ Exponential(1.0), transform = log, prior_space = natural)
         end
-        @test IntegratedNestedLaplace.prior_space(spec6.free.σ) == :natural
+        @test Latte.prior_space(spec6.free.σ) == :natural
     end
 
 end

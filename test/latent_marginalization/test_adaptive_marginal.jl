@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: SplineAugmentedGaussian
+using Latte
+using Latte: SplineAugmentedGaussian
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays

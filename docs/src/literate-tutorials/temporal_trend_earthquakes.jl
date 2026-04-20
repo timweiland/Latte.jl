@@ -64,7 +64,7 @@ draw(
 #
 # Let's set this up using the formula interface:
 using GaussianMarkovRandomFields, StatsModels
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 
 rw1 = RandomWalk()

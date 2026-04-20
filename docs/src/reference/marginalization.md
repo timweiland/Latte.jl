@@ -1,7 +1,7 @@
 # Marginalization
 
 ```@meta
-CurrentModule = IntegratedNestedLaplace
+CurrentModule = Latte
 ```
 
 After computing a Gaussian approximation to the posterior, INLA provides several methods to marginalize over the latent field variables to obtain univariate marginal distributions. These marginals are essential for inference about individual components of the latent field.
@@ -16,7 +16,7 @@ The [`marginalize`](@ref) function computes marginal approximations for specifie
 ## Basic Usage
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 
@@ -194,5 +194,5 @@ result = marginalize(ga, obs_lik, log_prior_θ, LaplaceMarginal(), indices;
 ## See Also
 
 - [`gaussian_approximation`](@ref): Computing the Gaussian approximation
-- [`INLAModel`](@ref): Setting up complete INLA models
+- [`LatentGaussianModel`](@ref): Setting up complete INLA models
 - [Observation Models](@ref observation-models): Different likelihood types

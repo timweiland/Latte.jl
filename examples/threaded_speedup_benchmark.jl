@@ -13,7 +13,7 @@
 
 using TestEnv;
 TestEnv.activate()
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -45,7 +45,7 @@ function latent_gmrf(; τ_gmrf, η, kwargs...)
     return (μ, Q)
 end
 
-model = INLAModel(spec, FunctionLatentModel(latent_gmrf, k), ExponentialFamily(Poisson))
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, k), ExponentialFamily(Poisson))
 y = PoissonObservations(y_gt)
 
 function bench(exec; n = 3)

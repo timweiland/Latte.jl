@@ -14,7 +14,7 @@ Create a joy plot (ridgeline plot) for multiple INLA marginal distributions.
 
 # Example
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using CairoMakie  # Load Makie to enable plotting
 
 result = inla(...)

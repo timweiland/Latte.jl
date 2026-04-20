@@ -119,7 +119,7 @@ in z-space is standard Gaussian.
 """
 function explore_hyperparameter_posterior(
         strategy::CCDExplorationStrategy,
-        model::INLAModel, y, θ_star::WorkingHyperparameters,
+        model::LatentGaussianModel, y, θ_star::WorkingHyperparameters,
         marginalization_method, marginalization_indices;
         progress_callback = nothing,
         accumulators::Tuple = (),
