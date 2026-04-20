@@ -54,7 +54,7 @@ result.accumulators[1].DIC             # DIC value
 result.accumulators[1].p_D             # Effective parameters
 ```
 """
-struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo, KLD}
+struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, AugInfo, PredInfo, KLD} <: InferenceResult
     hyperparameter_marginals::HM
     latent_marginals::LM
     hyperparameter_mode::Mode

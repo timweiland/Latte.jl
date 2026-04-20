@@ -48,6 +48,10 @@ include("model/augmentation_info.jl")
 include("model/augmented_latent_model.jl")
 include("model/latent_gaussian_model.jl")
 
+# ─── InferenceResult protocol (abstract supertype + Tier 1 methods) ──────────
+# Declared early so both INLAResult and TMBResult can subtype it.
+include("posterior/result_protocol.jl")
+
 # ─── Laplace approximation (shared inner machinery) ──────────────────────────
 include("laplace/types.jl")
 include("laplace/mode_finding.jl")
@@ -86,6 +90,10 @@ include("inference/inla/progress.jl")
 # `inla()`) plus `predicted_marginals(::INLAResult)` (dispatches on INLAResult).
 # It must come after INLAResult is defined but before `inla()` uses it.
 include("posterior/prediction.jl")
+
+# INLAResult's implementation of the shared InferenceResult protocol. Needs
+# INLAResult, NaturalHyperparameters, and `_prepare_for_prediction` available.
+include("inference/inla/result_protocol.jl")
 
 include("inference/inla/inference.jl")   # `inla(...)`
 
