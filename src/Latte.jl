@@ -97,6 +97,10 @@ include("inference/inla/result_protocol.jl")
 
 include("inference/inla/inference.jl")   # `inla(...)`
 
+# ─── TMB inference ───────────────────────────────────────────────────────────
+include("inference/tmb/types.jl")
+include("inference/tmb/inference.jl")
+
 # ─── Posterior post-processing (method-agnostic in spirit) ───────────────────
 include("posterior/accumulators/interface.jl")
 include("posterior/accumulators/dic.jl")
