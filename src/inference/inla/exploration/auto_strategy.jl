@@ -1,12 +1,5 @@
-# Include modular components in dependency order
-include("adaptive_hessian.jl")  # Must come before transformation.jl
-include("transformation.jl")
-include("types.jl")
-include("utils.jl")        # Must come before grid/ccd
-include("grid.jl")         # Grid-based exploration
-include("ccd.jl")          # CCD exploration
-
-# AutoExplorationStrategy dispatch (needs both grid.jl and ccd.jl loaded)
+# AutoExplorationStrategy dispatch: picks grid for small θ-spaces, CCD for
+# large ones. Must load after grid.jl and ccd.jl (uses both strategies).
 function explore_hyperparameter_posterior(
         strategy::AutoExplorationStrategy,
         model::LatentGaussianModel, y, θ_star::WorkingHyperparameters,

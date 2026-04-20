@@ -1,5 +1,0 @@
-include("hyperparameter.jl")
-include("hyperparameter_spec.jl")
-include("working_and_natural.jl")
-include("logpdf.jl")
-include("hyperparams_macro.jl")
