@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: accumulate!, finalize!, _cpo_pit_integrals, _pointwise_cdf
+using Latte
+using Latte: accumulate!, finalize!, _cpo_pit_integrals, _pointwise_cdf
 using Random
 using GaussianMarkovRandomFields
 using Distributions
@@ -90,7 +90,7 @@ using Statistics
 
         # Force generic fallback
         generic_h, generic_pit, generic_ess = invoke(
-            IntegratedNestedLaplace._cpo_pit_integrals,
+            Latte._cpo_pit_integrals,
             Tuple{Any, Any},
             ga, obs_lik; n_nodes = 21
         )
@@ -176,7 +176,7 @@ using Statistics
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, FunctionLatentModel(latent_func_normal_cpo, n), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent_func_normal_cpo, n), obs_model)
 
         y = randn(n)
 
@@ -221,7 +221,7 @@ using Statistics
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Poisson)
-        model = INLAModel(spec, FunctionLatentModel(latent_func_poisson_cpo, n), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent_func_poisson_cpo, n), obs_model)
 
         y = rand(Poisson(3.0), n)
 
@@ -281,7 +281,7 @@ using Statistics
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return (zeros(n), Q)
         end
-        model = INLAModel(
+        model = LatentGaussianModel(
             spec, FunctionLatentModel(latent_func_nopit, n), ExponentialFamily(Normal)
         )
 

@@ -1,7 +1,7 @@
 export evaluate_at_grid_point, create_weighted_mixtures
 
 """
-    evaluate_at_grid_point(model::INLAModel, y, θ::WorkingHyperparameters; compute_marginals::Bool=false, marginalization_method=nothing, marginalization_indices=nothing)
+    evaluate_at_grid_point(model::LatentGaussianModel, y, θ::WorkingHyperparameters; compute_marginals::Bool=false, marginalization_method=nothing, marginalization_indices=nothing)
 
 Evaluate all quantities needed at a hyperparameter grid point.
 
@@ -10,7 +10,7 @@ Returns a NamedTuple with all computed quantities, designed to be splatted as kw
 accumulator callbacks.
 
 # Arguments
-- `model::INLAModel`: The INLA model specification
+- `model::LatentGaussianModel`: The INLA model specification
 - `y`: Observed data
 - `θ::WorkingHyperparameters`: Hyperparameter values in working (unconstrained) space
 - `compute_marginals::Bool=false`: Whether to compute marginals (expensive)
@@ -27,7 +27,7 @@ NamedTuple with:
 - `total_loglikelihood`: Sum of obs_loglikelihoods (or scalar log-likelihood)
 """
 function evaluate_at_grid_point(
-        model::INLAModel, y, θ::WorkingHyperparameters;
+        model::LatentGaussianModel, y, θ::WorkingHyperparameters;
         ws,
         compute_marginals::Bool = false, marginalization_method = nothing, marginalization_indices = nothing,
     )

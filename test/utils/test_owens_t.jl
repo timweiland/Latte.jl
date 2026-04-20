@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace: owens_t
+using Latte: owens_t
 using HCubature: hcubature
 using StatsFuns: erfc
 

@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra
@@ -43,7 +43,7 @@ using LDLFactorizations
         return (μ, Q)
     end
     obs_model = ExponentialFamily(Poisson)
-    model = INLAModel(θ_prior, latent_gmrf, obs_model)
+    model = LatentGaussianModel(θ_prior, latent_gmrf, obs_model)
 
     # Generate synthetic data
     x_gt = rand(GMRF(latent_gmrf((τ_gmrf_log = τ_gmrf_log_true, η = η_true)...)))

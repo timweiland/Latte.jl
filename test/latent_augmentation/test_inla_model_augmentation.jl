@@ -1,10 +1,10 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using LinearAlgebra
 using Distributions
 
-@testset "INLAModel Augmentation Tests" begin
+@testset "LatentGaussianModel Augmentation Tests" begin
     @testset "Automatic Augmentation with LatentModel" begin
         # Create a simple test case
         n_base = 5
@@ -25,8 +25,8 @@ using Distributions
             (τ ~ Exponential(1.0), transform = log, space = natural)
         end
 
-        # Create INLAModel (should automatically augment)
-        model = INLAModel(hp_spec, base_model, obs_model)
+        # Create LatentGaussianModel (should automatically augment)
+        model = LatentGaussianModel(hp_spec, base_model, obs_model)
 
         # Check that augmentation occurred
         @test model.augmentation_info !== nothing
@@ -63,8 +63,8 @@ using Distributions
             (τ ~ Exponential(1.0), transform = log, space = natural)
         end
 
-        # Create INLAModel (should wrap function and augment)
-        model = INLAModel(hp_spec, my_latent_prior, obs_model)
+        # Create LatentGaussianModel (should wrap function and augment)
+        model = LatentGaussianModel(hp_spec, my_latent_prior, obs_model)
 
         # Check that augmentation occurred
         @test model.augmentation_info !== nothing
@@ -90,7 +90,7 @@ using Distributions
         end
 
         # Create with augment_latent=false
-        model = INLAModel(hp_spec, base_model, obs_model; augment_latent = false)
+        model = LatentGaussianModel(hp_spec, base_model, obs_model; augment_latent = false)
 
         # Check that augmentation did NOT occur
         @test model.augmentation_info === nothing
@@ -114,7 +114,7 @@ using Distributions
         end
 
         # Should throw dimension mismatch error
-        @test_throws ErrorException INLAModel(hp_spec, wrong_base_model, obs_model)
+        @test_throws ErrorException LatentGaussianModel(hp_spec, wrong_base_model, obs_model)
     end
 
     @testset "Custom Linear Predictor Precision" begin
@@ -132,7 +132,7 @@ using Distributions
 
         # Create with custom precision
         custom_precision = 1.0e3
-        model = INLAModel(
+        model = LatentGaussianModel(
             hp_spec, base_model, obs_model;
             linear_predictor_precision = custom_precision
         )
@@ -157,7 +157,7 @@ using Distributions
             (τ ~ Exponential(1.0), transform = log, space = natural)
         end
 
-        model = INLAModel(hp_spec, base_model, obs_model)
+        model = LatentGaussianModel(hp_spec, base_model, obs_model)
 
         # Generate GMRF using the model
         θ_named = (τ = 2.0,)

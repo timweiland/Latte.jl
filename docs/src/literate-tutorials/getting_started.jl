@@ -1,9 +1,9 @@
-# # Getting started with IntegratedNestedLaplace.jl
+# # Getting started with Latte.jl
 #
 # Welcome!
 # In this hands-on tutorial we will walk through a very simple Bayesian analysis
 # of mortality rates following surgery in some hospitals.
-# In the process, you will learn the basics of IntegratedNestedLaplace.jl enabling
+# In the process, you will learn the basics of Latte.jl enabling
 # you to get started with your own analyses.
 #
 # ## Installation
@@ -24,7 +24,7 @@
 # - **Geostatistical and spatio-temporal models** with Gaussian Markov random fields
 # - **Problems requiring speed** where you need results in seconds rather than hours
 #
-# This package, IntegratedNestedLaplace.jl, provides a modern Julia implementation
+# This package, Latte.jl, provides a modern Julia implementation
 # of INLA with emphasis on clarity, flexibility, and composability.
 #
 # ## The dataset
@@ -58,7 +58,7 @@ iid = IID(constraint = :sumtozero)
 f = @formula(r ~ 1 + iid(hospital))
 
 #
-using IntegratedNestedLaplace
+using Latte
 hp_spec = @hyperparams begin
     (τ_iid ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
 end
@@ -76,7 +76,7 @@ inla_result = inla(f, hp_spec, surg_data; family = Binomial)
 #
 # ## Exploring the Results
 #
-# All marginals computed by IntegratedNestedLaplace.jl implement the Distributions.jl interface.
+# All marginals computed by Latte.jl implement the Distributions.jl interface.
 # This means that you can simply call methods from Distributions.jl directly on these objects.
 # Let's try this for the marginal of the IID model's precision:
 τ_marginal = inla_result.hyperparameter_marginals.τ_iid
@@ -136,6 +136,6 @@ inla_result.accumulators[2]
 # If we run INLA on the same data for two different models, these quantities help us decide between the two.
 
 # ## Conclusion
-# Congratulations! You just learned the basic usage of IntegratedNestedLaplace.jl.
+# Congratulations! You just learned the basic usage of Latte.jl.
 #
 # Curious to learn more? Check our other tutorials.

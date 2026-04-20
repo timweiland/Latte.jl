@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 using GaussianMarkovRandomFields
 using SparseArrays
@@ -32,7 +32,7 @@ function create_test_model(k = 100)  # Smaller than example but still stable
     obs_model = ExponentialFamily(Normal)
 
     # Create INLA model
-    return INLAModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model), k
+    return LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model), k
 end
 
 # Generate test data using the exact same method as the working example
@@ -68,7 +68,7 @@ end
 
     @testset "Basic Exploration" begin
         # Test exploring in positive direction along first dimension
-        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
+        keyed_points = Latte.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,  # Smaller subset for testing
@@ -88,7 +88,7 @@ end
 
     @testset "Negative Direction" begin
         # Test exploring in negative direction
-        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
+        keyed_points = Latte.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, -1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
@@ -106,7 +106,7 @@ end
 
     @testset "Log Density Decreases" begin
         # Test that log density decreases as we move away from mode
-        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
+        keyed_points = Latte.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
@@ -125,7 +125,7 @@ end
 
     @testset "Stopping Condition" begin
         # Test with small max_log_drop to ensure early stopping
-        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
+        keyed_points = Latte.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 0.5, 2,  # Small max_log_drop
             GaussianMarginal(), 1:5,
@@ -141,7 +141,7 @@ end
 
     @testset "Integration Point Marking" begin
         # Test that integration points are correctly marked
-        keyed_points = IntegratedNestedLaplace.explore_half_axis_by_steps(
+        keyed_points = Latte.explore_half_axis_by_steps(
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,  # interpolation_subdivisions = 2
             GaussianMarginal(), 1:5,
@@ -179,7 +179,7 @@ end
     mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test; ws = ws)
 
     @testset "Basic Dimension Exploration" begin
-        point_lookup, step_range = IntegratedNestedLaplace.explore_dimension_and_build_lookup(
+        point_lookup, step_range = Latte.explore_dimension_and_build_lookup(
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
@@ -196,7 +196,7 @@ end
     end
 
     @testset "Lookup Table Structure" begin
-        point_lookup, step_range = IntegratedNestedLaplace.explore_dimension_and_build_lookup(
+        point_lookup, step_range = Latte.explore_dimension_and_build_lookup(
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
@@ -218,7 +218,7 @@ end
 
     @testset "Symmetry Check" begin
         # Test that exploration finds points in both directions
-        point_lookup, step_range = IntegratedNestedLaplace.explore_dimension_and_build_lookup(
+        point_lookup, step_range = Latte.explore_dimension_and_build_lookup(
             model, y_test, transform, mode_logpdf,
             1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,

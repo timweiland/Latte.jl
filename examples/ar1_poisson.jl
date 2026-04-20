@@ -1,4 +1,4 @@
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra
@@ -40,8 +40,8 @@ spec = @hyperparams begin
 end
 
 obs_model = ExponentialFamily(Poisson)
-#model = INLAModel(θ_prior, latent_gmrf, obs_model)
-model = INLAModel(spec, latent_gmrf, obs_model)
+#model = LatentGaussianModel(θ_prior, latent_gmrf, obs_model)
+model = LatentGaussianModel(spec, latent_gmrf, obs_model)
 
 Random.seed!(83498)
 τ_gmrf_true = 100.0

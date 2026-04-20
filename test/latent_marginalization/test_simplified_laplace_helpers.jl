@@ -1,11 +1,11 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using LinearAlgebra
 using SparseArrays
 using Random
 
 # Access the internal function for testing
-using IntegratedNestedLaplace: _compute_tr
+using Latte: _compute_tr
 
 @testset "Simplified Laplace Helper Functions" begin
 

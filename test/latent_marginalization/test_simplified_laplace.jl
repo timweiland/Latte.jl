@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: _get_skew_params
+using Latte
+using Latte: _get_skew_params
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra

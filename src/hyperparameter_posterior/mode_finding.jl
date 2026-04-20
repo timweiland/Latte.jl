@@ -54,14 +54,14 @@ function _initial_guess_for_hyperparameter(hp::Hyperparameter{T, S}) where {T, S
 end
 
 """
-    hyperparameter_logpdf(model::INLAModel, θ, y, ga=nothing)
+    hyperparameter_logpdf(model::LatentGaussianModel, θ, y, ga=nothing)
 
 Evaluate log π(θ | y) ∝ log π(θ) + log π(x*(θ), θ, y) - log π̃_G(x*(θ) | θ, y)
 
 This is the INLA approximation to the hyperparameter posterior.
 
 # Arguments
-- `model::INLAModel`: The INLA model specification
+- `model::LatentGaussianModel`: The INLA model specification
 - `θ`: Hyperparameters (WorkingHyperparameters or NaturalHyperparameters)
 - `y`: Observed data
 - `ga`: Optional pre-computed Gaussian approximation (GMRF object). If `nothing`, will be computed.
@@ -71,7 +71,7 @@ This is the INLA approximation to the hyperparameter posterior.
 - `NaturalHyperparameters` converts to working space and adds Jacobian correction
 """
 function hyperparameter_logpdf(
-        model::INLAModel, θ::WorkingHyperparameters, y, ga = nothing;
+        model::LatentGaussianModel, θ::WorkingHyperparameters, y, ga = nothing;
         ws, x0 = nothing,
     )
     # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
@@ -115,7 +115,7 @@ function hyperparameter_logpdf(
     return joint_logpdf - gaussian_logpdf
 end
 
-function hyperparameter_logpdf(model::INLAModel, θ::NaturalHyperparameters, y, ga = nothing; ws)
+function hyperparameter_logpdf(model::LatentGaussianModel, θ::NaturalHyperparameters, y, ga = nothing; ws)
     # Convert to working space and evaluate
     θ_working = convert(WorkingHyperparameters, θ)
     log_p_working = hyperparameter_logpdf(model, θ_working, y, ga; ws = ws)
@@ -125,7 +125,7 @@ function hyperparameter_logpdf(model::INLAModel, θ::NaturalHyperparameters, y, 
 end
 
 """
-    find_hyperparameter_mode(model::INLAModel, y; method=BFGS(), collect_points=true, progress_callback=nothing)
+    find_hyperparameter_mode(model::LatentGaussianModel, y; method=BFGS(), collect_points=true, progress_callback=nothing)
 
 Find the mode θ* of the hyperparameter posterior π(θ | y).
 
@@ -145,7 +145,7 @@ Find the mode θ* of the hyperparameter posterior π(θ | y).
 Optimization is performed in working (unconstrained) space. The mode is returned in working space.
 """
 function find_hyperparameter_mode(
-        model::INLAModel, y;
+        model::LatentGaussianModel, y;
         method = BFGS(), collect_points = true, progress_callback = nothing,
         diff_strategy::DifferentiationStrategy = ADStrategy()
     )

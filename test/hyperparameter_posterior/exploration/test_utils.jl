@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 using GaussianMarkovRandomFields
 using SparseArrays
@@ -32,7 +32,7 @@ function create_test_model(k = 10)
     obs_model = ExponentialFamily(Normal)
 
     # Create INLA model
-    return INLAModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model), k
+    return LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model), k
 end
 
 # Generate test data using the exact same method as the working example

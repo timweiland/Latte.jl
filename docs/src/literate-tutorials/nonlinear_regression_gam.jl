@@ -107,7 +107,7 @@ draw(
 # additional hyperparameter $\sigma$ for the observation noise standard
 # deviation.
 using GaussianMarkovRandomFields, StatsModels
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 
 rw2 = RandomWalk(2)

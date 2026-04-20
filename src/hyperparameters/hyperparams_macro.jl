@@ -62,7 +62,7 @@ end
 
 function _hyperparams_alias_transform(sym::Symbol)
     if sym in _HYPERPARAMS_BUILTIN_TRANSFORMS
-        return :(IntegratedNestedLaplace._hyperparams_builtin_transform($(QuoteNode(sym))))
+        return :(Latte._hyperparams_builtin_transform($(QuoteNode(sym))))
     end
     return nothing
 end
@@ -72,7 +72,7 @@ function _hyperparams_alias_transform(expr::Expr)
         func_sym = expr.args[1]::Symbol
         if haskey(_HYPERPARAMS_CALL_ALIASES, func_sym)
             mapped = _HYPERPARAMS_CALL_ALIASES[func_sym]
-            return :(IntegratedNestedLaplace._hyperparams_builtin_transform($(QuoteNode(mapped))))
+            return :(Latte._hyperparams_builtin_transform($(QuoteNode(mapped))))
         end
     end
     return nothing

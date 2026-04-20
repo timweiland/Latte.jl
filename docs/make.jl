@@ -1,16 +1,16 @@
-using IntegratedNestedLaplace
+using Latte
 using Documenter
 using DocumenterVitepress
 
 include("generate_literate.jl")
 
-DocMeta.setdocmeta!(IntegratedNestedLaplace, :DocTestSetup, :(using IntegratedNestedLaplace); recursive = true)
+DocMeta.setdocmeta!(Latte, :DocTestSetup, :(using Latte); recursive = true)
 
 makedocs(;
     authors = "Tim Weiland <hello@timwei.land> and contributors",
-    sitename = "IntegratedNestedLaplace.jl",
+    sitename = "Latte.jl",
     format = DocumenterVitepress.MarkdownVitepress(
-        repo = "github.com/timweiland/IntegratedNestedLaplace.jl",
+        repo = "github.com/timweiland/Latte.jl",
         devbranch = "main",
         devurl = "dev"
     ),
@@ -39,6 +39,6 @@ makedocs(;
 )
 
 DocumenterVitepress.deploydocs(;
-    repo = "github.com/timweiland/IntegratedNestedLaplace.jl",
+    repo = "github.com/timweiland/Latte.jl",
     devbranch = "main",
 )

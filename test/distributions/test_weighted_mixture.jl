@@ -2,7 +2,7 @@ using Test
 using Distributions
 using StatsBase
 using Random
-using IntegratedNestedLaplace
+using Latte
 
 @testset "WeightedMixture Tests" begin
 

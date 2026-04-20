@@ -1,11 +1,11 @@
-module IntegratedNestedLaplaceMakieExt
+module LatteMakieExt
 
-using IntegratedNestedLaplace
+using Latte
 using Makie
 using Distributions
 
 # Import the distribution types we're adding recipes for
-import IntegratedNestedLaplace: SplineMarginalDistribution,
+import Latte: SplineMarginalDistribution,
     WeightedMixture,
     TransformedWeightedMixture,
     joyplot,
@@ -52,7 +52,7 @@ Supports:
 
 # Examples
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using CairoMakie
 
 result = inla(...)
@@ -284,7 +284,7 @@ by the famous Joy Division "Unknown Pleasures" album cover.
 
 # Examples
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using CairoMakie
 
 result = inla(...)

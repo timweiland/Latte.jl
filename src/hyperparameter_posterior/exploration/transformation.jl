@@ -44,13 +44,13 @@ function logdet_jacobian(t::ReparameterizationTransform)
 end
 
 """
-    compute_reparameterization(model::INLAModel, y, θ_star)
+    compute_reparameterization(model::LatentGaussianModel, y, θ_star)
 
 Computes the reparameterization around the mode and returns it as a
 `ReparameterizationTransform` object.
 
 # Arguments
-- `model::INLAModel`: The INLA model
+- `model::LatentGaussianModel`: The INLA model
 - `y`: Observed data
 - `θ_star::WorkingHyperparameters`: Hyperparameter mode in working space
 
@@ -58,7 +58,7 @@ Computes the reparameterization around the mode and returns it as a
 - `ReparameterizationTransform`: Transform object containing eigendecomposition
 """
 function compute_reparameterization(
-        model::INLAModel, y, θ_star::WorkingHyperparameters;
+        model::LatentGaussianModel, y, θ_star::WorkingHyperparameters;
         pool,
         executor::ParallelExecutor = SequentialExecutor(),
         diff_strategy::DifferentiationStrategy = ADStrategy(),

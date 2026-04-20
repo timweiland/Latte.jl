@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -19,7 +19,7 @@ using LinearAlgebra
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        return INLAModel(spec, FunctionLatentModel(latent_func, n), obs_model)
+        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
     end
 
     function make_normal_ar1_model(n)
@@ -37,7 +37,7 @@ using LinearAlgebra
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        return INLAModel(spec, FunctionLatentModel(latent_func, n), obs_model)
+        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
     end
 
     # Fit a model once for reuse

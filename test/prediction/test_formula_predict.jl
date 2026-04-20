@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -21,7 +21,7 @@ using StatsModels
             (τ ~ Gamma(2, 1), transform = log, space = natural)
         end
         ltom = LinearlyTransformedObservationModel(ExponentialFamily(Normal), A)
-        model = INLAModel(spec, IIDModel(n_base), ltom)
+        model = LatentGaussianModel(spec, IIDModel(n_base), ltom)
         y = randn(n_obs)
         result = inla(model, y; progress = false, diff_strategy = FiniteDiffStrategy())
 

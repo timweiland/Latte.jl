@@ -7,7 +7,7 @@ AutoHyperparameterMarginal: dispatches based on dimension.
 function _marginalize_impl(
         method::AutoHyperparameterMarginal,
         exploration::AbstractHyperparameterExploration,
-        model::INLAModel,
+        model::LatentGaussianModel,
         y,
         progress_callback
     )

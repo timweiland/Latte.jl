@@ -1,4 +1,4 @@
-# Custom distributions for IntegratedNestedLaplace.jl
+# Custom distributions for Latte.jl
 
 include("skew_normal_ext.jl")
 include("weighted_mixture.jl")

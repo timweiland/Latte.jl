@@ -11,7 +11,7 @@
 # - Observations: y_i ~ Normal(x_i, σ_y²)
 # - Hyperparameters: θ = [σ, ρ]
 
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra
@@ -57,7 +57,7 @@ end
 obs_model = ExponentialFamily(Normal)
 
 # Create INLA model
-inla_model = INLAModel(spec, latent_gmrf, obs_model)
+inla_model = LatentGaussianModel(spec, latent_gmrf, obs_model)
 
 println("\nGenerating synthetic data...")
 

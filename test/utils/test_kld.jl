@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: symmetric_kld
+using Latte
+using Latte: symmetric_kld
 using Distributions
 
 @testset "symmetric_kld" begin

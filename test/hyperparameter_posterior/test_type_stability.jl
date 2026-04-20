@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using LDLFactorizations
 using Distributions
@@ -19,7 +19,7 @@ using SparseArrays
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, FunctionLatentModel(beta_latent, 2), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(beta_latent, 2), obs_model)
 
         y_test = [true, true]  # Biased data to avoid boundary issues
         θ_test_working = WorkingHyperparameters([1.0], spec)
@@ -32,7 +32,7 @@ using SparseArrays
         @inferred WorkingHyperparameters find_hyperparameter_mode(model, y_test; collect_points = false)[1]
 
         # Test initial hyperparameter guess function with spec
-        initial_guess = IntegratedNestedLaplace.initial_hyperparameter_guess(spec)
+        initial_guess = Latte.initial_hyperparameter_guess(spec)
         @test initial_guess isa WorkingHyperparameters
     end
 
@@ -47,7 +47,7 @@ using SparseArrays
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, FunctionLatentModel(allocation_test_latent, 5), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(allocation_test_latent, 5), obs_model)
 
         y_test = randn(5)
         θ_test_working = WorkingHyperparameters([1.5], spec)
@@ -82,7 +82,7 @@ using SparseArrays
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Bernoulli)
-        model_1d = INLAModel(spec_1d, FunctionLatentModel(latent_1d, 3), obs_model)
+        model_1d = LatentGaussianModel(spec_1d, FunctionLatentModel(latent_1d, 3), obs_model)
         y_test_1d = [true, false, true]
 
         θ_star_1d, _, _ = find_hyperparameter_mode(model_1d, y_test_1d)
@@ -99,7 +99,7 @@ using SparseArrays
             Q = spdiagm(0 => [α, α, β, β])
             return (zeros(n), Q)
         end
-        model_2d = INLAModel(spec_2d, FunctionLatentModel(latent_2d, 4), obs_model)
+        model_2d = LatentGaussianModel(spec_2d, FunctionLatentModel(latent_2d, 4), obs_model)
         y_test_2d = [true, false, true, false]
 
         θ_star_2d, _, _ = find_hyperparameter_mode(model_2d, y_test_2d)
@@ -117,7 +117,7 @@ using SparseArrays
             Q = spdiagm(0 => [γ₁, γ₁, γ₂, γ₂, γ₃, γ₃])
             return (zeros(n), Q)
         end
-        model_3d = INLAModel(spec_3d, FunctionLatentModel(latent_3d, 6), obs_model)
+        model_3d = LatentGaussianModel(spec_3d, FunctionLatentModel(latent_3d, 6), obs_model)
         y_test_3d = [true, false, true, false, true, false]
 
         θ_star_3d, _, _ = find_hyperparameter_mode(model_3d, y_test_3d)
@@ -141,7 +141,7 @@ using SparseArrays
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, FunctionLatentModel(extreme_latent, 3), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(extreme_latent, 3), obs_model)
 
         # Test with extreme data
         y_extreme_large = [10.0, 12.0, 15.0]  # Large values
@@ -175,7 +175,7 @@ using SparseArrays
             return (zeros(n), Symmetric(Q))
         end
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, FunctionLatentModel(consistent_latent, 4), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(consistent_latent, 4), obs_model)
 
         y_test = [true, false, true, false]
 

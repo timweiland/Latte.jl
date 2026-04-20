@@ -1,6 +1,6 @@
 # INLA Model
 
-The `INLAModel` provides a complete specification for INLA inference, combining hyperparameter priors, latent field structure, and observation models into a single coherent framework.
+The `LatentGaussianModel` provides a complete specification for INLA inference, combining hyperparameter priors, latent field structure, and observation models into a single coherent framework.
 
 ## Overview
 
@@ -13,7 +13,7 @@ An INLA model consists of three key components:
 ## Basic Usage
 
 ```julia
-using IntegratedNestedLaplace, GaussianMarkovRandomFields, Distributions
+using Latte, GaussianMarkovRandomFields, Distributions
 
 # Define hyperparameter prior
 hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
@@ -36,7 +36,7 @@ end
 obs_model = ExponentialFamily(Binomial)
 
 # Create complete INLA model
-model = INLAModel(hp_prior, ar1_latent, obs_model)
+model = LatentGaussianModel(hp_prior, ar1_latent, obs_model)
 ```
 
 ## Key Functions
@@ -44,7 +44,7 @@ model = INLAModel(hp_prior, ar1_latent, obs_model)
 ### Model Construction
 
 ```@docs
-INLAModel
+LatentGaussianModel
 ```
 
 ### Model Utilities
@@ -74,7 +74,7 @@ end
 
 obs_model = ExponentialFamily(Normal)  # Uses σ
 
-model = INLAModel(hp_prior, spatial_latent, obs_model)
+model = LatentGaussianModel(hp_prior, spatial_latent, obs_model)
 ```
 
 ## Fixed and Free Parameters
@@ -96,17 +96,17 @@ end
 
 ## Validation
 
-The `INLAModel` constructor validates that all required hyperparameters for the observation model are provided. Missing required parameters will raise an error:
+The `LatentGaussianModel` constructor validates that all required hyperparameters for the observation model are provided. Missing required parameters will raise an error:
 
 ```julia
 # This will error: Normal requires σ hyperparameter
 hp_prior = HyperparameterPrior((μ = Normal(0, 1),))  # Missing σ
 obs_model = ExponentialFamily(Normal)
-model = INLAModel(hp_prior, latent_fn, obs_model)  # ERROR!
+model = LatentGaussianModel(hp_prior, latent_fn, obs_model)  # ERROR!
 ```
 
 Additional hyperparameters beyond those required by the observation model are allowed, as they may be used by the latent field prior function.
 
 ## Integration with INLA Pipeline
 
-The `INLAModel` serves as the foundation for the complete INLA inference pipeline.
+The `LatentGaussianModel` serves as the foundation for the complete INLA inference pipeline.

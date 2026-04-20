@@ -85,7 +85,7 @@ end
 
 
 """
-    _prepare_for_prediction(model::INLAModel, y::AbstractVector)
+    _prepare_for_prediction(model::LatentGaussianModel, y::AbstractVector)
 
 Pre-process `y` for prediction: detect `missing` values, extract observed data,
 and create a modified model with observation indices.
@@ -93,7 +93,7 @@ and create a modified model with observation indices.
 Returns `(y_processed, model_processed, prediction_info)`.
 If no missing values, returns `(y_normalized, model, nothing)` unchanged.
 """
-function _prepare_for_prediction(model::INLAModel, y::AbstractVector)
+function _prepare_for_prediction(model::LatentGaussianModel, y::AbstractVector)
     if !any(ismissing, y)
         return _normalize_observations(y, model.observation_model), model, nothing
     end
@@ -117,7 +117,7 @@ function _prepare_for_prediction(model::INLAModel, y::AbstractVector)
         y_obs = _extract_observed(y, observed_mask, model.observation_model)
         new_obs_model = _restrict_obs_model_to_indices(model.observation_model, observed_indices)
 
-        model_processed = INLAModel(
+        model_processed = LatentGaussianModel(
             model.hyperparameter_spec,
             model.latent_prior,
             new_obs_model,
@@ -134,8 +134,8 @@ function _prepare_for_prediction(model::INLAModel, y::AbstractVector)
     y_obs = _extract_observed(y, observed_mask, model.observation_model)
     new_obs_model = _restrict_obs_model_to_indices(model.observation_model, observed_indices)
 
-    # Create modified INLAModel with indexed observation model
-    model_processed = INLAModel(
+    # Create modified LatentGaussianModel with indexed observation model
+    model_processed = LatentGaussianModel(
         model.hyperparameter_spec,
         model.latent_prior,
         new_obs_model,

@@ -1,10 +1,11 @@
-name = "IntegratedNestedLaplace"
-uuid = "2effd5db-7349-4d38-b544-5bd2c9a6c666"
+name = "Latte"
+uuid = "d585094e-6273-42a7-8500-34710a148fdc"
 authors = ["Tim Weiland <tim@weiland-lahnstein.de> and contributors"]
-version = "1.0.0-DEV"
+version = "0.1.0-DEV"
 
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 Bijectors = "76274a88-744f-5084-9051-94815aaf08c4"
 ChainRulesCore = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
@@ -34,7 +35,7 @@ StatsModels = "3eaba693-59b7-5ba5-a881-562e759f1c8d"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [extensions]
-IntegratedNestedLaplaceMakieExt = "Makie"
+LatteMakieExt = "Makie"
 
 [compat]
 ADTypes = "1"

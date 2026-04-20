@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra
@@ -36,7 +36,7 @@ using Statistics
         return (zeros(n), Q)
     end
     obs_model = ExponentialFamily(Bernoulli)
-    model = INLAModel(spec, FunctionLatentModel(latent_gmrf, n), obs_model)
+    model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, n), obs_model)
 
     # Run with all three methods
     result_g = inla(

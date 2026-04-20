@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 using Bijectors
 
@@ -11,32 +11,32 @@ using Bijectors
         # Prior specified in working space → stored as-is
         @test hp1.prior isa Normal
         @test hp1.transform == identity
-        @test IntegratedNestedLaplace.prior_space(hp1) == :working
+        @test Latte.prior_space(hp1) == :working
 
         # Test construction with log transform in working space
         hp2 = Hyperparameter(Normal(0, 1), transform = elementwise(log), prior_space = :working)
         # Prior specified in working space → stored as-is (not wrapped)
         @test hp2.prior isa Normal
-        @test IntegratedNestedLaplace.prior_space(hp2) == :working
+        @test Latte.prior_space(hp2) == :working
 
         # Test construction with log transform in natural space (PC prior)
         hp3 = Hyperparameter(Exponential(1.0), transform = elementwise(log), prior_space = :natural)
         # Prior specified in natural space → transformed to working space
         @test hp3.prior isa Bijectors.TransformedDistribution
-        @test IntegratedNestedLaplace.prior_space(hp3) == :natural
+        @test Latte.prior_space(hp3) == :natural
 
         # Test construction with logit transform in natural space
         hp4 = Hyperparameter(Beta(2, 2), transform = Bijectors.Logit(0.0, 1.0), prior_space = :natural)
         # Prior specified in natural space → transformed to working space
         @test hp4.prior isa Bijectors.TransformedDistribution
-        @test IntegratedNestedLaplace.prior_space(hp4) == :natural
+        @test Latte.prior_space(hp4) == :natural
 
         # Test construction with identity transform in natural space
         hp5 = Hyperparameter(Normal(0, 10), transform = identity, prior_space = :natural)
         # Identity transform → working = natural, stored as-is
         @test hp5.prior isa Normal
         @test hp5.transform == identity
-        @test IntegratedNestedLaplace.prior_space(hp5) == :natural
+        @test Latte.prior_space(hp5) == :natural
     end
 
     @testset "Error Handling" begin

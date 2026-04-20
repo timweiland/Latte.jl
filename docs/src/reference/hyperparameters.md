@@ -1,6 +1,6 @@
 # [Hyperparameters](@id hyperparameters)
 
-The hyperparameter system in IntegratedNestedLaplace.jl provides type-safe management of model parameters with support for both free (optimized) and fixed parameters, including automatic parameter transformations between constrained and unconstrained spaces.
+The hyperparameter system in Latte.jl provides type-safe management of model parameters with support for both free (optimized) and fixed parameters, including automatic parameter transformations between constrained and unconstrained spaces.
 
 ## Overview
 
@@ -17,7 +17,7 @@ INLA models typically have hyperparameters that control the latent field prior (
 ### Simple Hyperparameter Prior
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using Distributions
 
 # Define prior over a single hyperparameter
@@ -98,7 +98,7 @@ end
 
 ## Integrating with INLA Models
 
-The `@hyperparams` macro integrates seamlessly with `INLAModel`:
+The `@hyperparams` macro integrates seamlessly with `LatentGaussianModel`:
 
 ```julia
 using GaussianMarkovRandomFields
@@ -121,7 +121,7 @@ end
 obs_model = ExponentialFamily(Normal)
 
 # Create INLA model
-model = INLAModel(spec, spatial_gmrf, obs_model)
+model = LatentGaussianModel(spec, spatial_gmrf, obs_model)
 
 # Sample from model to generate synthetic data
 θ, x, y = rand(model)  # Sample hyperparameters, latent field, and observations
@@ -150,7 +150,7 @@ This Jacobian correction is handled automatically.
 Here's a complete example showing AR(1) model with mixed parameters and transformations:
 
 ```julia
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra
@@ -178,7 +178,7 @@ end
 obs_model = ExponentialFamily(Normal)
 
 # Create INLA model
-model = INLAModel(spec, ar1_gmrf, obs_model)
+model = LatentGaussianModel(spec, ar1_gmrf, obs_model)
 
 # Generate synthetic data
 θ_true = (σ = 2.0, ρ = 0.8)  # Natural space

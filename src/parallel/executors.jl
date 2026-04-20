@@ -17,7 +17,7 @@ Concrete subtypes:
 To add a new backend, define a subtype and a method for `pmap_executor`:
 ```julia
 struct MyExecutor <: ParallelExecutor end
-IntegratedNestedLaplace.pmap_executor(f, xs, ::MyExecutor) = my_parallel_map(f, xs)
+Latte.pmap_executor(f, xs, ::MyExecutor) = my_parallel_map(f, xs)
 ```
 """
 abstract type ParallelExecutor end

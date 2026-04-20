@@ -7,7 +7,7 @@ using SparseArrays: SparseMatrixCSC, sparse
 import GaussianMarkovRandomFields: hyperparameters, precision_matrix, constraints, model_name
 import Distributions: mean
 
-export INLAModel, FunctionLatentModel, latent_gmrf, log_joint_density
+export LatentGaussianModel, LGM, FunctionLatentModel, latent_gmrf, log_joint_density
 
 # Helper type for wrapping functions as LatentModels.
 #
@@ -44,9 +44,15 @@ end
 model_name(::FunctionLatentModel) = :function_latent
 
 """
-    INLAModel{HP, F, O}
+    LatentGaussianModel{HP, F, O}
 
-A complete INLA model specification with hyperparameter prior, latent field prior, and observation model.
+A latent Gaussian model specification with hyperparameter prior, latent field prior, and observation model.
+
+Factors as `p(θ) · p(x | θ) · p(y | x, θ)` with `p(x | θ)` Gaussian. This is the
+shared structure that INLA, TMB, HMC-on-Laplace, and variational approximations
+all operate on.
+
+The alias `LGM` is available for brevity.
 
 # Type Parameters
 - `HP`: Type of the hyperparameter specification (HyperparameterSpec)
@@ -79,17 +85,17 @@ end
 # Define observation model
 obs_model = ExponentialFamily(Normal)
 
-# Create INLA model
-model = INLAModel(hp_spec, latent_gmrf, obs_model)
+# Create latent Gaussian model
+model = LatentGaussianModel(hp_spec, latent_gmrf, obs_model)
 ```
 """
-struct INLAModel{HP, F <: LatentModel, O <: ObservationModel}
+struct LatentGaussianModel{HP, F <: LatentModel, O <: ObservationModel}
     hyperparameter_spec::HP
     latent_prior::F
     observation_model::O
     augmentation_info::Union{Nothing, AugmentationInfo}
 
-    function INLAModel(hp_spec::HyperparameterSpec{FreeNT, FixedNT}, latent_prior, observation_model::O, augmentation_info::Union{Nothing, AugmentationInfo} = nothing) where {FreeNT, FixedNT, O <: ObservationModel}
+    function LatentGaussianModel(hp_spec::HyperparameterSpec{FreeNT, FixedNT}, latent_prior, observation_model::O, augmentation_info::Union{Nothing, AugmentationInfo} = nothing) where {FreeNT, FixedNT, O <: ObservationModel}
         # Catch raw functions with a helpful error message
         if latent_prior isa Function
             error(
@@ -111,6 +117,13 @@ struct INLAModel{HP, F <: LatentModel, O <: ObservationModel}
     end
 end
 
+"""
+    LGM
+
+Alias for `LatentGaussianModel`.
+"""
+const LGM = LatentGaussianModel
+
 function _restrict_obs_model_to_indices(obs_model::ObservationModel, indices)
     error(
         "Prediction via missing values is not supported for $(typeof(obs_model)). " *
@@ -124,7 +137,7 @@ function _restrict_obs_model_to_indices(obs_model::ExponentialFamily, indices)
 end
 
 """
-    INLAModel(
+    LatentGaussianModel(
         hp_spec::HyperparameterSpec,
         base_latent_prior,
         obs_model::LinearlyTransformedObservationModel;
@@ -149,7 +162,7 @@ When `augment_latent=true` (default), this constructor:
 - `linear_predictor_precision::Real = 1e6`: Precision for enforcing η ≈ A * x_base (high = tight coupling)
 
 # Returns
-An INLAModel with:
+An LatentGaussianModel with:
 - Augmented latent prior returning GMRFs of size n_obs + n_base
 - Base observation model (unwrapped from LinearlyTransformedObservationModel)
 - AugmentationInfo metadata for tracking which indices are linear predictors vs base components
@@ -171,16 +184,16 @@ hp_spec = @hyperparams begin
 end
 
 # Automatic augmentation (enabled by default)
-model = INLAModel(hp_spec, base_model, obs_model)
+model = LatentGaussianModel(hp_spec, base_model, obs_model)
 # Result: latent field has 300 components [η₁...η₂₀₀; x_base₁...x_base₁₀₀]
 # model.augmentation_info contains metadata about the structure
 
 # Opt-out of augmentation
-model_no_aug = INLAModel(hp_spec, base_model, obs_model; augment_latent=false)
+model_no_aug = LatentGaussianModel(hp_spec, base_model, obs_model; augment_latent=false)
 # Result: user must manually handle augmentation
 ```
 """
-function INLAModel(
+function LatentGaussianModel(
         hp_spec::HyperparameterSpec,
         base_latent_prior::F,
         obs_model::LinearlyTransformedObservationModel;
@@ -189,7 +202,7 @@ function INLAModel(
     ) where {F}
     if !augment_latent
         # User opted out - pass through to base constructor without augmentation
-        return INLAModel(hp_spec, base_latent_prior, obs_model, nothing)
+        return LatentGaussianModel(hp_spec, base_latent_prior, obs_model, nothing)
     end
 
     # Extract components from LinearlyTransformedObservationModel
@@ -228,45 +241,45 @@ function INLAModel(
     obs_model = _restrict_obs_model_to_indices(base_obs_model, augmentation_info.linear_predictor_indices)
 
     # Call base constructor with augmented model and base observation model
-    return INLAModel(hp_spec, augmented_latent_model, obs_model, augmentation_info)
+    return LatentGaussianModel(hp_spec, augmented_latent_model, obs_model, augmentation_info)
 end
 
 """
-    latent_gmrf(model::INLAModel, θ_named)
+    latent_gmrf(model::LatentGaussianModel, θ_named)
 
 Get the latent field GMRF for given hyperparameters θ_named.
 """
-function latent_gmrf(model::INLAModel, θ_named)
+function latent_gmrf(model::LatentGaussianModel, θ_named)
     return model.latent_prior(; θ_named...)
 end
 
 """
-    latent_gmrf(model::INLAModel, ws, θ_named)
+    latent_gmrf(model::LatentGaussianModel, ws, θ_named)
 
 Construct the latent GMRF through a persistent workspace `ws`. Reuses the
 workspace's Cholesky symbolic factorization; only the numeric values are
 refactorized. Use this form inside hot loops over hyperparameters.
 """
-function latent_gmrf(model::INLAModel, ws, θ_named)
+function latent_gmrf(model::LatentGaussianModel, ws, θ_named)
     return model.latent_prior(ws; θ_named...)
 end
 
 """
-    log_joint_density(model::INLAModel, x, θ_w::WorkingHyperparameters, y)
+    log_joint_density(model::LatentGaussianModel, x, θ_w::WorkingHyperparameters, y)
 
 Evaluate the joint log-density log π(x, θ, y) for the INLA model in working space.
 
 This computes: log π(θ) + log π(x | θ) + log π(y | x, θ)
 
 # Arguments
-- `model::INLAModel`: The INLA model
+- `model::LatentGaussianModel`: The INLA model
 - `x`: Latent field values
 - `θ_w`: Hyperparameters in working space
 - `y`: Observations
 
 This is the main implementation. Creates the latent GMRF and observation likelihood internally.
 """
-function log_joint_density(model::INLAModel, x, θ_w::WorkingHyperparameters, y)
+function log_joint_density(model::LatentGaussianModel, x, θ_w::WorkingHyperparameters, y)
     # Hyperparameter prior contribution in working space
     log_prior_θ = logpdf_prior(θ_w)
 
@@ -292,39 +305,39 @@ function log_joint_density(model::INLAModel, x, θ_w::WorkingHyperparameters, y)
 end
 
 """
-    log_joint_density(model::INLAModel, x, θ_n::NaturalHyperparameters, y)
+    log_joint_density(model::LatentGaussianModel, x, θ_n::NaturalHyperparameters, y)
 
 Evaluate the joint log-density log π(x, θ, y) for the INLA model in natural space.
 
 Converts to working space and adds Jacobian correction term.
 
 # Arguments
-- `model::INLAModel`: The INLA model
+- `model::LatentGaussianModel`: The INLA model
 - `x`: Latent field values
 - `θ_n`: Hyperparameters in natural space
 - `y`: Observations
 """
-function log_joint_density(model::INLAModel, x, θ_n::NaturalHyperparameters, y)
+function log_joint_density(model::LatentGaussianModel, x, θ_n::NaturalHyperparameters, y)
     θ_w = convert(WorkingHyperparameters, θ_n)
     return log_joint_density(model, x, θ_w, y) + logdetjac(θ_n)
 end
 
 """
-    Base.show(io::IO, model::INLAModel)
+    Base.show(io::IO, model::LatentGaussianModel)
 
 Pretty printing for INLA models.
 """
-function Base.show(io::IO, model::INLAModel{D, F, O}) where {D, F, O}
-    println(io, "INLAModel")
+function Base.show(io::IO, model::LatentGaussianModel{D, F, O}) where {D, F, O}
+    println(io, "LatentGaussianModel")
     println(io, "  Hyperparameter spec:\n    $(repr(model.hyperparameter_spec))")
     println(io, "  Latent prior function: ", typeof(model.latent_prior))
     return println(io, "  Observation model: ", typeof(model.observation_model))
 end
 
 """
-    Random.rand([rng], model::INLAModel)
+    Random.rand([rng], model::LatentGaussianModel)
 
-Sample from an INLAModel, returning a NamedTuple with hyperparameters θ, latent field x, and observations y.
+Sample from a `LatentGaussianModel`, returning a NamedTuple with hyperparameters θ, latent field x, and observations y.
 
 The sampling process:
 1. Sample hyperparameters θ from the hyperparameter prior (in working space internally)
@@ -334,7 +347,7 @@ The sampling process:
 
 # Arguments
 - `rng`: Optional random number generator (defaults to global RNG)
-- `model`: The INLAModel to sample from
+- `model`: The LatentGaussianModel to sample from
 
 # Returns
 A NamedTuple `(θ = θ_natural, x = x_vec, y = y_vec)` where:
@@ -342,7 +355,7 @@ A NamedTuple `(θ = θ_natural, x = x_vec, y = y_vec)` where:
 - `x_vec`: Vector of latent field values
 - `y_vec`: Vector of observation values
 """
-function Random.rand(rng::AbstractRNG, model::INLAModel)
+function Random.rand(rng::AbstractRNG, model::LatentGaussianModel)
     spec = model.hyperparameter_spec
 
     # Sample free hyperparameters in working space
@@ -367,4 +380,4 @@ function Random.rand(rng::AbstractRNG, model::INLAModel)
 end
 
 # Default to global RNG
-Random.rand(model::INLAModel) = rand(Random.default_rng(), model)
+Random.rand(model::LatentGaussianModel) = rand(Random.default_rng(), model)

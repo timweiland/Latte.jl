@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: accumulate!, finalize!, _integrated_pointwise_loglik
+using Latte
+using Latte: accumulate!, finalize!, _integrated_pointwise_loglik
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -57,7 +57,7 @@ using Statistics
 
         # Force generic fallback by invoking with less-specific type signature
         generic_int, generic_ell = invoke(
-            IntegratedNestedLaplace._integrated_pointwise_loglik,
+            Latte._integrated_pointwise_loglik,
             Tuple{Any, Any},
             ga, obs_lik; n_nodes = 15
         )
@@ -88,7 +88,7 @@ using Statistics
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, FunctionLatentModel(latent_func_normal, n), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent_func_normal, n), obs_model)
 
         y = randn(n)
 
@@ -123,7 +123,7 @@ using Statistics
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Poisson)
-        model = INLAModel(spec, FunctionLatentModel(latent_func_poisson, n), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent_func_poisson, n), obs_model)
 
         y = rand(Poisson(3.0), n)
 

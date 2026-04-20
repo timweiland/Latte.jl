@@ -1,4 +1,4 @@
-module IntegratedNestedLaplace
+module Latte
 
 # Import observation model functionality from GaussianMarkovRandomFields.jl v0.4+
 using GaussianMarkovRandomFields: ObservationModel, ObservationLikelihood,

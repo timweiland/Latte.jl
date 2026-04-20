@@ -113,7 +113,7 @@ Dispatches on the `strategy` argument:
 
 # Arguments
 - `strategy::ExplorationStrategy`: Exploration strategy (controls grid layout and parameters)
-- `model::INLAModel`: The INLA model
+- `model::LatentGaussianModel`: The INLA model
 - `y`: Observed data
 - `θ_star::WorkingHyperparameters`: The posterior mode in working space
 - `marginalization_method`: Method for latent marginalization at each grid point
@@ -129,7 +129,7 @@ Dispatches on the `strategy` argument:
 """
 function explore_hyperparameter_posterior(
         strategy::GridExplorationStrategy,
-        model::INLAModel, y, θ_star::WorkingHyperparameters, marginalization_method, marginalization_indices;
+        model::LatentGaussianModel, y, θ_star::WorkingHyperparameters, marginalization_method, marginalization_indices;
         progress_callback = nothing,
         accumulators::Tuple = (),
         executor::ParallelExecutor = SequentialExecutor(),

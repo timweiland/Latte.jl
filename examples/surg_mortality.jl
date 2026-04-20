@@ -1,7 +1,7 @@
 # Hospital Surgical Mortality Analysis
 # Based on R-INLA Example 4.4 - Surg dataset
 
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using DataFrames
 using Distributions
@@ -40,7 +40,7 @@ A_constr = zeros(1, 13)
 A_constr[1:12] .= 1.0
 e = [0.0]
 
-model = INLAModel(hp_spec, new_combined, obs_model)
+model = LatentGaussianModel(hp_spec, new_combined, obs_model)
 
 # Test formula-based INLA with BinomialObservations
 result = inla(model, y)

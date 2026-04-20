@@ -116,7 +116,7 @@ W = contiguity_adjacency(geom_collection)
 # Now we're ready to specify our model through the formula interface:
 using StatsModels
 using Distributions
-using IntegratedNestedLaplace
+using Latte
 
 spatial = Besag(W, normalize_var = true)
 unstructured = IID()
@@ -379,7 +379,7 @@ println("  Log ML: ", round(inla_result_iid.accumulators[2].log_marginal_likelih
 
 # ## Summary
 #
-# And that's disease mapping with IntegratedNestedLaplace.jl! We started with raw lung cancer data from
+# And that's disease mapping with Latte.jl! We started with raw lung cancer data from
 # Pennsylvania counties and used the BYM model to separate genuine spatial patterns
 # from noise. The model gave us stable risk estimates by borrowing strength from
 # neighboring counties, which is especially important when dealing with small populations.
@@ -395,5 +395,5 @@ println("  Log ML: ", round(inla_result_iid.accumulators[2].log_marginal_likelih
 # to environmental health studies. Any time you're working with count data in small
 # areas and suspect your neighbors matter, this is the model to reach for.
 #
-# Want to dig deeper? Check out [Getting started with IntegratedNestedLaplace.jl](@ref)
+# Want to dig deeper? Check out [Getting started with Latte.jl](@ref)
 # for the INLA basics, or explore how hyperparameter priors work in the main documentation.

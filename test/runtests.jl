@@ -1,12 +1,12 @@
-using IntegratedNestedLaplace
+using Latte
 using Test
 using Aqua
 
-@testset "IntegratedNestedLaplace.jl" begin
+@testset "Latte.jl" begin
     @testset "Code quality (Aqua.jl)" begin
         # piracies=false: we intentionally extend Distributions.cdf/quantile for SkewNormal
         # (Distributions.jl v0.25 lacks these; see StatsFuns.jl#99 for upstream discussion)
-        Aqua.test_all(IntegratedNestedLaplace; persistent_tasks = false, piracies = false)
+        Aqua.test_all(Latte; persistent_tasks = false, piracies = false)
     end
 
     include("parallel/runtests.jl")

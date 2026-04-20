@@ -8,7 +8,7 @@ from the exploration data plus 1+2d extra evaluations. Then profiles along each
 function _marginalize_impl(
         method::CCDInterpolantMarginal,
         exploration::AbstractHyperparameterExploration,
-        model::INLAModel,
+        model::LatentGaussianModel,
         y,
         progress_callback
     )
@@ -52,7 +52,7 @@ Zero additional `hyperparameter_logpdf` evaluations needed.
 """
 function _build_ccd_interpolant(
         exploration::CCDExploration,
-        model::INLAModel,
+        model::LatentGaussianModel,
         y, ws,
     )
     transform = exploration.transform
@@ -101,7 +101,7 @@ Performs 1 + 2d evaluations of `hyperparameter_logpdf`.
 """
 function _build_ccd_interpolant(
         exploration::AbstractHyperparameterExploration,
-        model::INLAModel,
+        model::LatentGaussianModel,
         y, ws,
     )
     transform = exploration.transform

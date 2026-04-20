@@ -1,5 +1,5 @@
 using Test
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using LDLFactorizations
 using Distributions
@@ -25,7 +25,7 @@ using FiniteDiff
             return (zeros(n), Symmetric(Q))
         end
         obs_model = ExponentialFamily(Bernoulli)
-        model = INLAModel(spec, FunctionLatentModel(correlation_latent, 5), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(correlation_latent, 5), obs_model)
 
         y_test = [true, false, true, true, false]
 
@@ -34,7 +34,7 @@ using FiniteDiff
 
         # Compute reparameterization (pass WorkingHyperparameters directly)
         pool = make_workspace_pool(model.latent_prior; size = 1, ρ = 0.5)
-        transform = IntegratedNestedLaplace.compute_reparameterization(model, y_test, θ_star; pool = pool)
+        transform = Latte.compute_reparameterization(model, y_test, θ_star; pool = pool)
 
         @test size(transform.H) == (1, 1)
         @test size(transform.V) == (1, 1)
@@ -62,7 +62,7 @@ using FiniteDiff
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)
-        model = INLAModel(spec, FunctionLatentModel(variance_latent, 6), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(variance_latent, 6), obs_model)
 
         y_test = [0.5, -0.2, 0.8, -0.1, 0.3, -0.4]
 
@@ -118,7 +118,7 @@ using FiniteDiff
             return (zeros(n), Q)
         end
         obs_model = ExponentialFamily(Normal)  # Uses σ
-        model = INLAModel(spec, FunctionLatentModel(two_variance_latent, 4), obs_model)
+        model = LatentGaussianModel(spec, FunctionLatentModel(two_variance_latent, 4), obs_model)
 
         y_test = [0.5, -0.3, 0.8, -0.2]
 

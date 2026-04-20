@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: compute_point_summary, accumulate!, finalize!,
+using Latte
+using Latte: compute_point_summary, accumulate!, finalize!,
     DICPointSummary, WAICPointSummary, CPOPointSummary,
     _integrated_pointwise_loglik, _cpo_pit_integrals
 using GaussianMarkovRandomFields

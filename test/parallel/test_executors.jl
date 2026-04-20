@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: pmap_executor
+using Latte
+using Latte: pmap_executor
 using LinearAlgebra
 
 @testset "ParallelExecutor" begin

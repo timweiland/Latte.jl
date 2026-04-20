@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: _prepare_for_prediction
+using Latte
+using Latte: _prepare_for_prediction
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -18,7 +18,7 @@ using LinearAlgebra
         spec = @hyperparams begin
             (τ ~ Gamma(2, 1), transform = log, space = natural)
         end
-        model = INLAModel(spec, base_model, ltom)
+        model = LatentGaussianModel(spec, base_model, ltom)
 
         y = Union{Missing, Int}[1, missing, 3, 4, missing, 6, 7, 8, 9, 10]
 
@@ -52,7 +52,7 @@ using LinearAlgebra
         end
 
         ltom = LinearlyTransformedObservationModel(ExponentialFamily(Normal), A)
-        model = INLAModel(hp, IIDModel(n_base), ltom)
+        model = LatentGaussianModel(hp, IIDModel(n_base), ltom)
 
         # Generate data and mark some as missing
         y_full = randn(n_obs)
@@ -91,7 +91,7 @@ using LinearAlgebra
         end
 
         ltom = LinearlyTransformedObservationModel(ExponentialFamily(Poisson), A)
-        model = INLAModel(hp, IIDModel(n_base), ltom)
+        model = LatentGaussianModel(hp, IIDModel(n_base), ltom)
 
         y = Union{Missing, Int}[3, 1, missing, 2, 5, missing, 1, 4, 2, 3]
 
@@ -119,7 +119,7 @@ using LinearAlgebra
         end
 
         ltom = LinearlyTransformedObservationModel(ExponentialFamily(Normal), A)
-        model = INLAModel(hp, IIDModel(n_base), ltom)
+        model = LatentGaussianModel(hp, IIDModel(n_base), ltom)
 
         y = randn(n_obs)
         result = inla(model, y; progress = false, diff_strategy = FiniteDiffStrategy())

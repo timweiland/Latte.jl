@@ -1,6 +1,6 @@
 using Test
-using IntegratedNestedLaplace
-using IntegratedNestedLaplace: ad_negative_hessian, pmap_executor
+using Latte
+using Latte: ad_negative_hessian, pmap_executor
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -43,7 +43,7 @@ using ADTypes
         end
 
         @testset "matches adaptive_negative_hessian" begin
-            using IntegratedNestedLaplace: adaptive_negative_hessian
+            using Latte: adaptive_negative_hessian
             H_ad = ad_negative_hessian(f, x0, AutoForwardDiff())
             H_fd = adaptive_negative_hessian(f, x0)
             @test H_ad ≈ H_fd atol = 0.01
@@ -87,7 +87,7 @@ using ADTypes
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return (zeros(n), Q)
         end
-        model = INLAModel(spec, FunctionLatentModel(precision_latent, n), ExponentialFamily(Normal))
+        model = LatentGaussianModel(spec, FunctionLatentModel(precision_latent, n), ExponentialFamily(Normal))
         y_test = randn(n)
 
         @testset "ADStrategy finds mode" begin
@@ -123,7 +123,7 @@ using ADTypes
     end
 
     @testset "AD Hessian in compute_reparameterization" begin
-        using IntegratedNestedLaplace: compute_reparameterization, find_hyperparameter_mode
+        using Latte: compute_reparameterization, find_hyperparameter_mode
 
         n = 6
         spec = @hyperparams begin
@@ -133,7 +133,7 @@ using ADTypes
             Q = spdiagm(0 => fill(1 / σ^2, n))
             return (zeros(n), Q)
         end
-        model = INLAModel(spec, FunctionLatentModel(latent, n), ExponentialFamily(Normal))
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent, n), ExponentialFamily(Normal))
         y = randn(n)
         θ_star, _, _ = find_hyperparameter_mode(model, y)
         pool = make_workspace_pool(model.latent_prior; size = 1, σ = 1.0)
@@ -179,7 +179,7 @@ using ADTypes
         spec = @hyperparams begin
             (τ ~ Gamma(2, 1), transform = log, space = natural)
         end
-        model = INLAModel(
+        model = LatentGaussianModel(
             spec,
             FunctionLatentModel((; τ, kwargs...) -> (zeros(n), spdiagm(0 => fill(τ, n))), n),
             ExponentialFamily(Bernoulli)

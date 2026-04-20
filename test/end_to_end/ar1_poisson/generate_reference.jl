@@ -21,7 +21,7 @@ Output:
 using TestEnv
 TestEnv.activate()
 
-using IntegratedNestedLaplace
+using Latte
 using GaussianMarkovRandomFields
 using Distributions
 using LinearAlgebra
