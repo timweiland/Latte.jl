@@ -108,7 +108,7 @@ using Random
         valid_θ_vecs = Set([p.θ.θ for p in integration_points])
 
         for s in samples
-            @test s.θ.θ in valid_θ_vecs
+            @test s.θ in valid_θ_vecs
         end
     end
 

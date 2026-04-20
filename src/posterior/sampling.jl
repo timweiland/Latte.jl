@@ -2,98 +2,118 @@ using Random
 using Distributions: Categorical
 
 """
-    rand([rng], result::INLAResult; include_y=false)
-    rand([rng], result::INLAResult, n::Int; include_y=false)
+    rand([rng], result::InferenceResult; include_y=false)
+    rand([rng], result::InferenceResult, n::Int; include_y=false)
 
-Draw joint samples from the approximate posterior computed by INLA.
+Draw joint samples from the approximate posterior computed by an inference
+method.
 
 For each sample:
-1. A hyperparameter configuration θ is drawn from the integration grid (weighted by posterior density)
-2. A joint latent field x is drawn from the Gaussian approximation at that θ
-3. Optionally, observations y are drawn from the observation model conditional on x and θ
 
-Samples are batched by integration point to minimize the number of Gaussian approximation
-reconstructions (one per unique θ, not one per sample).
+1. A hyperparameter configuration θ is drawn from the method's posterior
+   approximation over θ (integration grid for INLA; Gaussian at MAP for TMB;
+   the sample chain for HMC-Laplace).
+2. A joint latent field x is drawn from the inner approximation at that θ.
+3. Optionally (`include_y=true`), observations y are drawn from the
+   observation model conditional on x and θ.
 
 # Returns
-A NamedTuple (single sample) or `Vector{NamedTuple}` (multiple samples) with fields:
-- `θ::WorkingHyperparameters`: Sampled hyperparameters
-- `x::Vector{Float64}`: Joint latent field sample
-- `y::Vector` (only if `include_y=true`): Observation sample conditional on x and θ
+
+- `rand(r)` → `NamedTuple{(:θ, :x)}` (or `(:θ, :x, :y)` with `include_y=true`)
+  containing the single draw as vectors.
+- `rand(r, n)` → [`PosteriorSamples`](@ref). Row-aligned matrices of θ and x
+  (plus y when requested). Iterating / indexing yields per-draw
+  `NamedTuple`s.
 
 # Example
+
 ```julia
 result = inla(model, y)
 
-# Single sample
+# Single joint draw of (θ, x)
 s = rand(result)
+s.θ           # working-space θ vector
+s.x           # latent-field vector
 
-# Draw 1000 posterior samples
+# 1000 draws — matrices internally, iterable for per-sample access
 samples = rand(result, 1000)
+samples.x     # 1000 × n_latent
+[diff.x for diff in samples]
 
-# Compute a derived quantity (e.g., difference between two latent variables)
-diffs = [s.x[1] - s.x[2] for s in samples]
-mean(diffs), quantile(diffs, [0.025, 0.975])
-
-# Include observation samples for posterior predictive checks
-samples_with_y = rand(result, 1000; include_y=true)
-
-# With explicit RNG for reproducibility
-samples = rand(MersenneTwister(42), result, 1000)
+# With posterior-predictive y
+samples_y = rand(result, 1000; include_y = true)
+samples_y.y   # 1000 × n_y
 ```
 """
 function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bool = false)
     exploration = result.exploration
-    model = result.model
+    m = result.model
 
-    # Get y_obs for GA reconstruction
+    # Observations used during inference (prediction-aware)
     y_obs = _get_y_obs(result)
 
-    # Compute integration weights
+    # Integration weights over the grid
     weights = _integration_weights(exploration)
     integration_points = exploration.grid_points[exploration.integration_indices]
 
-    # Sample integration point indices
+    # Sample integration-point indices
     point_indices = rand(rng, Categorical(weights), n)
 
-    # Batch by unique integration point to minimize GA reconstructions.
-    # One-time symbolic factorization, reused for every GA reconstruction.
+    # One-time symbolic factorization, reused for every GA reconstruction
     θ_ref_nt = convert(NamedTuple, convert(NaturalHyperparameters, integration_points[1].θ))
-    ws = make_workspace(model.latent_prior; θ_ref_nt...)
+    ws = make_workspace(m.latent_prior; θ_ref_nt...)
+
+    # Pre-allocate output matrices. Determine n_hp, n_x from one sample.
+    n_hp = length(integration_points[1].θ.θ)
+    n_x = length(y_obs) # will re-check after first x sample
+    θ_mat = Matrix{Float64}(undef, n, n_hp)
+    x_mat = nothing
+    y_mat = nothing
 
     unique_indices = unique(point_indices)
-    samples = Vector{NamedTuple}(undef, n)
-
     for idx in unique_indices
         point = integration_points[idx]
-        θ = point.θ
+        θ_vec = point.θ.θ
 
-        # Reconstruct Gaussian approximation
-        ga, θ_natural_nt = _reconstruct_ga(model, y_obs, θ, ws)
+        # Reconstruct Gaussian approximation at this θ
+        ga, θ_natural_nt = _reconstruct_ga(m, y_obs, point.θ, ws)
 
-        # Draw samples for all occurrences of this integration point
         for i in findall(==(idx), point_indices)
-            x = rand(rng, ga)
+            θ_mat[i, :] = θ_vec
+
+            x_sample = rand(rng, ga)
+            if x_mat === nothing
+                x_mat = Matrix{Float64}(undef, n, length(x_sample))
+            end
+            x_mat[i, :] = x_sample
 
             if include_y
                 y_dist = GaussianMarkovRandomFields.conditional_distribution(
-                    model.observation_model, x; θ_natural_nt...
+                    m.observation_model, x_sample; θ_natural_nt...
                 )
                 y_sample = rand(rng, y_dist)
-                samples[i] = (θ = θ, x = x, y = y_sample)
-            else
-                samples[i] = (θ = θ, x = x)
+                if y_mat === nothing
+                    y_mat = Matrix{eltype(y_sample)}(undef, n, length(y_sample))
+                end
+                y_mat[i, :] = y_sample
             end
         end
     end
 
-    return samples
+    return PosteriorSamples(θ_mat, x_mat; y = y_mat)
 end
 
-# Convenience methods
-Random.rand(result::INLAResult, n::Int; kwargs...) = rand(Random.default_rng(), result, n; kwargs...)
-Random.rand(rng::AbstractRNG, result::INLAResult; kwargs...) = rand(rng, result, 1; kwargs...)[1]
-Random.rand(result::INLAResult; kwargs...) = rand(Random.default_rng(), result; kwargs...)
+# Single-sample form. Matches Julia's `rand(dist)` vs `rand(dist, n)`
+# convention — returns a plain NamedTuple, not a PosteriorSamples.
+function Random.rand(rng::AbstractRNG, result::INLAResult; include_y::Bool = false)
+    samples = rand(rng, result, 1; include_y = include_y)
+    return samples[1]
+end
+
+Random.rand(result::INLAResult, n::Int; kwargs...) =
+    rand(Random.default_rng(), result, n; kwargs...)
+Random.rand(result::INLAResult; kwargs...) =
+    rand(Random.default_rng(), result; kwargs...)
 
 """
     _get_y_obs(result::INLAResult)
