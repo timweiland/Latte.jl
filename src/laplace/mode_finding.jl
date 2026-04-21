@@ -149,6 +149,12 @@ function find_hyperparameter_mode(
         method = BFGS(), collect_points = true, progress_callback = nothing,
         diff_strategy::DifferentiationStrategy = ADStrategy()
     )
+    # Normalize y (Vector{Int} → PoissonObservations, etc.) so direct
+    # callers behave the same as inla() / tmb() which pre-wrap via
+    # `_prepare_for_prediction`. Without this the objective's try/catch
+    # would silently swallow the obs-model MethodError and return -Inf,
+    # making the gradient zero and BFGS terminate at the starting point.
+    y, model, _ = _prepare_for_prediction(model, y)
     spec = model.hyperparameter_spec
 
     # Storage for optimization path points

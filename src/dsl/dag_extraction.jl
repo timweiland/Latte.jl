@@ -165,7 +165,14 @@ function assemble_joint(random_syms, dims, edges, linear_maps, intercepts, cond_
     end
     n_total = off
 
-    Q = spzeros(n_total, n_total)
+    # Element type follows the conditional-precision pieces — allows `Dual`
+    # to flow through when the assembly runs inside outer AD.
+    T = promote_type(
+        (eltype(cond_Qs[s]) for s in random_syms)...,
+        (eltype(intercepts[s]) for s in random_syms)...,
+    )
+
+    Q = spzeros(T, n_total, n_total)
     for s in random_syms
         Q[offsets[s], offsets[s]] .+= cond_Qs[s]
     end
@@ -181,7 +188,7 @@ function assemble_joint(random_syms, dims, edges, linear_maps, intercepts, cond_
         end
     end
 
-    μ = zeros(n_total)
+    μ = zeros(T, n_total)
     for s in topo_order(random_syms, edges)
         μ[offsets[s]] .= intercepts[s]
         for parent in edges[s]

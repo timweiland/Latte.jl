@@ -34,22 +34,11 @@ using Random
     dppl = hier_poisson(y_obs, X, group)
     model = latte_from_dppl(dppl; random = (:β, :u))
 
-    # FiniteDiffStrategy is still required here — the DPPL adapter's
-    # latent_fn closure doesn't survive ForwardDiff of the outer objective
-    # (separate nested-AD issue, tracked in tasks/). The previous
-    # `GaussianMarginal` + `accumulators=()` workaround was for the
-    # AutoDiffObservationModel's *own* nested-AD bug, which the fast-path
-    # Poisson detection now bypasses: default AutoMarginal and the full
-    # accumulator suite work once the obs model is an ExponentialFamily.
-    inla_r = inla(
-        model, y_obs;
-        progress = false,
-        diff_strategy = FiniteDiffStrategy(),
-    )
-    # tmb() also needs FiniteDiffStrategy on DPPL-built LGMs — same
-    # underlying DPPL closure bug (Dual degradation) breaks ADStrategy.
-    # Tracked in tasks/dppl-adapter-outer-ad-closure.org.
-    tmb_r = tmb(model, y_obs; diff_strategy = FiniteDiffStrategy())
+    # Full defaults on all three methods — fast-path + Fix 2 eliminated
+    # both prior workarounds (the obs-model nested-AD bug and the
+    # DPPL-closure Dual-degradation bug).
+    inla_r = inla(model, y_obs; progress = false)
+    tmb_r = tmb(model, y_obs)
 
     # The fast path produces a LinearlyTransformedObservationModel → LGM's
     # auto-augmentation wraps the latent field as [η₁…η_n; β; u]. All length
