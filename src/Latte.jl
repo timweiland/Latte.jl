@@ -106,6 +106,11 @@ include("inference/tmb/inference.jl")
 include("inference/hmc_laplace/types.jl")
 include("inference/hmc_laplace/inference.jl")
 
+# ─── Diagnostics (PSIS-k̂ for Laplace-based inference results) ───────────────
+include("diagnostics/gpd_fit.jl")
+include("diagnostics/psis.jl")
+include("diagnostics/laplace_diagnostic.jl")
+
 # ─── DSL: DynamicPPL → LatentGaussianModel adapter ───────────────────────────
 # Structure probing, DAG extraction, pattern augmentation, hp spec / obs model
 # extraction, and the `latte_from_dppl` entry point.
