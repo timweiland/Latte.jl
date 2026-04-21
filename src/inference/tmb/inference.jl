@@ -1,12 +1,11 @@
 using LinearAlgebra: Symmetric, diag
 using Distributions: Normal, MvNormal
 using Random
-import FiniteDiff
 
 export tmb
 
 """
-    tmb(model::LatentGaussianModel, y; diff_strategy=FiniteDiffStrategy()) -> TMBResult
+    tmb(model::LatentGaussianModel, y; diff_strategy=ADStrategy()) -> TMBResult
 
 TMB-style inference: finds the hyperparameter MAP, computes its Gaussian
 covariance from the Hessian of the negative log posterior, and attaches the
@@ -16,13 +15,20 @@ Output matches TMB's `sdreport` shape: MAP θ̂ with standard errors, inner
 Laplace random-effect posterior means and marginal standard deviations, and a
 Laplace estimate of `log p(y)`.
 
-The `diff_strategy` argument is forwarded to `find_hyperparameter_mode`. The
-outer Hessian (for θ's covariance) is always computed by finite differences of
-the objective.
+# Arguments
+- `diff_strategy`: forwarded to `find_hyperparameter_mode` and used for the
+  outer-objective Hessian. Default `ADStrategy()` uses `ForwardDiff` gradients
+  + central differences of those gradients for the Hessian — noise-robust and
+  correct on augmented LGMs (where finite-differencing the objective directly
+  can catch catastrophic cancellation from the η-coupling penalty).
+  `FiniteDiffStrategy()` falls back to `FiniteDiff.finite_difference_hessian`
+  — **required for DPPL-adapter-built LGMs** whose latent-prior closure
+  currently degrades `Dual` types (tracked separately in
+  `tasks/dppl-adapter-outer-ad-closure.org`).
 """
 function tmb(
         model::LatentGaussianModel, y;
-        diff_strategy = FiniteDiffStrategy()
+        diff_strategy = ADStrategy(),
     )
     t_start = time()
 
@@ -39,14 +45,18 @@ function tmb(
     θ̂ = θ̂_wh.θ
     is_converged = hasproperty(mode_info, :converged) ? mode_info.converged : true
 
-    # ─── Step 2: θ posterior covariance from Hessian at the MAP ─────────
+    # ─── Step 2: θ posterior covariance via the chosen strategy ─────────
+    # Σ_θ = inv(Hessian(objective)) where objective = -log p(θ, y). Using
+    # `_compute_negative_hessian` gives -Hessian(objective); we negate
+    # once more to get the positive-definite Hessian, then invert.
     names = collect(keys(spec.free))
     sentinel_hp = NamedTuple{Tuple(names)}(Tuple(1.0 for _ in names))
     ws = make_workspace(model.latent_prior; sentinel_hp...)
     objective(θ_vec) = -hyperparameter_logpdf(
         model, WorkingHyperparameters(θ_vec, spec), y_obs; ws = ws
     )
-    H_θ = FiniteDiff.finite_difference_hessian(objective, θ̂)
+    neg_H_θ = _compute_negative_hessian(diff_strategy, objective, θ̂)
+    H_θ = -neg_H_θ
     Σ_θ = Matrix(inv(Symmetric(H_θ)))
     θ_se = sqrt.(max.(diag(Σ_θ), 0.0))
 

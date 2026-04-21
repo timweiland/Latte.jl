@@ -66,6 +66,10 @@ Pipeline:
 - `n_samples` / `n_warmup`: NUTS post-warmup and warmup steps.
 - `rng`: seedable RNG for reproducibility.
 - `progress`: pass through to AdvancedHMC.
+- `diff_strategy`: forwarded to the TMB warm-start (mode + Σ_θ). Default
+  `ADStrategy()` is noise-robust on augmented LGMs; pass
+  `FiniteDiffStrategy()` for DPPL-adapter-built LGMs until the closure
+  Dual-degradation bug is fixed.
 
 # Diagnostics
 
@@ -80,6 +84,7 @@ function hmc_laplace(
         n_warmup::Int = 200,
         rng::AbstractRNG = Random.default_rng(),
         progress::Bool = false,
+        diff_strategy = ADStrategy(),
     )
     t_start = time()
 
@@ -89,7 +94,7 @@ function hmc_laplace(
     names = collect(keys(spec.free))
 
     # ── Step 1: TMB warm-start ───────────────────────────────────────────
-    tmb_r = tmb(model, y_obs)
+    tmb_r = tmb(model, y_obs; diff_strategy = diff_strategy)
     θ̂ = tmb_r.θ_map
     Σ_θ = tmb_r.θ_cov
 
