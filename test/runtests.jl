@@ -25,6 +25,7 @@ using Aqua
     include("linear_combinations/runtests.jl")
     include("model_averaging/runtests.jl")
     include("inference/tmb/runtests.jl")
+    include("inference/hmc_laplace/runtests.jl")
     include("dsl/runtests.jl")
     include("test_latent_marginalization.jl")
     include("end_to_end/runtests.jl")

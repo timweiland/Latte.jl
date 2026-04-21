@@ -101,6 +101,11 @@ include("inference/inla/inference.jl")   # `inla(...)`
 include("inference/tmb/types.jl")
 include("inference/tmb/inference.jl")
 
+# ─── HMC-Laplace inference (tmbstan-style NUTS on the Laplace marginal) ──────
+# Depends on TMB's warm-start + covariance, so must come after TMB.
+include("inference/hmc_laplace/types.jl")
+include("inference/hmc_laplace/inference.jl")
+
 # ─── DSL: DynamicPPL → LatentGaussianModel adapter ───────────────────────────
 # Structure probing, DAG extraction, pattern augmentation, hp spec / obs model
 # extraction, and the `latte_from_dppl` entry point.
