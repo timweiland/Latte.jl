@@ -101,6 +101,17 @@ include("inference/inla/inference.jl")   # `inla(...)`
 include("inference/tmb/types.jl")
 include("inference/tmb/inference.jl")
 
+# ─── DSL: DynamicPPL → LatentGaussianModel adapter ───────────────────────────
+# Structure probing, DAG extraction, pattern augmentation, hp spec / obs model
+# extraction, and the `latte_from_dppl` entry point.
+include("dsl/structure_probing.jl")
+include("dsl/pattern_augment.jl")
+include("dsl/dag_extraction.jl")
+include("dsl/hp_spec.jl")
+include("dsl/latent_prior.jl")
+include("dsl/obs_model.jl")
+include("dsl/adapter.jl")
+
 # ─── Posterior post-processing (method-agnostic in spirit) ───────────────────
 include("posterior/accumulators/interface.jl")
 include("posterior/accumulators/dic.jl")
