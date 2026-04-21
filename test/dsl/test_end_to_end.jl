@@ -46,7 +46,10 @@ using Random
         progress = false,
         diff_strategy = FiniteDiffStrategy(),
     )
-    tmb_r = tmb(model, y_obs)
+    # tmb() also needs FiniteDiffStrategy on DPPL-built LGMs — same
+    # underlying DPPL closure bug (Dual degradation) breaks ADStrategy.
+    # Tracked in tasks/dppl-adapter-outer-ad-closure.org.
+    tmb_r = tmb(model, y_obs; diff_strategy = FiniteDiffStrategy())
 
     # The fast path produces a LinearlyTransformedObservationModel → LGM's
     # auto-augmentation wraps the latent field as [η₁…η_n; β; u]. All length

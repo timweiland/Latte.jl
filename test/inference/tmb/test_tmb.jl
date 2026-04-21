@@ -102,4 +102,42 @@ using Statistics
         @test s1.θ == s2.θ
         @test s1.x == s2.x
     end
+
+    @testset "Augmented LGM: θ_cov positive with default ADStrategy" begin
+        # Regression test for the TMB negative-θ_cov bug on augmented
+        # LGMs. Prior to Fix 1 (src/inference/tmb/inference.jl using the
+        # diff_strategy dispatch), default TMB called
+        # `FiniteDiff.finite_difference_hessian` directly — catastrophic
+        # cancellation at small steps on the augmented objective produced a
+        # negative `θ_cov`. The new default `ADStrategy()` uses FD-of-AD-
+        # gradient, which is noise-robust.
+        Random.seed!(2026)
+        n, p, G = 40, 2, 5
+        X = [ones(n) randn(n)]
+        group = rand(1:G, n)
+        β_true = [0.3, 0.5]
+        u_true = randn(G) ./ sqrt(4.0)
+        y_obs = [
+            rand(Poisson(exp(X[i, :] ⋅ β_true + u_true[group[i]])))
+                for i in 1:n
+        ]
+
+        spec = @hyperparams begin
+            (τ_u ~ Gamma(2, 1), transform = log, space = natural)
+        end
+        latent_fn(; τ_u, kwargs...) = (zeros(p + G), spdiagm(0 => vcat(fill(1 / 100, p), fill(τ_u, G))))
+        A = zeros(n, p + G)
+        A[:, 1:p] .= X
+        for i in 1:n
+            A[i, p + group[i]] = 1.0
+        end
+        lgm = LatentGaussianModel(
+            spec, FunctionLatentModel(latent_fn, p + G),
+            LinearlyTransformedObservationModel(ExponentialFamily(Poisson, LogLink()), sparse(A)),
+        )
+
+        r = tmb(lgm, y_obs)
+        @test r.θ_cov[1, 1] > 0
+        @test isfinite(r.θ_cov[1, 1])
+    end
 end
