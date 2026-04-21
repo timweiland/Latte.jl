@@ -18,17 +18,32 @@ end
 LogDensityProblems.capabilities(::Type{<:HMCTarget}) = LogDensityProblems.LogDensityOrder{1}()
 LogDensityProblems.dimension(t::HMCTarget) = t.dim
 
+# NUTS sometimes proposes θ values where the inner Laplace's posterior
+# precision is non-PD (CHOLMOD fails) or the latent prior is otherwise
+# degenerate. Return -Inf on any failure so AdvancedHMC treats the step
+# as a divergence rather than erroring out of the chain.
 function LogDensityProblems.logdensity(t::HMCTarget, θ_vec)
-    return hyperparameter_logpdf(
-        t.model, WorkingHyperparameters(θ_vec, t.spec), t.y; ws = t.ws,
-    )
+    try
+        return hyperparameter_logpdf(
+            t.model, WorkingHyperparameters(θ_vec, t.spec), t.y; ws = t.ws,
+        )
+    catch
+        return oftype(θ_vec[1], -Inf)
+    end
 end
 
 function LogDensityProblems.logdensity_and_gradient(t::HMCTarget, θ_vec)
-    f(θ) = hyperparameter_logpdf(
-        t.model, WorkingHyperparameters(θ, t.spec), t.y; ws = t.ws,
-    )
+    f(θ) = try
+        hyperparameter_logpdf(
+            t.model, WorkingHyperparameters(θ, t.spec), t.y; ws = t.ws,
+        )
+    catch
+        oftype(θ[1], -Inf)
+    end
     v = f(θ_vec)
+    if !isfinite(v)
+        return v, zero(θ_vec)
+    end
     g = FiniteDiff.finite_difference_gradient(f, θ_vec)
     return v, g
 end

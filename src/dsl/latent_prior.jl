@@ -77,8 +77,12 @@ end
 function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern)
     function latent_fn(; kwargs...)
         hp_values = NamedTuple{hp_names}(Tuple(kwargs[k] for k in hp_names))
-        cond_Qs = Dict{Symbol, SparseMatrixCSC{Float64, Int}}()
-        intercepts = Dict{Symbol, Vector{Float64}}()
+        # `Any`-valued dicts so Dual-parametrized Q and μ flow through under
+        # outer AD (ForwardDiff through `hyperparameter_logpdf`). Pinning to
+        # Float64 here silently stripped Duals and broke `ADStrategy` on
+        # DPPL-built LGMs.
+        cond_Qs = Dict{Symbol, Any}()
+        intercepts = Dict{Symbol, Any}()
         for s in random_syms
             Q_s, int_s = atomic_conditional_and_intercept(
                 dppl_model, s, random_syms, info.dims, hp_values,
