@@ -43,7 +43,11 @@ lgm = latte_from_dppl(m(y_obs, X, group); random = (:β, :u))
 result = inla(lgm, y_obs)     # or tmb(lgm, y_obs), ...
 ```
 """
-function latte_from_dppl(dppl_model; random::Union{Symbol, Tuple})
+function latte_from_dppl(
+        dppl_model;
+        random::Union{Symbol, Tuple},
+        force_ad_obs_model::Bool = false,
+    )
     random_syms = random isa Symbol ? (random,) : random
     priors = extract_priors(dppl_model)
     random_set = Set(random_syms)
@@ -57,16 +61,29 @@ function latte_from_dppl(dppl_model; random::Union{Symbol, Tuple})
     )
 
     spec = extract_hp_spec(dppl_model, hp_names)
-    latent, path = build_latent_model(dppl_model, random_syms, hp_names)
-    @debug "latent extraction path" path
 
-    # Probe dims for the obs model so it can slice x into (β, u, ...) pieces.
+    # Probe dims (used by both fast-path detection and obs-model extraction).
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     dims = Dict(s => variable_length(dppl_model, s, probe_hp) for s in random_syms)
 
-    obs = extract_obs_model(
-        dppl_model, length(latent), random_syms, dims;
-        hp_names = hp_names,
+    # Detect fast path first. If it fires, `LinearlyTransformedObservationModel`
+    # triggers auto-augmentation in the LGM constructor, which handles x↔η
+    # coupling separately — so we skip the likelihood Hessian pattern union
+    # in `build_latent_model`. The AD-obs-model path needs that union.
+    fast_obs = force_ad_obs_model ? nothing :
+        try_exponential_family_fast_path(dppl_model, random_syms, dims, hp_names)
+    use_fast_path = fast_obs !== nothing
+
+    latent, path = build_latent_model(
+        dppl_model, random_syms, hp_names;
+        skip_pattern_augment = use_fast_path,
     )
+    @debug "latent extraction path" path fast_path = use_fast_path
+
+    obs = use_fast_path ? fast_obs :
+        extract_obs_model(
+            dppl_model, length(latent), random_syms, dims;
+            hp_names = hp_names,
+        )
     return LatentGaussianModel(spec, latent, obs)
 end

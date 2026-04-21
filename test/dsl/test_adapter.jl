@@ -39,20 +39,29 @@ using Random
         model = latte_from_dppl(dppl; random = (:β, :u))
         @test model isa LatentGaussianModel
         @test keys(model.hyperparameter_spec.free) == (:τ_u,)
-        @test length(model.latent_prior) == p + G
+        # Fast path triggers LGM auto-augmentation → latent = [η; β; u],
+        # length n + p + G. Base (p + G) is recoverable via augmentation_info.
+        @test length(model.latent_prior) == n + p + G
+        @test model.augmentation_info !== nothing
+        @test length(model.augmentation_info.base_latent_indices) == p + G
     end
 
     @testset "Latent prior has correct sparsity at τ_u = 4" begin
-        model = latte_from_dppl(dppl; random = (:β, :u))
+        # The fast path (auto-detected for Poisson+LogLink) wraps the
+        # latent in an AugmentedLatentModel; the base model carries the
+        # `latent_fn` we want to probe. Force the AD path for this
+        # structural check to keep the assertions about the base prior
+        # focused on what `build_latent_model` produces.
+        model = latte_from_dppl(dppl; random = (:β, :u), force_ad_obs_model = true)
         μ, Q = model.latent_prior.func(τ_u = 4.0)
 
         @test length(μ) == p + G
 
-        # β and u are independent a priori so Q should be block-diagonal;
-        # the likelihood Hessian pattern gets unioned in as structural zeros.
+        # β and u are independent a priori so Q should be block-diagonal
+        # (the likelihood Hessian pattern gets unioned in as structural
+        # zeros, so we check numeric values rather than raw nnz).
         β_idx = 1:p
         u_idx = (p + 1):(p + G)
-        # No numerical coupling between β and u in the prior Q
         @test all(iszero, Q[β_idx, u_idx])
         @test all(iszero, Q[u_idx, β_idx])
 

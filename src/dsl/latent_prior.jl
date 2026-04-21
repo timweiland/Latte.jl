@@ -23,21 +23,35 @@ import ReverseDiff
 import ForwardDiff
 
 """
-    build_latent_model(dppl_model, random_syms::Tuple, hp_names::Tuple)
+    build_latent_model(dppl_model, random_syms::Tuple, hp_names::Tuple;
+                       skip_pattern_augment = false)
 
 Return `(FunctionLatentModel, path::Symbol)` where `path` is `:dag` or
 `:sparse_ad`. The model evaluates `(μ, Q)` for any hyperparameter value.
+
+With `skip_pattern_augment = true`, skip unioning the likelihood Hessian
+pattern into `Q`. The pattern union is needed for the AD-based observation
+model path (whose workspace requires the prior Q's sparsity to be a
+superset of the posterior Hessian's), but unnecessary — and numerically
+suspect — when the observation model is an `ExponentialFamily` wrapped in
+`LinearlyTransformedObservationModel`, because the LGM's auto-augmentation
+handles the x ↔ η coupling via a separate design-matrix block.
 """
-function build_latent_model(dppl_model, random_syms::Tuple, hp_names::Tuple)
+function build_latent_model(
+        dppl_model, random_syms::Tuple, hp_names::Tuple;
+        skip_pattern_augment::Bool = false,
+    )
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
 
     info = analyze_structure(dppl_model, random_syms, probe_hp)
     all_atomic = all(info.classification[s] === :atomic_gaussian for s in random_syms)
     n_latent = sum(info.dims[s] for s in random_syms)
 
-    # Likelihood Hessian pattern — need to union into Q so the workspace's
-    # symbolic factorization accepts any posterior Hessian at runtime.
-    lik_pattern = detect_likelihood_pattern(dppl_model, hp_names, n_latent)
+    # Likelihood Hessian pattern — unioned into Q for the AD obs-model path
+    # so the workspace's symbolic factorization accepts any posterior Hessian
+    # at runtime. Skipped for the fast path (see kwarg docstring).
+    lik_pattern = skip_pattern_augment ? nothing :
+        detect_likelihood_pattern(dppl_model, hp_names, n_latent)
 
     if all_atomic
         linear_ok = true
@@ -82,7 +96,8 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern)
             random_syms, info.dims, info.edges,
             linear_maps, intercepts, cond_Qs
         )
-        return (joint.μ, augment_pattern(joint.Q, lik_pattern))
+        Q_out = lik_pattern === nothing ? joint.Q : augment_pattern(joint.Q, lik_pattern)
+        return (joint.μ, Q_out)
     end
     return FunctionLatentModel(latent_fn, sum(info.dims[s] for s in random_syms))
 end
@@ -112,7 +127,9 @@ function _build_joint_sparse_ad_latent(dppl_model, random_syms, n_latent, hp_nam
         g = gradient(logp, grad_prep_ref[], grad_backend, x0)
         Q = -H
         μ = Symmetric(Q) \ g
-        return (μ, augment_pattern(SparseMatrixCSC(Q), lik_pattern))
+        Q_out = lik_pattern === nothing ?
+            SparseMatrixCSC(Q) : augment_pattern(SparseMatrixCSC(Q), lik_pattern)
+        return (μ, Q_out)
     end
     return FunctionLatentModel(latent_fn, n_latent)
 end
