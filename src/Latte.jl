@@ -120,6 +120,7 @@ include("dsl/dag_extraction.jl")
 include("dsl/hp_spec.jl")
 include("dsl/latent_prior.jl")
 include("dsl/obs_model.jl")
+include("dsl/likelihood_fast_paths.jl")
 include("dsl/adapter.jl")
 
 # ─── Posterior post-processing (method-agnostic in spirit) ───────────────────
