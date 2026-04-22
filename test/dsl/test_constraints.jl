@@ -85,4 +85,45 @@ import GaussianMarkovRandomFields: constraints
         u_mode = mean(ga)[base_idx]
         @test abs(sum(u_mode)) < 1.0e-6
     end
+
+    @testset "LaplaceMarginal preserves sum-to-zero (surgery binomial)" begin
+        # LaplaceMarginal profiles each variable's 1D marginal; that
+        # profile's local conditional Gaussian must inherit the joint
+        # constraint, else marginal means drift off the manifold.
+        using StatsFuns: logistic
+        @model function surg(r, n_trials, hospital_idx, H)
+            τ_u ~ Gamma(2.0, 1.0)
+            β ~ MvNormal(zeros(1), 100.0 * I(1))
+            u ~ IIDModel(H, constraint = :sumtozero)(τ = τ_u)
+            for i in eachindex(r)
+                r[i] ~ Binomial(
+                    n_trials[i], logistic(β[1] + u[hospital_idx[i]]);
+                    check_args = false,
+                )
+            end
+        end
+
+        hospital = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]
+        n_trials = [47, 148, 119, 810, 211, 196, 148, 215, 207, 97, 256, 360]
+        r = [0, 18, 8, 46, 8, 13, 9, 31, 14, 8, 29, 24]
+        H = length(hospital)
+        hospital_idx = 1:H |> collect
+
+        lgm = latte_from_dppl(
+            surg(r, n_trials, hospital_idx, H); random = (:β, :u),
+        )
+
+        # FiniteDiffStrategy avoids ForwardDiff.Dual propagation through
+        # the ConstrainedGMRF internals (separate AD issue).
+        result = inla(
+            lgm, r; progress = false,
+            latent_marginalization_method = LaplaceMarginal(),
+            diff_strategy = FiniteDiffStrategy(),
+        )
+
+        # Layout: β first (dim 1), then u (dim H) — from random = (:β, :u).
+        base_marg = result.base_latent_marginals
+        u_means = [mean(base_marg[i]) for i in 2:(1 + H)]
+        @test abs(sum(u_means)) < 5.0e-3
+    end
 end
