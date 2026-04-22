@@ -12,7 +12,7 @@ using ADTypes: AutoSparse, AutoForwardDiff
 using DifferentiationInterface
 using SparseConnectivityTracer: TracerLocalSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
-using Distributions: Poisson, Bernoulli, Normal, mean
+using Distributions: Poisson, Bernoulli, Binomial, Normal, mean
 using GaussianMarkovRandomFields:
     ExponentialFamily, LinearlyTransformedObservationModel,
     LogLink, LogitLink, IdentityLink
@@ -61,6 +61,7 @@ end
 # supported, punt to AD fallback".
 _ef_family_info(::Type{<:Poisson}) = (Poisson, LogLink(), d -> log(mean(d)))
 _ef_family_info(::Type{<:Bernoulli}) = (Bernoulli, LogitLink(), d -> (p = mean(d); log(p / (1 - p))))
+_ef_family_info(::Type{<:Binomial}) = (Binomial, LogitLink(), d -> log(d.p / (1 - d.p)))
 _ef_family_info(::Type{<:Normal}) = (Normal, IdentityLink(), d -> mean(d))
 _ef_family_info(_) = nothing
 
@@ -132,6 +133,13 @@ function try_exponential_family_fast_path(
     A_sp = SparseMatrixCSC(A)
     dropzeros!(A_sp)
     base = ExponentialFamily(family, link)
+    # Binomial needs per-site trial counts to materialise `BinomialObservations`
+    # at likelihood call time. Extract them from the probed distributions and
+    # wrap so `_normalize_observations` can assemble (y, trials) pairs.
+    if family === Binomial
+        trials_vec = Int[d.n for d in y_dists]
+        base = BinomialTrialsObservationModel(base, trials_vec)
+    end
     obs = all(iszero, b) ? base : OffsetObservationModel(base, Vector{Float64}(b))
     return LinearlyTransformedObservationModel(obs, A_sp)
 end

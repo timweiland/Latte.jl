@@ -166,6 +166,52 @@ using Random
         @test maximum(abs.(diffs_fast .- diffs_ad)) < 1.0e-6
     end
 
+    @testset "Binomial + LogitLink: loglik matches AD fallback" begin
+        @model function hier_binomial(y, X, group, trials)
+            τ_u ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I)
+            u ~ MvNormal(zeros(maximum(group)), (1 / τ_u) * I)
+            for i in eachindex(y)
+                p_i = 1 / (1 + exp(-(X[i, :] ⋅ β + u[group[i]])))
+                y[i] ~ Binomial(trials[i], p_i; check_args = false)
+            end
+        end
+        Random.seed!(2026)
+        n, p, G = 40, 2, 5
+        X = [ones(n) randn(n)]
+        group = rand(1:G, n)
+        trials = rand(5:15, n)
+        β_true = [0.3, 0.5]
+        u_true = randn(G) ./ 2
+        y_obs = [
+            rand(Binomial(trials[i], 1 / (1 + exp(-(X[i, :] ⋅ β_true + u_true[group[i]])))))
+                for i in 1:n
+        ]
+
+        lgm_fast = latte_from_dppl(
+            hier_binomial(y_obs, X, group, trials); random = (:β, :u),
+        )
+        lgm_ad = latte_from_dppl(
+            hier_binomial(y_obs, X, group, trials);
+            random = (:β, :u), force_ad_obs_model = true,
+        )
+
+        spec = lgm_fast.hyperparameter_spec
+        y_wrap = BinomialObservations(y_obs, trials)
+
+        ws_fast = make_workspace(lgm_fast.latent_prior; τ_u = 1.0)
+        ws_ad = make_workspace(lgm_ad.latent_prior; τ_u = 1.0)
+
+        Random.seed!(9)
+        for _ in 1:5
+            θ_vec = [randn()]
+            wh = Latte.WorkingHyperparameters(θ_vec, spec)
+            lp_fast = Latte.hyperparameter_logpdf(lgm_fast, wh, y_wrap; ws = ws_fast)
+            lp_ad = Latte.hyperparameter_logpdf(lgm_ad, wh, y_wrap; ws = ws_ad)
+            @test lp_fast ≈ lp_ad rtol = 1.0e-6
+        end
+    end
+
     @testset "Fast path works with default AutoMarginal (AD path doesn't)" begin
         # Regression test for the specific workaround we eliminated: the
         # fast path accepts default `AutoMarginal` + FiniteDiff; the AD

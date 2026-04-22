@@ -60,6 +60,39 @@ using Random
         @test lgm.observation_model isa ExponentialFamily{Bernoulli, LogitLink}
     end
 
+    @testset "Binomial + LogitLink fires fast path with per-site trials" begin
+        @model function m_binomial(y, X, group, trials)
+            τ_u ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
+            u ~ MvNormal(zeros(maximum(group)), (1 / τ_u) * I(maximum(group)))
+            for i in eachindex(y)
+                p_i = 1 / (1 + exp(-(X[i, :] ⋅ β + u[group[i]])))
+                y[i] ~ Binomial(trials[i], p_i; check_args = false)
+            end
+        end
+        Random.seed!(8)
+        n, p, G = 30, 2, 3
+        X = [ones(n) randn(n)]
+        group = rand(1:G, n)
+        trials = rand(5:20, n)   # heterogeneous per-site trial counts
+        β_true = [0.1, 0.4]
+        u_true = randn(G) ./ 2
+        y_obs = [
+            rand(Binomial(trials[i], 1 / (1 + exp(-(X[i, :] ⋅ β_true + u_true[group[i]])))))
+                for i in 1:n
+        ]
+
+        lgm = latte_from_dppl(
+            m_binomial(y_obs, X, group, trials); random = (:β, :u),
+        )
+        # Augmented fast path stores the BinomialTrials wrapper (carrying the
+        # per-site trial counts) as the observation model; the inner base is
+        # ExponentialFamily(Binomial, LogitLink).
+        @test lgm.observation_model isa Latte.BinomialTrialsObservationModel
+        @test lgm.observation_model.base isa ExponentialFamily{Binomial, LogitLink}
+        @test lgm.observation_model.trials == trials
+    end
+
     @testset "force_ad_obs_model=true takes the AD path" begin
         @model function m_poisson(y, X, group)
             τ_u ~ Gamma(2, 1)
