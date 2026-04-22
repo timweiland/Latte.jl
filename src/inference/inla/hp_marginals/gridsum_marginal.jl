@@ -34,8 +34,10 @@ function _marginalize_impl(
         η_grid = θ_vals[perm]
         log_marginal = log_densities[perm]
 
-        # Remove duplicates (can happen if mode is repeated in grid)
-        unique_mask = [true; [η_grid[i] != η_grid[i - 1] for i in 2:length(η_grid)]]
+        # Remove duplicates (can happen if mode is repeated in grid).
+        unique_mask = Bool[
+            i == 1 || η_grid[i] != η_grid[i - 1] for i in 1:length(η_grid)
+        ]
         η_grid = η_grid[unique_mask]
         log_marginal = log_marginal[unique_mask]
 

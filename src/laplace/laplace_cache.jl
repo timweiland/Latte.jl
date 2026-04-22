@@ -68,7 +68,7 @@ Cache for efficient evaluation of Laplace approximation marginals.
 This struct caches the expensive computations that are independent of x_i,
 allowing efficient evaluation at multiple points.
 """
-struct LaplaceApproximationCache{G, O, P, Qb, W}
+struct LaplaceApproximationCache{G, O, P, Qb, W, C}
     base_gmrf::G
     obs_lik::O
     conditioning_index::Int
@@ -79,6 +79,7 @@ struct LaplaceApproximationCache{G, O, P, Qb, W}
     prior_gmrf::P  # Original prior GMRF (complete with mean and precision)
     Q_prior_block::Qb  # Prior precision restricted to active_set (pattern-stable)
     conditional_workspace::W
+    prior_constraint::C  # Joint `A·x = e` from the prior, or `nothing`.
 end
 
 """
@@ -98,12 +99,28 @@ Create a cache for Laplace approximation computations.
 function LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf; threshold = 0.001)
     conditional_column, active_set = setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold = threshold)
     Q_prior_block, conditional_workspace = _build_conditional_workspace(prior_gmrf, obs_lik, μ, active_set)
+    prior_constraint = _prior_constraint(prior_gmrf)
     return LaplaceApproximationCache(
         base_gmrf, obs_lik, conditioning_index,
         conditional_column, active_set, μ, σ, prior_gmrf,
-        Q_prior_block, conditional_workspace
+        Q_prior_block, conditional_workspace, prior_constraint,
     )
 end
+
+"""
+    _prior_constraint(prior_gmrf) -> (A, e) or nothing
+
+Return the joint linear-equality constraint carried by the prior GMRF, if any.
+Handles both `ConstrainedGMRF` (fields `constraint_matrix` / `constraint_vector`)
+and `WorkspaceGMRF` with an embedded `ConstraintInfo`.
+"""
+_prior_constraint(p::ConstrainedGMRF) = (p.constraint_matrix, p.constraint_vector)
+function _prior_constraint(p::GaussianMarkovRandomFields.WorkspaceGMRF)
+    GaussianMarkovRandomFields.has_constraints(p) || return nothing
+    ci = p.constraints
+    return (ci.matrix, ci.vector)
+end
+_prior_constraint(_) = nothing
 
 """
     _build_conditional_workspace(prior_gmrf, obs_lik, μ, active_set)
@@ -134,10 +151,11 @@ The `lsc` should be obtained via `linsolve_cache(base_gmrf)`.
 function LaplaceApproximationCache(base_gmrf, obs_lik, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, prior_gmrf, lsc::LinearSolve.LinearCache; threshold = 0.001)
     conditional_column, active_set = setup_conditional_computation(base_gmrf, conditioning_index, μ, σ, lsc; threshold = threshold)
     Q_prior_block, conditional_workspace = _build_conditional_workspace(prior_gmrf, obs_lik, μ, active_set)
+    prior_constraint = _prior_constraint(prior_gmrf)
     return LaplaceApproximationCache(
         base_gmrf, obs_lik, conditioning_index,
         conditional_column, active_set, μ, σ, prior_gmrf,
-        Q_prior_block, conditional_workspace
+        Q_prior_block, conditional_workspace, prior_constraint,
     )
 end
 
@@ -297,17 +315,51 @@ function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{I
     # constructor only rewrites nzval — no fresh CHOLMOD factor.
     Q_conditional = sparse(cache.Q_prior_block - H_obs_block)
 
-    # Construct a constrained workspace-backed GMRF directly. This reuses
-    # the cache's symbolic factorization across all spline-node evaluations.
     c_idx = only(indexin(cache.conditioning_index, active_set))
-    constraint_mat = zeros(1, length(μ_cond_active))
-    constraint_mat[1, c_idx] = 1.0
-    constraint_vec = [μ_conditional[c_idx]]
+    fix_row = zeros(1, length(μ_cond_active))
+    fix_row[1, c_idx] = 1.0
+    fix_val = μ_conditional[c_idx]
+
+    constraint_mat, constraint_vec = _build_conditional_constraint(
+        cache.prior_constraint, active_set, μ_conditional, fix_row, fix_val,
+    )
 
     return GaussianMarkovRandomFields.WorkspaceGMRF(
         μ_cond_active, Q_conditional, cache.conditional_workspace,
         constraint_mat, constraint_vec,
     )
+end
+
+function _build_conditional_constraint(
+        ::Nothing, active_set::Vector{Int}, μ_conditional::Vector{Float64},
+        fix_row::Matrix{Float64}, fix_val::Float64,
+    )
+    return fix_row, [fix_val]
+end
+
+# `A·x = e` on the full latent decomposes as
+# `A_active · x_active + A_non_active · μ_conditional[non_active] = e`
+# (non-active coords are fixed during profiling), so the active-only
+# constraint is `A_active · x_active = e - A_non_active · μ_conditional[non_active]`.
+function _build_conditional_constraint(
+        prior_constraint::Tuple{<:AbstractMatrix, <:AbstractVector},
+        active_set::Vector{Int}, μ_conditional::Vector{Float64},
+        fix_row::Matrix{Float64}, fix_val::Float64,
+    )
+    A_full, e_full = prior_constraint
+    A_active = A_full[:, active_set]
+    n_total = size(A_full, 2)
+    non_active = setdiff(1:n_total, active_set)
+    e_active = if isempty(non_active)
+        Vector{Float64}(e_full)
+    else
+        A_non_active = A_full[:, non_active]
+        Vector{Float64}(e_full) .- A_non_active * μ_conditional[non_active]
+    end
+
+    constraint_mat = vcat(Matrix{Float64}(A_active), fix_row)
+    constraint_vec = vcat(e_active, fix_val)
+    return constraint_mat, constraint_vec
 end
 
 """
