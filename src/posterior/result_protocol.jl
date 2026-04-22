@@ -133,7 +133,7 @@ end
 Container for `n` joint posterior draws of `(θ, x)` — and optionally `y` for
 posterior-predictive samples. Row alignment is enforced at construction:
 `θ[i, :]`, `x[i, :]`, and (if present) `y[i, :]` come from the same joint
-draw.
+draw. `θ` values are in natural (user-facing) space.
 
 Iterating / indexing yields a `NamedTuple{(:θ, :x)}` (or `(:θ, :x, :y)` when
 `y` was supplied).

@@ -1,6 +1,8 @@
 using Distributions: Normal, MixtureModel
 using OrderedCollections: OrderedDict
 using Statistics: mean, std
+using Bijectors: inverse
+import MCMCChains
 
 export HMCLaplaceResult
 
@@ -25,10 +27,13 @@ drawn θ.
 - `time_elapsed::Float64` — total wall time.
 
 Latent marginals are built at construction as `MixtureModel{Normal}` per
-site. Hyperparameter marginals are a `Normal` fit per column of
-`θ_samples` (a simple summary; users wanting raw chain access via
-`samples(r)`). `log_marginal_likelihood(r)` returns `nothing` — HMC
-doesn't natively produce one without bridge sampling.
+site. Hyperparameter marginals are `SampleMarginal` per coordinate — an
+empirical distribution over the natural-space samples, with
+`Distributions.jl`-compatible `mean`/`quantile`/`pdf`/etc. For
+MCMC-specific diagnostics (ess, rhat, plots) use `chain(r)`, which
+returns an `MCMCChains.Chains`. `samples(r)` exposes the raw
+working-space matrix. `log_marginal_likelihood(r)` returns `nothing` —
+HMC doesn't natively produce one without bridge sampling.
 """
 struct HMCLaplaceResult{Hp, Lm, S, M, Y} <: InferenceResult
     hyperparameter_marginals::Hp        # Vector{Normal}
@@ -45,15 +50,22 @@ struct HMCLaplaceResult{Hp, Lm, S, M, Y} <: InferenceResult
 end
 
 # ─── Constructor: build Tier 1 marginals from chain samples ────────────────
-function _build_hmc_marginals(θ_samples::Matrix{Float64}, x_cond_means::Matrix{Float64}, x_cond_stds::Matrix{Float64})
+function _build_hmc_marginals(
+        θ_samples::Matrix{Float64}, x_cond_means::Matrix{Float64},
+        x_cond_stds::Matrix{Float64}, spec,
+    )
     n_samples, n_θ = size(θ_samples)
     n_latent = size(x_cond_means, 2)
 
-    # θ-marginals: Normal fit per coordinate (summary of empirical chain)
-    θ_marginals = [
-        Normal(mean(view(θ_samples, :, j)), std(view(θ_samples, :, j)))
-            for j in 1:n_θ
-    ]
+    # θ-marginals: empirical marginals in natural (user-facing) space,
+    # obtained by pushing each working-space sample through the
+    # per-parameter inverse transform.
+    hp_names = collect(keys(spec.free))
+    θ_marginals = map(1:n_θ) do j
+        inv_tr = inverse(spec.free[hp_names[j]].transform)
+        natural = inv_tr.(view(θ_samples, :, j))
+        SampleMarginal(collect(natural))
+    end
 
     # Latent marginals: per-site mixture of per-θ-sample Gaussians, uniform
     # weights. p(x_i | y) ≈ (1/K) Σ_k N(μ̂_i(θ_k), σ̂_i(θ_k)).
@@ -118,6 +130,28 @@ working space.
 samples(r::HMCLaplaceResult) = r.θ_samples
 
 """
+    chain(r::HMCLaplaceResult) -> MCMCChains.Chains
+
+θ chain as an `MCMCChains.Chains` object — parameter values are in
+natural (user-facing) space, keyed by hyperparameter name. Use this for
+Turing-style diagnostics and summaries (`ess`, `rhat`, `describe`,
+plotting).
+"""
+function chain(r::HMCLaplaceResult)
+    spec = r.model.hyperparameter_spec
+    names = collect(keys(spec.free))
+    n_samples, n_θ = size(r.θ_samples)
+    natural = Matrix{Float64}(undef, n_samples, n_θ)
+    for j in 1:n_θ
+        inv_tr = inverse(spec.free[names[j]].transform)
+        @views natural[:, j] .= inv_tr.(r.θ_samples[:, j])
+    end
+    arr = reshape(natural, n_samples, n_θ, 1)
+    return MCMCChains.Chains(arr, names)
+end
+export chain
+
+"""
     divergences(r::HMCLaplaceResult) -> Int
 
 Number of divergent transitions in the post-warmup chain. Typical quality
@@ -160,10 +194,10 @@ function Base.show(io::IO, r::HMCLaplaceResult)
     println(io, "HMCLaplaceResult:")
     println(io, "  Model: ", typeof(r.model))
     println(io, "  θ samples: ", n_samples, " (+ ", r.n_warmup, " warmup)")
-    println(io, "  Hyperparameters (HMC mean ± SD in working space):")
+    println(io, "  Hyperparameters (posterior mean ± SD, natural space):")
     for (i, name) in enumerate(names)
-        μ = mean(view(r.θ_samples, :, i))
-        σ = std(view(r.θ_samples, :, i))
+        μ = mean(r.hyperparameter_marginals[i])
+        σ = std(r.hyperparameter_marginals[i])
         @printf(io, "    %-8s %+8.4f ± %.4f\n", String(name), μ, σ)
     end
     println(io, "  Latent dimension: ", size(r.x_cond_means, 2))

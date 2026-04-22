@@ -154,7 +154,7 @@ function hmc_laplace(
         x_cond_stds[k, :] = sqrt.(max.(diag(Σ_x), 0.0))
     end
 
-    hp_marg, latent_marg = _build_hmc_marginals(θ_samples, x_cond_means, x_cond_stds)
+    hp_marg, latent_marg = _build_hmc_marginals(θ_samples, x_cond_means, x_cond_stds, spec)
 
     return HMCLaplaceResult(
         hp_marg, latent_marg,

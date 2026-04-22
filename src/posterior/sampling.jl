@@ -73,13 +73,13 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
     unique_indices = unique(point_indices)
     for idx in unique_indices
         point = integration_points[idx]
-        θ_vec = point.θ.θ
 
         # Reconstruct Gaussian approximation at this θ
         ga, θ_natural_nt = _reconstruct_ga(m, y_obs, point.θ, ws)
+        θ_natural_vec = collect(values(θ_natural_nt))
 
         for i in findall(==(idx), point_indices)
-            θ_mat[i, :] = θ_vec
+            θ_mat[i, :] = θ_natural_vec
 
             x_sample = rand(rng, ga)
             if x_mat === nothing
