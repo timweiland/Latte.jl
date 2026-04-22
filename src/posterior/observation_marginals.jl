@@ -2,6 +2,23 @@ using GaussianMarkovRandomFields: ExponentialFamily, LinkFunction
 
 export observation_marginals
 
+# Peel Latte-side observation-model wrappers that carry per-site data but
+# leave the link function on the inner ExponentialFamily.
+_unwrap_to_exponential_family(m::ExponentialFamily) = m
+_unwrap_to_exponential_family(m::OffsetObservationModel) = _unwrap_to_exponential_family(m.base)
+_unwrap_to_exponential_family(m::BinomialTrialsObservationModel) = _unwrap_to_exponential_family(m.base)
+_unwrap_to_exponential_family(m) = m
+
+# Peel wrappers to look for an OffsetObservationModel and return its per-site
+# offset vector (or `nothing` if no offset wrapper is present).
+# R-INLA convention: any offset that lives inside the linear predictor is
+# included in the fitted-values (i.e. μᵢ = g⁻¹(ηᵢ + offsetᵢ)). This mirrors
+# that behaviour for models built by `latte_from_dppl` when the detected
+# linear predictor had a non-zero constant term.
+_obs_model_offset(m::OffsetObservationModel) = m.offset
+_obs_model_offset(m::BinomialTrialsObservationModel) = _obs_model_offset(m.base)
+_obs_model_offset(_) = nothing
+
 """
     observation_marginals(result::INLAResult; rtol::Real = 1.0e-3, atol::Real = 1.0e-6)
 
@@ -92,22 +109,29 @@ function observation_marginals(
         )
     end
 
-    # Extract observation model
-    obs_model = result.model.observation_model
+    # Extract observation model, peeling Latte-side wrappers
+    # (OffsetObservationModel, BinomialTrialsObservationModel) that carry
+    # per-site data but leave the link function on the inner ExpFam.
+    obs_model = _unwrap_to_exponential_family(result.model.observation_model)
 
-    # Check that it's an ExponentialFamily (required to extract link function)
     if !(obs_model isa ExponentialFamily)
         error(
-            "observation_marginals currently only supports ExponentialFamily observation models. " *
-                "Got observation model of type $(typeof(obs_model))."
+            "observation_marginals currently only supports ExponentialFamily observation models " *
+                "(possibly wrapped in Offset/BinomialTrials). " *
+                "Got observation model of type $(typeof(result.model.observation_model))."
         )
     end
 
     # Extract link function
     link = obs_model.link
 
-    # Map link function to bijector
+    # Map link function to bijector. The stored linear-predictor marginals
+    # hold η = A·x (no offset). Matching R-INLA's "fitted values include
+    # offset" convention, we shift each site's η by its offset before
+    # applying the inverse link — i.e. the effective forward bijector at
+    # site i is `y ↦ g(y) - offsetᵢ`.
     bijector = get_bijector(link)
+    offset_vec = _obs_model_offset(result.model.observation_model)
 
     # Transform each linear predictor marginal to observation space
     n_obs = length(result.linear_predictor_marginals)
@@ -115,8 +139,10 @@ function observation_marginals(
 
     for i in 1:n_obs
         η_marginal = result.linear_predictor_marginals[i]
+        bij_i = offset_vec === nothing ? bijector :
+            Bijectors.Shift(-offset_vec[i]) ∘ bijector
         obs_marginals[i] = TransformedWeightedMixture(
-            η_marginal, bijector;
+            η_marginal, bij_i;
             rtol = rtol, atol = atol
         )
     end
