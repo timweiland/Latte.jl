@@ -85,6 +85,15 @@ For discrete distributions, returns the midpoint PIT: F(y_i) - 0.5·f(y_i).
 """
 function _pointwise_cdf end
 
+# LinearlyTransformedLikelihood: compute η = A·x, delegate to base lik.
+# Needed for CPO on non-augmented LTM-obs LGMs; the augmented path
+# stores an ExpFam likelihood directly and hits the family-specific
+# methods below.
+function _pointwise_cdf(x, ltlik::GaussianMarkovRandomFields.LinearlyTransformedLikelihood)
+    η = ltlik.design_matrix * x
+    return _pointwise_cdf(η, ltlik.base_likelihood)
+end
+
 function _pointwise_cdf(x, obs_lik::NormalLikelihood{IdentityLink})
     y = obs_lik.y
     σ = obs_lik.σ

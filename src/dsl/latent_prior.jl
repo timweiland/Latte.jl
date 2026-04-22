@@ -12,6 +12,17 @@
 # Gaussian priors.
 
 using SparseArrays, LinearAlgebra
+
+# Union of two optional sparsity patterns. Either argument may be
+# `nothing` (no pattern) or a `SparseMatrixCSC` whose nonzeros encode
+# the pattern.
+_union_patterns(::Nothing, ::Nothing) = nothing
+_union_patterns(a::SparseMatrixCSC, ::Nothing) = a
+_union_patterns(::Nothing, b::SparseMatrixCSC) = b
+function _union_patterns(a::SparseMatrixCSC, b::SparseMatrixCSC)
+    # Cast to Bool to get a structural union regardless of numeric values.
+    return SparseMatrixCSC{Bool, Int}((a .!= 0) .| (b .!= 0))
+end
 using ADTypes: AutoSparse, AutoForwardDiff, AutoReverseDiff
 using DifferentiationInterface
 using DifferentiationInterface: SecondOrder
@@ -24,22 +35,29 @@ import ForwardDiff
 
 """
     build_latent_model(dppl_model, random_syms::Tuple, hp_names::Tuple;
-                       skip_pattern_augment = false)
+                       skip_pattern_augment = false,
+                       extra_pattern = nothing)
 
 Return `(FunctionLatentModel, path::Symbol)` where `path` is `:dag` or
 `:sparse_ad`. The model evaluates `(μ, Q)` for any hyperparameter value.
 
-With `skip_pattern_augment = true`, skip unioning the likelihood Hessian
-pattern into `Q`. The pattern union is needed for the AD-based observation
-model path (whose workspace requires the prior Q's sparsity to be a
-superset of the posterior Hessian's), but unnecessary — and numerically
-suspect — when the observation model is an `ExponentialFamily` wrapped in
-`LinearlyTransformedObservationModel`, because the LGM's auto-augmentation
-handles the x ↔ η coupling via a separate design-matrix block.
+Q's sparsity pattern needs to be a superset of the posterior Hessian's
+so the `GMRFWorkspace`'s symbolic factorization can accept any runtime
+numeric update. Two sources of pattern augmentation:
+
+- `skip_pattern_augment = false` (default): detect the DPPL likelihood's
+  Hessian pattern via sparse AD and union it into `Q`. Needed for the
+  AD-based obs-model path; skipped when the caller will hand us a
+  hand-coded obs model (fast path).
+- `extra_pattern` (optional): explicit extra sparsity pattern to union
+  into `Q`. Used by the fast path with `augment_latent = false`, where
+  the adapter knows the design matrix `A` and can pass `A'A`'s pattern
+  directly without re-running DPPL hessian detection.
 """
 function build_latent_model(
         dppl_model, random_syms::Tuple, hp_names::Tuple;
         skip_pattern_augment::Bool = false,
+        extra_pattern::Union{Nothing, SparseMatrixCSC} = nothing,
     )
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
 
@@ -47,11 +65,9 @@ function build_latent_model(
     all_atomic = all(info.classification[s] === :atomic_gaussian for s in random_syms)
     n_latent = sum(info.dims[s] for s in random_syms)
 
-    # Likelihood Hessian pattern — unioned into Q for the AD obs-model path
-    # so the workspace's symbolic factorization accepts any posterior Hessian
-    # at runtime. Skipped for the fast path (see kwarg docstring).
-    lik_pattern = skip_pattern_augment ? nothing :
+    detected_pattern = skip_pattern_augment ? nothing :
         detect_likelihood_pattern(dppl_model, hp_names, n_latent)
+    lik_pattern = _union_patterns(detected_pattern, extra_pattern)
 
     if all_atomic
         linear_ok = true

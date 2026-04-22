@@ -47,6 +47,7 @@ function latte_from_dppl(
         dppl_model;
         random::Union{Symbol, Tuple},
         force_ad_obs_model::Bool = false,
+        augment::Bool = true,
     )
     random_syms = random isa Symbol ? (random,) : random
     priors = extract_priors(dppl_model)
@@ -66,24 +67,58 @@ function latte_from_dppl(
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     dims = Dict(s => variable_length(dppl_model, s, probe_hp) for s in random_syms)
 
-    # Detect fast path first. If it fires, `LinearlyTransformedObservationModel`
-    # triggers auto-augmentation in the LGM constructor, which handles x↔η
-    # coupling separately — so we skip the likelihood Hessian pattern union
-    # in `build_latent_model`. The AD-obs-model path needs that union.
+    # Detect fast path first.
     fast_obs = force_ad_obs_model ? nothing :
         try_exponential_family_fast_path(dppl_model, random_syms, dims, hp_names)
     use_fast_path = fast_obs !== nothing
 
+    # Pattern plumbing:
+    #  - Augmented fast-path: LGM auto-augmentation already covers the
+    #    `A'A` pattern in Q_joint's bottom-right block, so no extra
+    #    union needed on the base Q.
+    #  - Non-augmented fast-path: likelihood is `y ~ family(link(A·x))`
+    #    with Hessian pattern `A' · diag · A` = `A'A`'s pattern. Q_base
+    #    must pre-include this pattern for the workspace's symbolic
+    #    factorization. Compute `A'A`'s boolean pattern directly from A.
+    #  - AD fallback (augmented or not): auto-detect via DPPL.
+    extra_pattern = if use_fast_path && !augment
+        A = _extract_design_matrix(fast_obs)
+        _bool_AtA_pattern(A)
+    else
+        nothing
+    end
+
     latent, path = build_latent_model(
         dppl_model, random_syms, hp_names;
         skip_pattern_augment = use_fast_path,
+        extra_pattern = extra_pattern,
     )
-    @debug "latent extraction path" path fast_path = use_fast_path
+    @debug "latent extraction path" path fast_path = use_fast_path augmented = augment
 
     obs = use_fast_path ? fast_obs :
         extract_obs_model(
             dppl_model, length(latent), random_syms, dims;
             hp_names = hp_names,
         )
-    return LatentGaussianModel(spec, latent, obs)
+    # Only the LTM-specialised LGM constructor takes `augment_latent=` —
+    # for the AD fallback (AutoDiffObservationModel), there's no
+    # auto-augmentation machinery to opt into, just the base constructor.
+    if obs isa LinearlyTransformedObservationModel
+        return LatentGaussianModel(spec, latent, obs; augment_latent = augment)
+    else
+        return LatentGaussianModel(spec, latent, obs)
+    end
+end
+
+# Extract the design matrix A from whatever the fast path produced:
+#   LTM(ExponentialFamily, A)                 → A
+#   LTM(OffsetObservationModel(ExpFam), A)    → A
+_extract_design_matrix(ltm::LinearlyTransformedObservationModel) = ltm.design_matrix
+
+# Boolean pattern of A'A — the sparsity of the likelihood Hessian w.r.t.
+# x when the linear predictor is A·x. Used to pre-populate Q's pattern
+# for non-augmented fast-path LGMs.
+function _bool_AtA_pattern(A::AbstractMatrix)
+    pat = SparseMatrixCSC{Bool, Int}(A .!= 0)
+    return pat' * pat   # boolean matrix product → union of column patterns
 end
