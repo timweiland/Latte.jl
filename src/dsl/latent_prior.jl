@@ -30,8 +30,57 @@ using SparseConnectivityTracer: TracerLocalSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
 using DynamicPPL: getlogprior
 using LogDensityProblems
+using GaussianMarkovRandomFields: ConstrainedGMRF
 import ReverseDiff
 import ForwardDiff
+
+# Pull `(A, e)` off a per-sym prior distribution, else `nothing`. Only
+# `ConstrainedGMRF` priors — produced by `IIDModel(n, :sumtozero)(τ=τ)` and
+# friends — carry a constraint. Constraints are assumed hyperparameter-
+# independent (sum-to-zero stays sum-to-zero across τ); we probe once at
+# build time.
+_dist_constraint(d::ConstrainedGMRF) = (d.constraint_matrix, d.constraint_vector)
+_dist_constraint(_) = nothing
+
+# Join per-sym constraints into a single `(A_joint, e_joint)` over the
+# concatenated base-latent vector `[random_syms[1]; random_syms[2]; …]`.
+# Syms without constraints contribute nothing; syms with `(A_s, e_s)` get
+# their block horizontally embedded at the right offset, zero-padded on
+# the other syms' coordinates. Returns `nothing` if no sym has a constraint.
+function _extract_joint_constraint(dppl_model, random_syms::Tuple, dims, hp_values::NamedTuple)
+    cond = DynamicPPL.fix(dppl_model, hp_values)
+    priors = extract_priors(cond)
+    per_sym = Dict{Symbol, Tuple{AbstractMatrix, AbstractVector}}()
+    for s in random_syms
+        d = find_dist(priors, s)
+        isa(d, AbstractVector) && continue   # loop-built, no single distribution
+        c = _dist_constraint(d)
+        c === nothing || (per_sym[s] = c)
+    end
+    isempty(per_sym) && return nothing
+
+    n_total = sum(dims[s] for s in random_syms)
+    offsets = Dict{Symbol, Int}()
+    off = 0
+    for s in random_syms
+        offsets[s] = off
+        off += dims[s]
+    end
+
+    A_blocks = AbstractMatrix{Float64}[]
+    e_blocks = AbstractVector{Float64}[]
+    for s in random_syms
+        haskey(per_sym, s) || continue
+        A_s, e_s = per_sym[s]
+        A_row = zeros(Float64, size(A_s, 1), n_total)
+        A_row[:, (offsets[s] + 1):(offsets[s] + dims[s])] .= A_s
+        push!(A_blocks, A_row)
+        push!(e_blocks, Vector{Float64}(e_s))
+    end
+    A_joint = reduce(vcat, A_blocks)
+    e_joint = reduce(vcat, e_blocks)
+    return (A_joint, e_joint)
+end
 
 """
     build_latent_model(dppl_model, random_syms::Tuple, hp_names::Tuple;
@@ -69,6 +118,8 @@ function build_latent_model(
         detect_likelihood_pattern(dppl_model, hp_names, n_latent)
     lik_pattern = _union_patterns(detected_pattern, extra_pattern)
 
+    joint_constraint = _extract_joint_constraint(dppl_model, random_syms, info.dims, probe_hp)
+
     if all_atomic
         linear_ok = true
         for child in random_syms, parent in info.edges[child]
@@ -80,17 +131,17 @@ function build_latent_model(
         end
         if linear_ok
             return _build_dag_latent(
-                    dppl_model, random_syms, info, hp_names, lik_pattern
+                    dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint
                 ), :dag
         end
     end
 
     return _build_joint_sparse_ad_latent(
-            dppl_model, random_syms, n_latent, hp_names, lik_pattern
+            dppl_model, random_syms, n_latent, hp_names, lik_pattern, joint_constraint
         ), :sparse_ad
 end
 
-function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern)
+function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint)
     function latent_fn(; kwargs...)
         hp_values = NamedTuple{hp_names}(Tuple(kwargs[k] for k in hp_names))
         # `Any`-valued dicts so Dual-parametrized Q and μ flow through under
@@ -119,10 +170,13 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern)
         Q_out = lik_pattern === nothing ? joint.Q : augment_pattern(joint.Q, lik_pattern)
         return (joint.μ, Q_out)
     end
-    return FunctionLatentModel(latent_fn, sum(info.dims[s] for s in random_syms))
+    n_latent = sum(info.dims[s] for s in random_syms)
+    return joint_constraint === nothing ?
+        FunctionLatentModel(latent_fn, n_latent) :
+        FunctionLatentModel(latent_fn, n_latent, joint_constraint)
 end
 
-function _build_joint_sparse_ad_latent(dppl_model, random_syms, n_latent, hp_names, lik_pattern)
+function _build_joint_sparse_ad_latent(dppl_model, random_syms, n_latent, hp_names, lik_pattern, joint_constraint)
     sparse_backend = AutoSparse(
         SecondOrder(AutoForwardDiff(), AutoReverseDiff());
         sparsity_detector = TracerLocalSparsityDetector(),
@@ -151,5 +205,7 @@ function _build_joint_sparse_ad_latent(dppl_model, random_syms, n_latent, hp_nam
             SparseMatrixCSC(Q) : augment_pattern(SparseMatrixCSC(Q), lik_pattern)
         return (μ, Q_out)
     end
-    return FunctionLatentModel(latent_fn, n_latent)
+    return joint_constraint === nothing ?
+        FunctionLatentModel(latent_fn, n_latent) :
+        FunctionLatentModel(latent_fn, n_latent, joint_constraint)
 end

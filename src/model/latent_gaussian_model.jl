@@ -15,21 +15,33 @@ export LatentGaussianModel, LGM, FunctionLatentModel, latent_gmrf, log_joint_den
 # returning the mean vector and sparse precision matrix directly. This avoids
 # constructing a full GMRF (and its eager LinearSolve/CHOLMOD factor) on every
 # hyperparameter evaluation, which is pure waste for the workspace path.
-struct FunctionLatentModel{FuncType} <: LatentModel
+#
+# Optional `constraint::Union{Nothing, Tuple{AbstractMatrix, AbstractVector}}`:
+# a hard linear equality constraint `A·x = e` on the latent vector,
+# hyperparameter-independent. When set, cold/warm-path calls wrap the resulting
+# GMRF with the constraint (`ConstrainedGMRF` / constrained `WorkspaceGMRF`).
+struct FunctionLatentModel{FuncType, C <: Union{Nothing, Tuple{AbstractMatrix, AbstractVector}}} <: LatentModel
     func::FuncType
     n::Int
+    constraint::C
 end
+
+FunctionLatentModel(func, n::Int) = FunctionLatentModel(func, n, nothing)
+FunctionLatentModel(func, n::Int, constraint::Tuple{AbstractMatrix, AbstractVector}) =
+    FunctionLatentModel{typeof(func), typeof(constraint)}(func, n, constraint)
 
 Base.length(flm::FunctionLatentModel) = flm.n
 hyperparameters(flm::FunctionLatentModel) = NamedTuple()  # Function handles its own params
 precision_matrix(flm::FunctionLatentModel; kwargs...) = last(flm.func(; kwargs...))
 Distributions.mean(flm::FunctionLatentModel; kwargs...) = first(flm.func(; kwargs...))
-constraints(flm::FunctionLatentModel; kwargs...) = nothing
+constraints(flm::FunctionLatentModel; kwargs...) = flm.constraint
 
 # Cold path: caller wants a full GMRF. Pay the LinearSolve/CHOLMOD init once.
 function (flm::FunctionLatentModel)(; kwargs...)
     μ, Q = flm.func(; kwargs...)
-    return GMRF(μ, Q)
+    gmrf = GMRF(μ, Q)
+    return flm.constraint === nothing ? gmrf :
+        GaussianMarkovRandomFields.ConstrainedGMRF(gmrf, flm.constraint[1], flm.constraint[2])
 end
 
 # Warm path: caller has a workspace. Single `func` call, reuse the workspace's
@@ -38,7 +50,11 @@ function (flm::FunctionLatentModel)(ws::GaussianMarkovRandomFields.GMRFWorkspace
     μ, Q = flm.func(; kwargs...)
     Q_sparse = Q isa SparseMatrixCSC ? Q : sparse(Q)
     GaussianMarkovRandomFields.update_precision!(ws, Q_sparse)
-    return GaussianMarkovRandomFields.WorkspaceGMRF(μ, Q_sparse, ws)
+    return flm.constraint === nothing ?
+        GaussianMarkovRandomFields.WorkspaceGMRF(μ, Q_sparse, ws) :
+        GaussianMarkovRandomFields.WorkspaceGMRF(
+            μ, Q_sparse, ws, flm.constraint[1], flm.constraint[2]
+        )
 end
 
 model_name(::FunctionLatentModel) = :function_latent
