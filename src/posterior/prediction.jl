@@ -83,6 +83,14 @@ function _normalize_observations(y::AbstractVector{<:Integer}, obs_model::Expone
     return PoissonObservations(collect(Int, y))
 end
 
+# LinearlyTransformedObservationModel — delegate to the base obs model.
+# Without this, non-augmented LGMs that keep an LTM as their observation
+# model can't normalise raw integer y vectors (the fallback no-op leaves
+# a Vector{Int} that then errors at `obs_model(y; θ...)` materialisation).
+function _normalize_observations(y::AbstractVector, m::LinearlyTransformedObservationModel)
+    return _normalize_observations(y, m.base_model)
+end
+
 
 """
     _prepare_for_prediction(model::LatentGaussianModel, y::AbstractVector)

@@ -111,6 +111,45 @@ using Random
         @test lgm.observation_model.offset ≈ log_exposure rtol = 1.0e-10
     end
 
+    @testset "augment=false produces a non-augmented LGM for TMB speed" begin
+        @model function poisson_glm(y, X)
+            τ ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), (1 / τ) * I(size(X, 2)))
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(X[i, :] ⋅ β); check_args = false)
+            end
+        end
+        Random.seed!(6)
+        n, p = 30, 2
+        X = [ones(n) randn(n)]
+        β_true = [0.3, 0.5]
+        y_obs = [rand(Poisson(exp(X[i, :] ⋅ β_true))) for i in 1:n]
+
+        lgm_aug = latte_from_dppl(poisson_glm(y_obs, X); random = (:β,))
+        lgm_noaug = latte_from_dppl(poisson_glm(y_obs, X); random = (:β,), augment = false)
+
+        # Augmented: latent_dim = n + p (η + x_base)
+        @test length(lgm_aug.latent_prior) == n + p
+        @test lgm_aug.augmentation_info !== nothing
+        # Non-augmented: latent_dim = p only
+        @test length(lgm_noaug.latent_prior) == p
+        @test lgm_noaug.augmentation_info === nothing
+        @test lgm_noaug.observation_model isa LinearlyTransformedObservationModel
+
+        # Both should give the same TMB results (just different inner Laplace dim)
+        r_aug = tmb(lgm_aug, y_obs)
+        r_noaug = tmb(lgm_noaug, y_obs)
+        τ_aug = convert(NamedTuple, hyperparameter_mode(r_aug)).τ
+        τ_noaug = convert(NamedTuple, hyperparameter_mode(r_noaug)).τ
+        @test τ_aug ≈ τ_noaug rtol = 1.0e-6
+        @test log_marginal_likelihood(r_aug) ≈ log_marginal_likelihood(r_noaug) rtol = 1.0e-6
+        # Base (β) posterior means match
+        base_idx = lgm_aug.augmentation_info.base_latent_indices
+        β_aug = mean.(latent_marginals(r_aug))[base_idx]
+        β_noaug = mean.(latent_marginals(r_noaug))
+        @test maximum(abs.(β_aug .- β_noaug)) < 1.0e-4
+    end
+
     @testset "Mixed-family likelihood falls through to AD path" begin
         # Half the sites Poisson, half Normal — fast path demands a
         # homogeneous family and must punt.
