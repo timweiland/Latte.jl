@@ -86,6 +86,34 @@ import GaussianMarkovRandomFields: constraints
         @test abs(sum(u_mode)) < 1.0e-6
     end
 
+    @testset "TMB on a constrained model (AD path through ConstrainedGMRF)" begin
+        # Outer ForwardDiff over τ Dual-parametrises the constrained prior;
+        # DPPL's default sampling-based `extract_priors` then tries to rand
+        # from a Dual-typed ConstrainedGMRF (for which `_rand!` is not
+        # defined). Latent extraction must use the no-sample path.
+        @model function m(y, n_iid)
+            τ ~ Gamma(2, 1)
+            u ~ IIDModel(n_iid, constraint = :sumtozero)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(u[i]); check_args = false)
+            end
+        end
+
+        Random.seed!(42)
+        n = 40
+        u_true = randn(n) .* 0.5
+        u_true .-= sum(u_true) / n
+        y_obs = rand.(Poisson.(exp.(u_true)))
+
+        lgm = latte_from_dppl(m(y_obs, n); random = (:u,))
+        result = tmb(lgm, y_obs)
+
+        # Augmented LGM: latent = [η₁…η_n; u₁…u_n]; constraint sits on u.
+        base_idx = lgm.augmentation_info.base_latent_indices
+        u_mode = mean.(latent_marginals(result))[base_idx]
+        @test abs(sum(u_mode)) < 1.0e-6
+    end
+
     @testset "LaplaceMarginal preserves sum-to-zero (surgery binomial)" begin
         # LaplaceMarginal profiles each variable's 1D marginal; that
         # profile's local conditional Gaussian must inherit the joint
