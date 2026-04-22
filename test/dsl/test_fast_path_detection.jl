@@ -82,6 +82,35 @@ using Random
         @test !(lgm.observation_model isa ExponentialFamily)
     end
 
+    @testset "Poisson with log-exposure offset fires fast path" begin
+        @model function poisson_with_exposure(y, X, log_exposure)
+            τ ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), (1 / τ) * I(size(X, 2)))
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(X[i, :] ⋅ β + log_exposure[i]); check_args = false)
+            end
+        end
+        Random.seed!(5)
+        n = 30
+        X = [ones(n) randn(n)]
+        log_exposure = randn(n) .* 0.5
+        β_true = [0.3, 0.5]
+        y_obs = [
+            rand(Poisson(exp(X[i, :] ⋅ β_true + log_exposure[i])))
+                for i in 1:n
+        ]
+
+        lgm = latte_from_dppl(poisson_with_exposure(y_obs, X, log_exposure); random = (:β,))
+        # Fast path with non-zero offset wraps the base obs model in
+        # OffsetObservationModel; LGM's auto-augmentation then stores the
+        # wrapper (itself holding the base ExponentialFamily) as the
+        # observation model.
+        @test lgm.observation_model isa Latte.OffsetObservationModel
+        @test lgm.observation_model.base isa ExponentialFamily{Poisson, LogLink}
+        # Detected offset matches the log-exposure vector exactly
+        @test lgm.observation_model.offset ≈ log_exposure rtol = 1.0e-10
+    end
+
     @testset "Mixed-family likelihood falls through to AD path" begin
         # Half the sites Poisson, half Normal — fast path demands a
         # homogeneous family and must punt.

@@ -71,16 +71,20 @@ _ef_family_info(_) = nothing
 
 Detect whether the DPPL likelihood is a homogeneous single-family
 distribution with a canonical link and a linear predictor in `x`. If so,
-return a GMRFs.jl `LinearlyTransformedObservationModel` wrapping an
-`ExponentialFamily` — both cheaper and (uniquely) compatible with nested
-AD. Return `nothing` for anything non-conformant; caller falls through to
-the AD-based wrapping.
+return a `LinearlyTransformedObservationModel` wrapping an
+`ExponentialFamily` (optionally further wrapped in
+`OffsetObservationModel` when the linear predictor has a non-zero
+constant term). Return `nothing` for anything non-conformant; caller
+falls through to the AD-based wrapping.
 
 Current support:
 - Family: `Poisson` + `LogLink`, `Bernoulli` + `LogitLink`, `Normal` +
   `IdentityLink`.
-- Predictor: affine in the concatenated latent vector `x = [β; u; ...]`,
-  with no non-zero intercept (offsets → AD fallback for now).
+- Predictor: affine in the concatenated latent vector `x = [β; u; ...]`.
+  Non-zero constant term (e.g. Poisson log-exposure, Bernoulli logit
+  shift, Normal mean offset) is captured by wrapping the base obs model
+  in `OffsetObservationModel` — works uniformly for augmented and
+  non-augmented LGMs.
 - Likelihood: homogeneous (all y sites use the same distribution family).
 """
 function try_exponential_family_fast_path(
@@ -122,14 +126,14 @@ function try_exponential_family_fast_path(
     A_check = jacobian(η_of_x, prep, backend, ones(n_latent))
     isapprox(A, A_check; atol = 1.0e-10) || return nothing           # nonlinear → punt
 
+    # 4) assemble. Non-zero `b = η(0)` → wrap in OffsetObservationModel
+    # (obs-layer offset, works for any LGM shape).
     b = η_of_x(zeros(n_latent))
-    all(iszero, b) || return nothing                                 # offset → punt (MVP)
-
-    # 4) assemble
     A_sp = SparseMatrixCSC(A)
     dropzeros!(A_sp)
     base = ExponentialFamily(family, link)
-    return LinearlyTransformedObservationModel(base, A_sp)
+    obs = all(iszero, b) ? base : OffsetObservationModel(base, Vector{Float64}(b))
+    return LinearlyTransformedObservationModel(obs, A_sp)
 end
 
 # ─── Small helper shared with obs_model.jl ────────────────────────────────

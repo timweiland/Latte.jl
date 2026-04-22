@@ -110,6 +110,62 @@ using Random
         @test maximum(abs.(means_fast .- means_ad)) < 1.0e-3
     end
 
+    @testset "Poisson+offset fast path agrees with AD path" begin
+        @model function poisson_with_exposure(y, X, log_exposure)
+            τ ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), (1 / τ) * I(size(X, 2)))
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(X[i, :] ⋅ β + log_exposure[i]); check_args = false)
+            end
+        end
+        Random.seed!(11)
+        n = 30
+        X = [ones(n) randn(n)]
+        log_exposure = randn(n) .* 0.5
+        β_true = [0.3, 0.5]
+        y_obs = [
+            rand(Poisson(exp(X[i, :] ⋅ β_true + log_exposure[i])))
+                for i in 1:n
+        ]
+
+        lgm_fast = latte_from_dppl(
+            poisson_with_exposure(y_obs, X, log_exposure);
+            random = (:β,),
+        )
+        lgm_ad = latte_from_dppl(
+            poisson_with_exposure(y_obs, X, log_exposure);
+            random = (:β,), force_ad_obs_model = true,
+        )
+
+        # Compare hyperparameter_logpdf at 3 random θ values; fast path
+        # routes the offset through AugmentedLatentModel's mean, AD path
+        # runs the DPPL likelihood directly. They should agree up to the
+        # constant additive term ∑ y_i · log(exposure_i) that Latte's
+        # Poisson obs model drops (same constant for both log-likelihoods
+        # at a given dataset, so cancels in *differences* — i.e. gradients
+        # and posterior shapes match even if absolute values differ).
+        spec = lgm_fast.hyperparameter_spec
+        y_wrap = PoissonObservations(y_obs)
+
+        ws_fast = make_workspace(lgm_fast.latent_prior; τ = 1.0)
+        ws_ad = make_workspace(lgm_ad.latent_prior; τ = 1.0)
+
+        Random.seed!(12)
+        vals_fast = Float64[]
+        vals_ad = Float64[]
+        for _ in 1:3
+            θ_vec = [randn()]
+            wh = Latte.WorkingHyperparameters(θ_vec, spec)
+            push!(vals_fast, Latte.hyperparameter_logpdf(lgm_fast, wh, y_wrap; ws = ws_fast))
+            push!(vals_ad, Latte.hyperparameter_logpdf(lgm_ad, wh, y_wrap; ws = ws_ad))
+        end
+        # Differences between logpdf values at the 3 θs should match
+        # across the two paths (log-posterior shape, up to additive const)
+        diffs_fast = vals_fast .- vals_fast[1]
+        diffs_ad = vals_ad .- vals_ad[1]
+        @test maximum(abs.(diffs_fast .- diffs_ad)) < 1.0e-6
+    end
+
     @testset "Fast path works with default AutoMarginal (AD path doesn't)" begin
         # Regression test for the specific workaround we eliminated: the
         # fast path accepts default `AutoMarginal` + FiniteDiff; the AD
