@@ -103,9 +103,15 @@ using Random
 
         samples = rand(MersenneTwister(1), result, 50)
 
-        # All sampled θ should be from the integration points
+        # All sampled θ should come from the integration-point set, in
+        # natural (user-facing) space.
         integration_points = result.exploration.grid_points[result.exploration.integration_indices]
-        valid_θ_vecs = Set([p.θ.θ for p in integration_points])
+        valid_θ_vecs = Set(
+            [
+                collect(values(convert(NamedTuple, convert(Latte.NaturalHyperparameters, p.θ))))
+                    for p in integration_points
+            ]
+        )
 
         for s in samples
             @test s.θ in valid_θ_vecs
