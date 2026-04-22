@@ -121,7 +121,12 @@ function atomic_conditional_and_intercept(
     others = Tuple(s for s in random_syms if s !== sym)
     others_zero = NamedTuple{others}(Tuple(zeros(dims[s]) for s in others))
     cond = DynamicPPL.fix(dppl_model, merge(hp_values, others_zero))
-    priors = extract_priors(cond)
+    # No-sample path: `extract_priors`'s default init runs the model via
+    # sampling, which breaks when hp_values are Dual and the prior is a
+    # ConstrainedGMRF (no Dual-typed `_rand!` downstream). Providing an
+    # explicit init value for `sym` sidesteps that.
+    sym_init = NamedTuple{(sym,)}((zeros(dims[sym]),))
+    priors = extract_priors_no_sample(cond, sym_init)
     d = find_dist(priors, sym)
     return conditional_precision(d), Vector(mean(d))
 end
