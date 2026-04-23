@@ -10,6 +10,7 @@
 # likelihood as an `AutoDiffObservationModel`.
 
 using Distributions: UnivariateDistribution
+using OrderedCollections: OrderedDict
 
 export latte_from_dppl
 
@@ -124,14 +125,41 @@ function latte_from_dppl(
             hp_names = hp_names,
             hessian_pattern = extra_pattern,  # nothing, dense, or user-supplied
         )
+    # Build a `sym → augmented-latent range` layout so downstream callers
+    # (`linear_combinations(result; β = …)`, `result.latent_marginals[:β]`,
+    # etc.) can look things up by DPPL symbol. When the LGM is augmented
+    # the η positions prepend the base latent, so each range is offset by
+    # `n_obs`; for non-augmented LGMs the ranges start at 1.
+    augmented = (obs isa LinearlyTransformedObservationModel) && augment
+    n_obs = augmented ? size(_extract_design_matrix(obs), 1) : 0
+    layout = _build_latent_layout(random_syms, dims, n_obs)
+
     # Only the LTM-specialised LGM constructor takes `augment_latent=` —
     # for the AD fallback (AutoDiffObservationModel), there's no
     # auto-augmentation machinery to opt into, just the base constructor.
     if obs isa LinearlyTransformedObservationModel
-        return LatentGaussianModel(spec, latent, obs; augment_latent = augment)
+        return LatentGaussianModel(
+            spec, latent, obs;
+            augment_latent = augment, latent_layout = layout,
+        )
     else
-        return LatentGaussianModel(spec, latent, obs)
+        return LatentGaussianModel(
+            spec, latent, obs, nothing;
+            latent_layout = layout,
+        )
     end
+end
+
+function _build_latent_layout(
+        random_syms::Tuple, dims::Dict{Symbol, Int}, n_obs::Int,
+    )
+    layout = OrderedDict{Symbol, UnitRange{Int}}()
+    off = n_obs
+    for s in random_syms
+        layout[s] = (off + 1):(off + dims[s])
+        off += dims[s]
+    end
+    return layout
 end
 
 # Extract the design matrix A from whatever the fast path produced:

@@ -17,7 +17,7 @@ hyperparameter_marginals(r::INLAResult) = collect(values(r.hyperparameter_margin
 # ─── Groups ─────────────────────────────────────────────────────────────────
 # Latent components have no names in a manually-built LGM; return empty. DSL /
 # formula layers will populate this later.
-latent_groups(::INLAResult) = OrderedDict{Symbol, UnitRange{Int}}()
+latent_groups(r::INLAResult) = latent_groups(r.model)
 
 function hyperparameter_groups(r::INLAResult)
     names = collect(keys(r.hyperparameter_marginals))

@@ -135,3 +135,89 @@ function linear_combinations(result::INLAResult, a::AbstractVector)
     A = reshape(a, 1, :)
     return linear_combinations(result, A)[1]
 end
+
+"""
+    linear_combinations(result::INLAResult; sym1 = coef1, sym2 = coef2, …)
+
+Named form of `linear_combinations` for DPPL-built LGMs. Each `sym` must
+appear in `latent_groups(result)`, and `coef` gives the coefficients for
+that block — as a matrix of shape `(m, dim(sym))` or `(m,)` for a 1-dim
+block, or as a scalar (broadcast to a ones-column).
+
+Missing symbols (including the augmented η positions) get zero
+coefficients. Equivalent to building the padded design matrix by hand
+and passing it to the matrix form.
+
+# Example
+```julia
+lgm = latte_from_dppl(model; random = (:β, :field))
+result = inla(lgm, y)
+
+# Predict β + A_pred · field at new locations:
+preds = linear_combinations(result; β = 1.0, field = A_pred)
+```
+"""
+function linear_combinations(result::INLAResult; kwargs...)
+    layout = latent_groups(result)
+    isempty(layout) && throw(
+        ArgumentError(
+            "Named linear_combinations requires a DPPL-built LGM (populated latent layout). " *
+                "For hand-built LGMs, build the design matrix yourself and use " *
+                "linear_combinations(result, A)."
+        )
+    )
+    for k in keys(kwargs)
+        haskey(layout, k) || throw(
+            ArgumentError(
+                "Unknown latent symbol `:$k`. Known: $(collect(keys(layout))). " *
+                    "η positions in the augmented latent are reached by leaving out " *
+                    "their column (they're filled with zeros by default)."
+            )
+        )
+    end
+
+    n_lat = length(latent_marginals(result))
+    m = _infer_rows(values(kwargs))
+    A = spzeros(m, n_lat)
+    for (name, coef) in pairs(kwargs)
+        rng = layout[name]
+        A[:, rng] = _normalize_coef(coef, m, length(rng))
+    end
+    return linear_combinations(result, A)
+end
+
+_infer_rows(iter) = begin
+    for c in iter
+        c isa Number && continue
+        return size(c, 1)
+    end
+    throw(
+        ArgumentError(
+            "Cannot infer output row count — pass at least one matrix- or " *
+                "vector-valued coefficient (scalars alone are ambiguous)."
+        )
+    )
+end
+
+function _normalize_coef(coef::Number, m::Int, dim::Int)
+    dim == 1 ||
+        throw(ArgumentError("Scalar coefficient only works for 1-dim blocks; got dim=$dim"))
+    return fill(float(coef), m, 1)
+end
+function _normalize_coef(coef::AbstractVector, m::Int, dim::Int)
+    length(coef) == m || throw(
+        DimensionMismatch("Vector coefficient has length $(length(coef)) but expected m=$m")
+    )
+    dim == 1 || throw(
+        ArgumentError("Vector coefficient only works for 1-dim blocks; got dim=$dim")
+    )
+    return reshape(coef, m, 1)
+end
+function _normalize_coef(coef::AbstractMatrix, m::Int, dim::Int)
+    size(coef) == (m, dim) || throw(
+        DimensionMismatch(
+            "Matrix coefficient has size $(size(coef)) but expected ($m, $dim)"
+        )
+    )
+    return coef
+end

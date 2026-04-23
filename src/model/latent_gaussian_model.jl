@@ -1,4 +1,5 @@
 using Distributions
+using OrderedCollections: OrderedDict
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: LatentModel, hyperparameters, precision_matrix, constraints, model_name
 using Random
@@ -110,8 +111,12 @@ struct LatentGaussianModel{HP, F <: LatentModel, O <: ObservationModel}
     latent_prior::F
     observation_model::O
     augmentation_info::Union{Nothing, AugmentationInfo}
+    # `sym → UnitRange{Int}` mapping each named latent block (e.g. from the
+    # DPPL adapter) to its position in the *augmented* latent vector. Empty
+    # OrderedDict when there's no naming (hand-built LGMs).
+    latent_layout::OrderedDict{Symbol, UnitRange{Int}}
 
-    function LatentGaussianModel(hp_spec::HyperparameterSpec{FreeNT, FixedNT}, latent_prior, observation_model::O, augmentation_info::Union{Nothing, AugmentationInfo} = nothing) where {FreeNT, FixedNT, O <: ObservationModel}
+    function LatentGaussianModel(hp_spec::HyperparameterSpec{FreeNT, FixedNT}, latent_prior, observation_model::O, augmentation_info::Union{Nothing, AugmentationInfo} = nothing; latent_layout::OrderedDict{Symbol, UnitRange{Int}} = OrderedDict{Symbol, UnitRange{Int}}()) where {FreeNT, FixedNT, O <: ObservationModel}
         # Catch raw functions with a helpful error message
         if latent_prior isa Function
             error(
@@ -129,7 +134,7 @@ struct LatentGaussianModel{HP, F <: LatentModel, O <: ObservationModel}
             error("Missing required hyperparameters for $(typeof(observation_model)): $(collect(missing_params))")
         end
 
-        return new{typeof(hp_spec), typeof(latent_prior), O}(hp_spec, latent_prior, observation_model, augmentation_info)
+        return new{typeof(hp_spec), typeof(latent_prior), O}(hp_spec, latent_prior, observation_model, augmentation_info, latent_layout)
     end
 end
 
@@ -214,11 +219,15 @@ function LatentGaussianModel(
         base_latent_prior::F,
         obs_model::LinearlyTransformedObservationModel;
         augment_latent::Bool = true,
-        linear_predictor_precision::Real = 1.0e6
+        linear_predictor_precision::Real = 1.0e6,
+        latent_layout::OrderedDict{Symbol, UnitRange{Int}} = OrderedDict{Symbol, UnitRange{Int}}()
     ) where {F}
     if !augment_latent
         # User opted out - pass through to base constructor without augmentation
-        return LatentGaussianModel(hp_spec, base_latent_prior, obs_model, nothing)
+        return LatentGaussianModel(
+            hp_spec, base_latent_prior, obs_model, nothing;
+            latent_layout = latent_layout,
+        )
     end
 
     # Extract components from LinearlyTransformedObservationModel
@@ -257,8 +266,20 @@ function LatentGaussianModel(
     obs_model = _restrict_obs_model_to_indices(base_obs_model, augmentation_info.linear_predictor_indices)
 
     # Call base constructor with augmented model and base observation model
-    return LatentGaussianModel(hp_spec, augmented_latent_model, obs_model, augmentation_info)
+    return LatentGaussianModel(
+        hp_spec, augmented_latent_model, obs_model, augmentation_info;
+        latent_layout = latent_layout,
+    )
 end
+
+"""
+    latent_groups(model::LatentGaussianModel) -> OrderedDict{Symbol, UnitRange{Int}}
+
+Name → augmented-latent-range mapping for a DPPL-built LGM (empty for
+hand-built LGMs). Matches `latent_groups(::INLAResult)` so lookup by
+name works interchangeably on the model and its inference result.
+"""
+latent_groups(model::LatentGaussianModel) = model.latent_layout
 
 """
     latent_gmrf(model::LatentGaussianModel, θ_named)
