@@ -50,7 +50,6 @@ first(pennLC_sf, 5)
 # - Compute expected counts using indirect standardization (expected = population × overall rate across all counties)
 # - Compute the standardized incidence ratio (SIR) = observed / expected
 # - Convert geometries to LibGEOS polygons
-using DataFrames
 county_data = combine(
     groupby(pennLC_sf, :county),
     :cases => sum => :cases,
@@ -104,49 +103,63 @@ data(county_data) * mapping(:geometry, color = :SIR) * visual(Poly) |> draw
 # - spatial_i is the Besag spatially structured effect
 # - unstructured_i is the IID unstructured effect
 #
-# Let's set this up.
-#
 # For the Besag spatial model, we need to define which counties are neighbors.
 # We'll construct a contiguity-based adjacency matrix from the county geometries.
-# There is a helper method for this in GaussianMarkovRandomFields.jl.
+# There is a helper method for this in GaussianMarkovRandomFields.jl:
 using GaussianMarkovRandomFields, SparseArrays
 geom_collection = LibGEOS.GeometryCollection(county_data.geometry)
 W = contiguity_adjacency(geom_collection)
 
-# Now we're ready to specify our model through the formula interface:
-using StatsModels
-using Distributions
+# Now we express the BYM model as a DynamicPPL `@model`. Three latent pieces:
+# - An intercept `β` (a one-element MvNormal, giving the DPPL adapter a simple
+#   random-effect structure to recognise).
+# - The spatial component `spatial ~ BesagModel(W; …)(τ = τ_besag)`. This yields
+#   a `ConstrainedGMRF` — `BesagModel` enforces a sum-to-zero constraint per
+#   connected component of the adjacency graph, which keeps the intercept
+#   identified from the spatial field.
+# - The unstructured component `u ~ IIDModel(n)(τ = τ_iid)`.
 using Latte
+using DynamicPPL: @model
+using Distributions
+using LinearAlgebra
+n = nrow(county_data)
 
-spatial = Besag(W, normalize_var = true)
-unstructured = IID()
-f = @formula(cases ~ 1 + spatial(county_id) + unstructured(county_id))
+@model function bym_model(cases, expected, n, W)
+    τ_besag ~ PCPrior.Precision(1.0, α = 0.01)
+    τ_iid ~ PCPrior.Precision(1.0, α = 0.01)
+    β ~ MvNormal(zeros(1), 100.0 * I(1))
+    spatial ~ BesagModel(W; normalize_var = Val{true}())(τ = τ_besag)
+    u ~ IIDModel(n)(τ = τ_iid)
+    for i in eachindex(cases)
+        cases[i] ~ Poisson(
+            expected[i] * exp(β[1] + spatial[i] + u[i]); check_args = false,
+        )
+    end
+end
 
 # ## Prior specification
 #
 # We use PC (Penalized Complexity) priors for the precision parameters.
-# These priors prefer simpler models unless data strongly suggests otherwise:
-hp_spec = @hyperparams begin
-    (τ_besag ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
-    (τ_iid ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
-end
-
-# This says: "I believe there's only a 1% chance that the standard deviation
-# exceeds 1.0 on the log-risk scale" (roughly a 3-fold change in risk).
-
+# These priors prefer simpler models unless data strongly suggests otherwise.
+# `PCPrior.Precision(1.0, α = 0.01)` says: "I believe there's only a 1% chance
+# that the standard deviation exceeds 1.0 on the log-risk scale" (roughly a
+# 3-fold change in risk).
+#
 # ## Running INLA
 #
-# Now we're ready to run INLA! Note that we pass `exposure = :expected`
-# to account for the varying expected counts:
+# The `expected` exposure enters the likelihood through `expected[i] * exp(…)`,
+# which the adapter picks up as a log-exposure offset automatically.
+lgm = latte_from_dppl(
+    bym_model(county_data.cases, county_data.expected, n, W);
+    random = (:β, :spatial, :u),
+)
 inla_result = inla(
-    f, hp_spec, county_data;
-    family = Poisson,
-    exposure = :expected,  # Use expected counts as exposure
-    progress = false
+    lgm, county_data.cases;
+    progress = false, diff_strategy = FiniteDiffStrategy(),
 )
 
 # INLA has computed approximate posterior marginals for all parameters!
-
+#
 # ## Hyperparameter posteriors
 #
 # Let's examine the precision parameters:
@@ -178,19 +191,24 @@ fig
 # the base latent marginals - the raw building blocks before they're combined into
 # the linear predictor.
 #
+# Random variables in the DPPL model are laid out in the order given to
+# `random = (:β, :spatial, :u)`. So in `base_latent_marginals`, index 1 is
+# `β`, indices 2:(1+n) are the `spatial` effects, and the next n are `u`.
+n_counties = nrow(county_data)
+spatial_offset = 1
+iid_offset = 1 + n_counties
+
 # Let's make a joyplot showing how these effects vary across a selection of counties:
-# We're going to extract components for selected counties.
 sorted_idx = sortperm(county_data.SIR, rev = true)
 component_indices = vcat(
     sorted_idx[1:3],              # 3 highest SIR
     sorted_idx[33:35],            # 3 middle SIR
     sorted_idx[(end - 2):end]
 )        # 3 lowest SIR
-n_counties = nrow(county_data)
 
-spatial_dists = [inla_result.base_latent_marginals[i] for i in component_indices]
+spatial_dists = [inla_result.base_latent_marginals[spatial_offset + i] for i in component_indices]
 spatial_labels = [county_data.county[i] * " (spatial)" for i in component_indices]
-iid_dists = [inla_result.base_latent_marginals[n_counties + i] for i in component_indices]
+iid_dists = [inla_result.base_latent_marginals[iid_offset + i] for i in component_indices]
 iid_labels = [county_data.county[i] * " (IID)" for i in component_indices]
 
 fig_components = Figure(size = (1200, 600))
@@ -226,11 +244,21 @@ fig_components
 # ## Posterior relative risk estimates
 #
 # Now the key results: posterior estimates of relative risk for each county!
+# `observation_marginals` gives us marginals of the *fitted count*
+# $E_i \cdot \exp(\beta + \text{spatial}_i + u_i)$ (following R-INLA's convention
+# that fitted values include the offset). To get relative-risk summaries we
+# divide each summary column by the expected count:
 obs_marginals = observation_marginals(inla_result)
-risk_summary = summary_df(obs_marginals)
-risk_summary.county = county_data.county
-risk_summary.SIR = county_data.SIR
-risk_summary.geometry = county_data.geometry
+fitted_summary = summary_df(obs_marginals)
+risk_summary = DataFrame(
+    county = county_data.county,
+    SIR = county_data.SIR,
+    median = fitted_summary.median ./ county_data.expected,
+    mean = fitted_summary.mean ./ county_data.expected,
+    q2_5 = fitted_summary.q2_5 ./ county_data.expected,
+    q97_5 = fitted_summary.q97_5 ./ county_data.expected,
+    geometry = county_data.geometry,
+)
 first(select(risk_summary, :county, :SIR, :median, :q2_5, :q97_5), 10)
 
 # ## Comparing smoothed vs crude estimates
@@ -291,8 +319,8 @@ selected_labels = [county_data.county[i] for i in selected_indices]
 fig_joy = joyplot(
     selected_dists;
     labels = selected_labels,
-    title = "Relative Risk Distributions (Selected Counties)",
-    xlabel = "Relative risk",
+    title = "Fitted-count distributions (selected counties)",
+    xlabel = "Fitted expected count",
 )
 fig_joy
 
@@ -325,9 +353,14 @@ println(low_risk)
 # ## Exceedance probabilities
 #
 # For each county, we can compute the probability that relative risk exceeds
-# a threshold (e.g., 1.1 for 10% elevated risk):
+# a threshold (e.g., 1.1 for 10% elevated risk). Since the marginals are on
+# the fitted-count scale, $\mathbb{P}(\text{RR} > t)$ equals
+# $\mathbb{P}(\text{fitted} > t \cdot E_i)$:
 threshold = 1.1
-risk_summary.exc_prob = [1 - cdf(observation_marginals(inla_result)[i], threshold) for i in 1:nrow(risk_summary)]
+risk_summary.exc_prob = [
+    1 - cdf(obs_marginals[i], threshold * county_data.expected[i])
+        for i in 1:nrow(risk_summary)
+]
 data(risk_summary) * mapping(:geometry, color = :exc_prob) * visual(Poly) |> draw
 
 # Counties with high probability of elevated risk:
@@ -352,17 +385,22 @@ println("  Log marginal likelihood: ", round(inla_result.accumulators[2].log_mar
 #
 # To appreciate the spatial component's value, let's fit a model with only
 # unstructured random effects (no spatial structure):
-f_iid = @formula(cases ~ 1 + unstructured(county_id))
-
-hp_spec_iid = @hyperparams begin
-    (τ_iid ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+@model function iid_only(cases, expected, n)
+    τ_iid ~ PCPrior.Precision(1.0, α = 0.01)
+    β ~ MvNormal(zeros(1), 100.0 * I(1))
+    u ~ IIDModel(n)(τ = τ_iid)
+    for i in eachindex(cases)
+        cases[i] ~ Poisson(expected[i] * exp(β[1] + u[i]); check_args = false)
+    end
 end
 
+lgm_iid = latte_from_dppl(
+    iid_only(county_data.cases, county_data.expected, n);
+    random = (:β, :u),
+)
 inla_result_iid = inla(
-    f_iid, hp_spec_iid, county_data;
-    family = Poisson,
-    exposure = :expected,
-    progress = false
+    lgm_iid, county_data.cases;
+    progress = false, diff_strategy = FiniteDiffStrategy(),
 )
 
 # Compare model fit:
