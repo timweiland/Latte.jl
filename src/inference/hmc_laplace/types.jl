@@ -85,7 +85,17 @@ end
 latent_marginals(r::HMCLaplaceResult) = r.latent_marginals
 hyperparameter_marginals(r::HMCLaplaceResult) = r.hyperparameter_marginals
 
-latent_groups(r::HMCLaplaceResult) = latent_groups(r.model)
+latent_groups(r::HMCLaplaceResult) = latent_groups(getfield(r, :model))
+
+function Base.getproperty(r::HMCLaplaceResult, name::Symbol)
+    if name === :latent_marginals
+        raw = getfield(r, :latent_marginals)
+        layout = latent_groups(getfield(r, :model))
+        return isempty(layout) ? raw : NamedMarginals(raw, layout)
+    else
+        return getfield(r, name)
+    end
+end
 
 function hyperparameter_groups(r::HMCLaplaceResult)
     names = collect(keys(r.model.hyperparameter_spec.free))

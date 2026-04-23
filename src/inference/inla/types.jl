@@ -106,6 +106,34 @@ struct INLAResult{HM, LM, Mode, Expl, Conv, Time, Model, Opts, Acc, LPM, BLM, Au
 end
 
 """
+    getproperty(r::INLAResult, name)
+
+For `latent_marginals` and `base_latent_marginals`, return a
+`NamedMarginals` wrapper when the LGM carries a named layout (e.g. from
+`latte_from_dppl`). Lets users write `result.latent_marginals.β` or
+`result.base_latent_marginals[:u]`. All other property accesses are
+passthrough.
+"""
+function Base.getproperty(r::INLAResult, name::Symbol)
+    if name === :latent_marginals
+        raw = getfield(r, :latent_marginals)
+        layout = latent_groups(getfield(r, :model))
+        return isempty(layout) ? raw : NamedMarginals(raw, layout)
+    elseif name === :base_latent_marginals
+        raw = getfield(r, :base_latent_marginals)
+        raw === nothing && return nothing
+        layout = latent_groups(getfield(r, :model))
+        isempty(layout) && return raw
+        info = getfield(r, :augmentation_info)
+        n_obs = info === nothing ? 0 : info.n_linear_predictors
+        base_layout = OrderedDict(sym => (rng .- n_obs) for (sym, rng) in layout)
+        return NamedMarginals(raw, base_layout)
+    else
+        return getfield(r, name)
+    end
+end
+
+"""
     Base.show(io::IO, result::INLAResult)
 
 Pretty printing for INLAResult objects.
