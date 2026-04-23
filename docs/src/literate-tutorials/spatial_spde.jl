@@ -15,7 +15,7 @@
 # 1. How to download and prepare spatial point pattern data for INLA
 # 2. How a Poisson observation model with a Matérn spatial field gives a **log-Gaussian
 #    Cox process** — the standard model for spatial point patterns
-# 3. How to use `predict` to produce a continuous intensity surface from a formula model
+# 3. How to evaluate the fitted Matérn field at new locations via `linear_combinations`
 # 4. How to overlay results on a real coastline map
 
 # ## Downloading earthquake data
@@ -86,33 +86,60 @@ fig
 # where tectonic plates collide. Most of the domain has zero or very few events.
 # This is exactly the kind of strongly structured spatial pattern that the SPDE
 # approach handles well.
-#
-# ## Fitting the model
-#
-# With the formula interface we specify the Matérn field over `(lon, lat)`.
-# The mesh, FEM discretisation, and projection matrix are all built automatically.
-# We use a Poisson family with cell area as exposure.
-using GaussianMarkovRandomFields, StatsModels
-using Latte
-using Distributions
 
-matern = Matern(smoothness = 1)
-f = @formula(count ~ 1 + matern(lon, lat))
+# ## Building the Matérn mesh
+#
+# The SPDE approach discretises the Matérn field on a triangular finite-element
+# mesh. `MaternModel(points; smoothness = 1)` builds the mesh from a set of
+# observation points (via their convex hull) and stores a projection matrix
+# `A_obs` from mesh degrees of freedom to those points. At inference time the
+# latent `field` lives on the mesh DOFs; at each observation, the linear
+# predictor reads `field` through the projection.
+using GaussianMarkovRandomFields
+using SparseArrays
 
+obs_points = hcat(df.lon, df.lat)   # N × 2 — lon first, then lat
+base_matern = MaternModel(obs_points; smoothness = 1)
+A_obs = evaluation_matrix(base_matern)
+n_mesh = length(base_matern)
+
+println("Mesh DOFs: ", n_mesh)
+println("A_obs size: ", size(A_obs))
+
+# ## The model
+#
 # The Matérn field has two hyperparameters: the field precision `τ_matern`
 # (controlling amplitude) and `range_matern` (controlling spatial correlation
-# distance). We use a PC prior for precision and an Exponential prior for range.
-hp = @hyperparams begin
-    (τ_matern ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
-    (range_matern ~ Exponential(5.0), transform = log, space = natural)
+# distance). We use a PC prior for precision and an `Exponential` prior for range.
+using Latte
+using DynamicPPL: @model
+using Distributions
+using LinearAlgebra
+
+@model function spde_model(counts, area, base_matern, A_obs)
+    τ_matern ~ PCPrior.Precision(1.0, α = 0.01)
+    range_matern ~ Exponential(5.0)
+    β ~ MvNormal(zeros(1), 100.0 * I(1))
+    field ~ base_matern(τ = τ_matern, range = range_matern)
+    η = β[1] .+ A_obs * field
+    for i in eachindex(counts)
+        counts[i] ~ Poisson(area[i] * exp(η[i]); check_args = false)
+    end
 end
 
+# ## Running INLA
+#
 # We use `SimplifiedLaplace` for the latent marginals — it adds a skewness
 # correction over the basic Gaussian approximation, which matters for count data
 # where the posterior can be asymmetric (especially at cells with zero counts).
+lgm = latte_from_dppl(
+    spde_model(df.count, df.area, base_matern, A_obs);
+    random = (:β, :field),
+)
 result = inla(
-    f, hp, df; family = Poisson, exposure = :area,
-    latent_marginalization_method = SimplifiedLaplace(), progress = false
+    lgm, df.count;
+    progress = false,
+    latent_marginalization_method = SimplifiedLaplace(),
 )
 
 # ## Hyperparameter posteriors
@@ -138,17 +165,33 @@ fig
 
 # ## Predicting the intensity surface
 #
-# Now we use `predict` to evaluate the fitted spatial field on a fine grid.
-# This reuses the trained SPDE mesh — no manual projection matrix needed.
+# To evaluate the fitted Matérn field on a fine prediction grid, we build a
+# projection matrix `A_pred` from the same FEM discretization to the new
+# locations, then ask INLA for the marginal of `β + A_pred_row · field` at each
+# prediction point via `linear_combinations`.
 n_fine = 50
 fine_lats = range(lat_range[1], lat_range[2]; length = n_fine)
 fine_lons = range(lon_range[1], lon_range[2]; length = n_fine)
 
-pred_df = DataFrame(
-    lat = vec([lat for lat in fine_lats, _ in fine_lons]),
-    lon = vec([lon for _ in fine_lats, lon in fine_lons]),
+pred_points = hcat(
+    vec([lon for _ in fine_lats, lon in fine_lons]),
+    vec([lat for lat in fine_lats, _ in fine_lons]),
 )
-pred_marginals = predict(result, pred_df)
+A_pred = evaluation_matrix(base_matern.discretization, pred_points)
+
+# `linear_combinations` operates on the full augmented latent vector
+# (η_obs positions followed by β and the mesh field). So we pad `[0; 1; A_pred]`
+# across the augmented η block with zeros:
+n_obs = length(df.count)
+n_latent = length(result.latent_marginals)
+@assert n_latent == n_obs + 1 + n_mesh
+pred_design = hcat(
+    spzeros(size(A_pred, 1), n_obs),    # ignore the augmented η positions
+    ones(size(A_pred, 1), 1),           # pick up the β intercept
+    A_pred,                             # project the mesh field
+)
+
+pred_marginals = linear_combinations(result, pred_design)
 
 # The predictions are on the linear predictor scale (log-intensity).
 # We exponentiate to get the actual intensity (expected events per degree²).
@@ -256,18 +299,22 @@ println("  Log marginal likelihood: $(round(result.exploration.log_normalization
 # ## Summary
 #
 # In this tutorial we used INLA with the SPDE approach to fit a **log-Gaussian
-# Cox process** to real earthquake data. Starting from 587 epicentre locations,
+# Cox process** to real earthquake data. Starting from ~600 epicentre locations,
 # we estimated a continuous seismic intensity surface that recovers the geometry
 # of major tectonic plate boundaries — without any geological prior knowledge.
 #
 # Key takeaways:
 #
-# - The **formula interface** (`Matern()(lon, lat)`) handles all SPDE machinery
-#   automatically: mesh generation, FEM assembly, and projection matrices
+# - `MaternModel(points; smoothness = ν)` builds the FEM mesh, the SPDE
+#   discretisation and the projection matrix in one step; `evaluation_matrix`
+#   is the explicit, reusable design-matrix operator
 # - A **Poisson family with exposure** turns gridded counts into a proper
-#   log-Gaussian Cox process
-# - The `predict` function evaluates the fitted spatial field at arbitrary new
-#   locations, reusing the trained mesh
+#   log-Gaussian Cox process — the exposure is just a log-offset in the
+#   linear predictor
+# - `linear_combinations(result, A)` evaluates the fitted spatial field at
+#   arbitrary new locations: build an `A_pred` via the mesh's projection
+#   operator, pad it to match the augmented latent vector, and read off the
+#   marginals
 # - INLA provides full **posterior uncertainty** on both the intensity surface
 #   and the hyperparameters (spatial range and field precision)
 #
