@@ -59,6 +59,7 @@ accel = [
 unique_times = sort(unique(times))
 time_to_idx = Dict(t => i for (i, t) in enumerate(unique_times))
 time_idx = [time_to_idx[t] for t in times]
+H = length(unique_times)
 
 df = DataFrame(times = times, time_idx = time_idx, accel = accel)
 first(df, 5)
@@ -102,28 +103,35 @@ draw(
 # y_i \sim \mathcal{N}(\mu_i, \sigma^2), \qquad \mu_i = \beta_0 + f(t_i)
 # ```
 #
-# where $\beta_0$ is an intercept and $f$ is the RW2 smooth over time. This is
-# the first tutorial to use a **Gaussian observation model**, which requires an
-# additional hyperparameter $\sigma$ for the observation noise standard
-# deviation.
-using GaussianMarkovRandomFields, StatsModels
+# where $\beta_0$ is an intercept and $f$ is the RW2 smooth over time.
 using Latte
+using DynamicPPL: @model
 using Distributions
+using GaussianMarkovRandomFields: RWModel
+using LinearAlgebra
 
-rw2 = RandomWalk(2)
-f_rw2 = @formula(accel ~ 1 + rw2(time_idx))
-
-# We need priors for two hyperparameters. The observation noise standard
-# deviation $\sigma$ gets a PC prior saying "I believe there is only a 1%
-# chance that the noise SD exceeds 50 g." The RW2 precision $\tau_{\text{rw2}}$,
-# which controls smoothness, gets a PC prior that penalises complexity
-# (wiggliness) relative to a linear baseline.
-hp = @hyperparams begin
-    (σ ~ PCPrior.Sigma(50.0, α = 0.01), transform = log)
-    (τ_rw2 ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+@model function rw2_smooth(y, time_idx, H)
+    σ ~ PCPrior.Sigma(50.0, α = 0.01)
+    τ_rw2 ~ PCPrior.Precision(1.0, α = 0.01)
+    β ~ MvNormal(zeros(1), 100.0 * I(1))
+    f ~ RWModel{2}(H)(τ = τ_rw2)
+    for i in eachindex(y)
+        y[i] ~ Normal(β[1] + f[time_idx[i]], σ)
+    end
 end
 
-result = inla(f_rw2, hp, df; family = Normal, progress = false)
+# Two hyperparameters:
+#
+# - `σ` — the observation noise standard deviation. The PC prior
+#   `PCPrior.Sigma(50.0, α = 0.01)` says "I believe there is only a 1% chance
+#   that the noise SD exceeds 50 g."
+# - `τ_rw2` — the RW2 precision. Its PC prior penalises complexity relative to
+#   a linear baseline.
+#
+# We build the LGM and run INLA with `FiniteDiffStrategy` (robust for the
+# RW2's rank-deficient null-space constraint):
+lgm = latte_from_dppl(rw2_smooth(df.accel, df.time_idx, H); random = (:β, :f))
+result = inla(lgm, df.accel; progress = false, diff_strategy = FiniteDiffStrategy())
 
 # ## Visualizing the fit
 #
@@ -186,13 +194,19 @@ println(summary_df(result.hyperparameter_marginals))
 #
 # To appreciate the value of the nonparametric smooth, let's fit a simple
 # linear model $\mu_i = \beta_0 + \beta_1 t_i$ and compare:
-f_linear = @formula(accel ~ 1 + times)
-
-hp_linear = @hyperparams begin
-    (σ ~ PCPrior.Sigma(50.0, α = 0.01), transform = log)
+@model function linear_model(y, x)
+    σ ~ PCPrior.Sigma(50.0, α = 0.01)
+    β ~ MvNormal(zeros(2), 100.0 * I(2))
+    for i in eachindex(y)
+        y[i] ~ Normal(β[1] + β[2] * x[i], σ)
+    end
 end
 
-result_linear = inla(f_linear, hp_linear, df; family = Normal, progress = false)
+lgm_linear = latte_from_dppl(linear_model(df.accel, df.times); random = (:β,))
+result_linear = inla(
+    lgm_linear, df.accel;
+    progress = false, diff_strategy = FiniteDiffStrategy(),
+)
 
 # Let's overlay both fits:
 obs_linear = observation_marginals(result_linear)
