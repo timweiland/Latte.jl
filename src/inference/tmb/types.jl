@@ -47,7 +47,7 @@ end
 latent_marginals(r::TMBResult) = r.latent_marginals
 hyperparameter_marginals(r::TMBResult) = r.hyperparameter_marginals
 
-latent_groups(::TMBResult) = OrderedDict{Symbol, UnitRange{Int}}()
+latent_groups(r::TMBResult) = latent_groups(r.model)
 
 function hyperparameter_groups(r::TMBResult)
     names = collect(keys(r.model.hyperparameter_spec.free))

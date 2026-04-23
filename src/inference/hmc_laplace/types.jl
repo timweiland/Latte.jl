@@ -85,7 +85,7 @@ end
 latent_marginals(r::HMCLaplaceResult) = r.latent_marginals
 hyperparameter_marginals(r::HMCLaplaceResult) = r.hyperparameter_marginals
 
-latent_groups(::HMCLaplaceResult) = OrderedDict{Symbol, UnitRange{Int}}()
+latent_groups(r::HMCLaplaceResult) = latent_groups(r.model)
 
 function hyperparameter_groups(r::HMCLaplaceResult)
     names = collect(keys(r.model.hyperparameter_spec.free))

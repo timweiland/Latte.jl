@@ -96,7 +96,6 @@ fig
 # latent `field` lives on the mesh DOFs; at each observation, the linear
 # predictor reads `field` through the projection.
 using GaussianMarkovRandomFields
-using SparseArrays
 
 obs_points = hcat(df.lon, df.lat)   # N × 2 — lon first, then lat
 base_matern = MaternModel(obs_points; smoothness = 1)
@@ -167,8 +166,10 @@ fig
 #
 # To evaluate the fitted Matérn field on a fine prediction grid, we build a
 # projection matrix `A_pred` from the same FEM discretization to the new
-# locations, then ask INLA for the marginal of `β + A_pred_row · field` at each
-# prediction point via `linear_combinations`.
+# locations, and ask INLA for the marginal of `β + A_pred_row · field` at
+# each prediction point. `linear_combinations(result; kwargs...)` does the
+# plumbing for us — it looks up each symbol's range in the augmented latent
+# and pads the η positions with zeros.
 n_fine = 50
 fine_lats = range(lat_range[1], lat_range[2]; length = n_fine)
 fine_lons = range(lon_range[1], lon_range[2]; length = n_fine)
@@ -179,19 +180,7 @@ pred_points = hcat(
 )
 A_pred = evaluation_matrix(base_matern.discretization, pred_points)
 
-# `linear_combinations` operates on the full augmented latent vector
-# (η_obs positions followed by β and the mesh field). So we pad `[0; 1; A_pred]`
-# across the augmented η block with zeros:
-n_obs = length(df.count)
-n_latent = length(result.latent_marginals)
-@assert n_latent == n_obs + 1 + n_mesh
-pred_design = hcat(
-    spzeros(size(A_pred, 1), n_obs),    # ignore the augmented η positions
-    ones(size(A_pred, 1), 1),           # pick up the β intercept
-    A_pred,                             # project the mesh field
-)
-
-pred_marginals = linear_combinations(result, pred_design)
+pred_marginals = linear_combinations(result; β = 1.0, field = A_pred)
 
 # The predictions are on the linear predictor scale (log-intensity).
 # We exponentiate to get the actual intensity (expected events per degree²).
@@ -311,10 +300,10 @@ println("  Log marginal likelihood: $(round(result.exploration.log_normalization
 # - A **Poisson family with exposure** turns gridded counts into a proper
 #   log-Gaussian Cox process — the exposure is just a log-offset in the
 #   linear predictor
-# - `linear_combinations(result, A)` evaluates the fitted spatial field at
-#   arbitrary new locations: build an `A_pred` via the mesh's projection
-#   operator, pad it to match the augmented latent vector, and read off the
-#   marginals
+# - `linear_combinations(result; β = 1.0, field = A_pred)` evaluates the
+#   fitted spatial field at arbitrary new locations: each keyword names a
+#   random-effect block in the DPPL model and supplies its coefficients,
+#   and the posterior marginals of the linear combination come back
 # - INLA provides full **posterior uncertainty** on both the intensity surface
 #   and the hyperparameters (spatial range and field precision)
 #
