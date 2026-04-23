@@ -1,4 +1,5 @@
-export PosteriorAccumulator, accumulate!, finalize!, get_integration_weights, compute_point_summary
+export PosteriorAccumulator, PosteriorStrategy, materialize,
+    accumulate!, finalize!, get_integration_weights, compute_point_summary
 
 """
     PosteriorAccumulator
@@ -38,6 +39,26 @@ end
 ```
 """
 abstract type PosteriorAccumulator end
+
+"""
+    PosteriorStrategy
+
+Abstract type for immutable configs that describe a posterior metric to compute
+during `inla()`. Each concrete strategy (`DICStrategy`, `WAICStrategy`, …)
+materialises into a fresh mutable `PosteriorAccumulator` via `materialize`.
+
+The split exists so users can safely reuse a strategy tuple across multiple
+`inla()` calls without silently sharing accumulator state between runs.
+"""
+abstract type PosteriorStrategy end
+
+"""
+    materialize(s::PosteriorStrategy) -> PosteriorAccumulator
+
+Construct a fresh accumulator for this strategy. Called internally by `inla()`
+once per run so every call gets independent state.
+"""
+function materialize end
 
 """
     accumulate!(acc::PosteriorAccumulator; kwargs...)

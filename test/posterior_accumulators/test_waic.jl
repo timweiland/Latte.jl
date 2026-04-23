@@ -92,12 +92,12 @@ using Statistics
 
         y = randn(n)
 
-        waic_acc = WAICAccumulator()
         result = inla(
             model, y;
             progress = false,
-            accumulators = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), waic_acc),
+            accumulators = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy()),
         )
+        waic_acc = result.accumulators[3]
 
         # WAIC should be finite
         @test isfinite(waic_acc.WAIC)
@@ -127,12 +127,12 @@ using Statistics
 
         y = rand(Poisson(3.0), n)
 
-        waic_acc = WAICAccumulator()
         result = inla(
             model, y;
             progress = false,
-            accumulators = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), waic_acc),
+            accumulators = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy()),
         )
+        waic_acc = result.accumulators[3]
 
         @test isfinite(waic_acc.WAIC)
         @test waic_acc.p_WAIC >= 0

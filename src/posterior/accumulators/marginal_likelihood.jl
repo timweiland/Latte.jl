@@ -1,4 +1,4 @@
-export MarginalLogLikelihoodAccumulator
+export MarginalLogLikelihoodAccumulator, MarginalLogLikelihoodStrategy
 
 """
     MarginalLogLikelihoodAccumulator()
@@ -22,6 +22,17 @@ mutable struct MarginalLogLikelihoodAccumulator <: PosteriorAccumulator
 
     MarginalLogLikelihoodAccumulator() = new(0.0)
 end
+
+"""
+    MarginalLogLikelihoodStrategy()
+
+Immutable config requesting the marginal log-likelihood be extracted from the
+hyperparameter exploration's normalisation constant. Materialises into a fresh
+`MarginalLogLikelihoodAccumulator` per run.
+"""
+struct MarginalLogLikelihoodStrategy <: PosteriorStrategy end
+
+materialize(::MarginalLogLikelihoodStrategy) = MarginalLogLikelihoodAccumulator()
 
 # No per-point accumulation needed
 function accumulate!(acc::MarginalLogLikelihoodAccumulator; kwargs...)

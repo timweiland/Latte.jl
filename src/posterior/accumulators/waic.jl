@@ -1,4 +1,4 @@
-export WAICAccumulator, WAICPointSummary
+export WAICAccumulator, WAICStrategy, WAICPointSummary
 
 using FastGaussQuadrature: gausshermite
 using StatsFuns: logsumexp
@@ -53,6 +53,19 @@ mutable struct WAICAccumulator <: PosteriorAccumulator
         n_nodes, Vector{Float64}[], Vector{Float64}[], 0.0, 0.0, 0.0
     )
 end
+
+"""
+    WAICStrategy(; n_nodes=15)
+
+Immutable config requesting WAIC computation during `inla()`. Materialises
+into a fresh `WAICAccumulator(; n_nodes)` per run.
+"""
+struct WAICStrategy <: PosteriorStrategy
+    n_nodes::Int
+    WAICStrategy(; n_nodes::Int = 15) = new(n_nodes)
+end
+
+materialize(s::WAICStrategy) = WAICAccumulator(; n_nodes = s.n_nodes)
 
 """
     _integrated_pointwise_loglik(ga, obs_lik; n_nodes=15)

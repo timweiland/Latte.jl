@@ -1,4 +1,4 @@
-export DICAccumulator, DICPointSummary
+export DICAccumulator, DICStrategy, DICPointSummary
 
 """
     DICAccumulator()
@@ -35,6 +35,17 @@ mutable struct DICAccumulator <: PosteriorAccumulator
 
     DICAccumulator() = new(Float64[], 0.0, 0.0, 0.0, 0.0)
 end
+
+"""
+    DICStrategy()
+
+Immutable config requesting DIC computation during `inla()`. Materialises into
+a fresh `DICAccumulator` per run, so reusing a strategy tuple across calls is
+safe.
+"""
+struct DICStrategy <: PosteriorStrategy end
+
+materialize(::DICStrategy) = DICAccumulator()
 
 """Pre-computed summary data for one grid point (DIC)."""
 struct DICPointSummary

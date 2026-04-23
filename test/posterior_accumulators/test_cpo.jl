@@ -180,12 +180,12 @@ using Statistics
 
         y = randn(n)
 
-        cpo_acc = CPOAccumulator()
         result = inla(
             model, y;
             progress = false,
-            accumulators = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), cpo_acc),
+            accumulators = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy()),
         )
+        cpo_acc = result.accumulators[4]
 
         # All CPO values should be finite and positive
         @test all(isfinite.(cpo_acc.CPO))
@@ -225,12 +225,12 @@ using Statistics
 
         y = rand(Poisson(3.0), n)
 
-        cpo_acc = CPOAccumulator()
         result = inla(
             model, y;
             progress = false,
-            accumulators = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), cpo_acc),
+            accumulators = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy()),
         )
+        cpo_acc = result.accumulators[4]
 
         @test all(cpo_acc.CPO .>= 0)
         @test all(isfinite.(cpo_acc.log_CPO))
@@ -285,12 +285,15 @@ using Statistics
             spec, FunctionLatentModel(latent_func_nopit, n), ExponentialFamily(Normal)
         )
 
-        cpo_acc = CPOAccumulator(; compute_pit = false)
         result = inla(
             model, randn(n);
             progress = false,
-            accumulators = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), cpo_acc),
+            accumulators = (
+                DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(),
+                CPOStrategy(; compute_pit = false),
+            ),
         )
+        cpo_acc = result.accumulators[4]
 
         @test all(isfinite.(cpo_acc.CPO))
         @test isempty(cpo_acc.PIT)
