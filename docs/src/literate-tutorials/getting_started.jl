@@ -52,22 +52,59 @@ draw(
 )
 
 # ## Modelling
-# bla bla bla
-using GaussianMarkovRandomFields, StatsModels
-iid = IID(constraint = :sumtozero)
-f = @formula(r ~ 1 + iid(hospital))
-
+# Latte.jl models are written as `@model` functions from
+# [DynamicPPL.jl](https://github.com/TuringLang/DynamicPPL.jl) — the same
+# probabilistic programming syntax used by Turing.jl. If you know Turing,
+# this will look very familiar.
 #
+# For the surgery data, we assume each hospital has its own (logit-scale)
+# mortality rate `β + u[h]`, where `β` is an overall intercept and `u[h]`
+# is a hospital-specific random effect with a Gaussian prior. The number
+# of deaths in each hospital is then Binomial.
+#
+# A couple of modelling details worth calling out:
+# - `u` uses Latte's `IIDModel(H, constraint = :sumtozero)(τ = τ_u)` — an
+#   IID Gaussian random effect with a sum-to-zero constraint, which keeps
+#   `β` and `u` identified.
+# - We give `τ_u` (the random-effect precision) a `Gamma(2, 1)` prior. It
+#   puts mild mass on moderate precisions; nothing fancy.
+# - We use `logistic` from `StatsFuns` for the inverse-logit link, mirroring
+#   the Turing idiom.
 using Latte
-hp_spec = @hyperparams begin
-    (τ_iid ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+using DynamicPPL: @model
+using Distributions
+using GaussianMarkovRandomFields: IIDModel
+using StatsFuns: logistic
+using LinearAlgebra
+
+@model function surg_mortality(r, n_trials, hospital_idx, H)
+    τ_u ~ Gamma(2.0, 1.0)
+    β ~ MvNormal(zeros(1), 100.0 * I(1))
+    u ~ IIDModel(H, constraint = :sumtozero)(τ = τ_u)
+    for i in eachindex(r)
+        r[i] ~ Binomial(
+            n_trials[i], logistic(β[1] + u[hospital_idx[i]]);
+            check_args = false,
+        )
+    end
 end
+
+# Now we turn the DPPL model into a Latte `LatentGaussianModel` via
+# `latte_from_dppl`. The `random = (:β, :u)` keyword lists the symbols
+# that make up the latent Gaussian field (the "random effects" in
+# mixed-model vocabulary); everything else — `τ_u` here — is treated as
+# a hyperparameter.
+H = length(surg_data.hospital)
+hospital_idx = 1:H |> collect
+lgm = latte_from_dppl(
+    surg_mortality(surg_data.r, surg_data.n, hospital_idx, H);
+    random = (:β, :u),
+)
 
 # ## Running INLA
 # We have our data, we've specified the model, and we've chosen a prior for its hyperparameter.
 # Without further ado, let's run INLA:
-using Distributions
-inla_result = inla(f, hp_spec, surg_data; family = Binomial)
+inla_result = inla(lgm, surg_data.r)
 
 # The output is of type `INLAResult`, which contains the results of the analysis
 # (and spits out a nice summary).
@@ -79,7 +116,7 @@ inla_result = inla(f, hp_spec, surg_data; family = Binomial)
 # All marginals computed by Latte.jl implement the Distributions.jl interface.
 # This means that you can simply call methods from Distributions.jl directly on these objects.
 # Let's try this for the marginal of the IID model's precision:
-τ_marginal = inla_result.hyperparameter_marginals.τ_iid
+τ_marginal = inla_result.hyperparameter_marginals.τ_u
 
 # Let's compute the median and a confidence interval:
 median(τ_marginal), quantile(τ_marginal, 0.025), quantile(τ_marginal, 0.975)
@@ -92,7 +129,7 @@ summary_df(inla_result.hyperparameter_marginals)
 
 # We can do the same for the marginals of the latent field.
 # It's worth mentioning that by default, the latent field is augmented by the linear predictors (since this simplifies marginalization).
-# So while the latent model we originally specified only had 13 variables, we get 25 latent marginals in the end:
+# So while the latent model we originally specified only had 13 variables (`β` plus 12 hospital effects), we get 25 latent marginals in the end:
 typeof(inla_result.latent_marginals), length(inla_result.latent_marginals)
 
 # We can distinguish between the two.
