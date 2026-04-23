@@ -31,39 +31,49 @@ y = rand.(Poisson.(exp.(η_true)))
 
 # ## Fitting competing models
 #
-# We'll fit three models that differ in which covariates they include.
-# All share the same IID latent structure and Poisson likelihood.
+# We'll fit three Poisson regressions that differ in which covariates they include.
+# Each is a plain DynamicPPL `@model`; the coefficients share an IID Gaussian
+# prior with an `Exponential(1)` prior on the precision. The adapter turns each
+# one into a `LatentGaussianModel` and hands it to `inla`.
 using Latte
-using GaussianMarkovRandomFields
+using DynamicPPL: @model
+using LinearAlgebra
 
-base_obs = ExponentialFamily(Poisson)
+@model function m1_dppl(y, x1)
+    τ ~ Exponential(1.0)
+    β ~ MvNormal(zeros(2), (1 / τ) * I(2))
+    for i in eachindex(y)
+        y[i] ~ Poisson(exp(β[1] + β[2] * x1[i]); check_args = false)
+    end
+end
+
+@model function m2_dppl(y, x2)
+    τ ~ Exponential(1.0)
+    β ~ MvNormal(zeros(2), (1 / τ) * I(2))
+    for i in eachindex(y)
+        y[i] ~ Poisson(exp(β[1] + β[2] * x2[i]); check_args = false)
+    end
+end
+
+@model function m3_dppl(y, x1, x2)
+    τ ~ Exponential(1.0)
+    β ~ MvNormal(zeros(3), (1 / τ) * I(3))
+    for i in eachindex(y)
+        y[i] ~ Poisson(exp(β[1] + β[2] * x1[i] + β[3] * x2[i]); check_args = false)
+    end
+end
 
 # **Model 1**: Intercept + x1 only
-A1 = hcat(ones(n), x1)
-obs1 = LinearlyTransformedObservationModel(base_obs, A1)
-hp1 = @hyperparams begin
-    (τ ~ Exponential(1.0), transform = log, space = natural)
-end
-m1 = LatentGaussianModel(hp1, IIDModel(2), obs1)
-r1 = inla(m1, y; progress = false)
+lgm1 = latte_from_dppl(m1_dppl(y, x1); random = (:β,))
+r1 = inla(lgm1, y; progress = false)
 
 # **Model 2**: Intercept + x2 only
-A2 = hcat(ones(n), x2)
-obs2 = LinearlyTransformedObservationModel(base_obs, A2)
-hp2 = @hyperparams begin
-    (τ ~ Exponential(1.0), transform = log, space = natural)
-end
-m2 = LatentGaussianModel(hp2, IIDModel(2), obs2)
-r2 = inla(m2, y; progress = false)
+lgm2 = latte_from_dppl(m2_dppl(y, x2); random = (:β,))
+r2 = inla(lgm2, y; progress = false)
 
 # **Model 3**: Intercept + x1 + x2 (the true model)
-A3 = hcat(ones(n), x1, x2)
-obs3 = LinearlyTransformedObservationModel(base_obs, A3)
-hp3 = @hyperparams begin
-    (τ ~ Exponential(1.0), transform = log, space = natural)
-end
-m3 = LatentGaussianModel(hp3, IIDModel(3), obs3)
-r3 = inla(m3, y; progress = false)
+lgm3 = latte_from_dppl(m3_dppl(y, x1, x2); random = (:β,))
+r3 = inla(lgm3, y; progress = false)
 
 # ## Comparing marginal likelihoods
 #
