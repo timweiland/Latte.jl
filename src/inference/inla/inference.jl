@@ -25,7 +25,7 @@ selecting sensible defaults while supporting advanced customization.
 - `mode_method = BFGS()`: Optimization method for mode finding
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
 - `progress::Bool = true`: Enable progress tracking
-- `accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator())`: Tuple of PosteriorAccumulator objects for model comparison metrics
+- `accumulators::Tuple = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy())`: Tuple of `PosteriorStrategy` configs for model comparison metrics. Each strategy is materialised into a fresh accumulator per call, so the tuple can be safely reused across multiple `inla()` runs. Pass e.g. `WAICStrategy(n_nodes=25)` to tune knobs.
 
 # Returns
 - `INLAResult`: Complete INLA inference results with marginals and diagnostics
@@ -69,7 +69,7 @@ function inla(
         mode_method = BFGS(),
         mode_iterations::Int = 1000,
         progress::Bool = true,
-        accumulators::Tuple = (DICAccumulator(), MarginalLogLikelihoodAccumulator(), WAICAccumulator(), CPOAccumulator()),
+        accumulators::Tuple = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy()),
         executor::ParallelExecutor = SequentialExecutor(),
         diff_strategy::DifferentiationStrategy = ADStrategy()
     )
@@ -79,6 +79,8 @@ function inla(
 
     # Input validation
     validate_inla_inputs(model_pred, y_obs, latent_indices)
+
+    accumulators = map(materialize, accumulators)
 
     # Auto-detect latent indices if not provided
     if latent_indices === nothing

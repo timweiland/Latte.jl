@@ -1,4 +1,4 @@
-export CPOAccumulator, CPOPointSummary
+export CPOAccumulator, CPOStrategy, CPOPointSummary
 
 using FastGaussQuadrature: gausshermite
 using StatsFuns: logsumexp, logaddexp
@@ -74,6 +74,20 @@ mutable struct CPOAccumulator <: PosteriorAccumulator
         Float64[], Float64[], 0.0, Float64[], Float64[], 0
     )
 end
+
+"""
+    CPOStrategy(; n_nodes=15, compute_pit=true)
+
+Immutable config requesting CPO / PIT computation during `inla()`. Materialises
+into a fresh `CPOAccumulator(; n_nodes, compute_pit)` per run.
+"""
+struct CPOStrategy <: PosteriorStrategy
+    n_nodes::Int
+    compute_pit::Bool
+    CPOStrategy(; n_nodes::Int = 15, compute_pit::Bool = true) = new(n_nodes, compute_pit)
+end
+
+materialize(s::CPOStrategy) = CPOAccumulator(; n_nodes = s.n_nodes, compute_pit = s.compute_pit)
 
 # ── Pointwise CDF helpers ─────────────────────────────────────────────
 
