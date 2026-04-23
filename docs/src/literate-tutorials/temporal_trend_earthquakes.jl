@@ -62,22 +62,42 @@ draw(
 # high $\tau$ means small differences (smooth trend), low $\tau$ allows more
 # wiggle (follows the data closely).
 #
-# Let's set this up using the formula interface:
-using GaussianMarkovRandomFields, StatsModels
+# We express this as a DynamicPPL `@model`. The random-walk prior is provided by
+# [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl)'s
+# `RWModel{Order}`, which we call with `(τ = τ_rw)` to produce a GMRF prior the
+# adapter can recognise. The `Val{Order}` trick lets us share one `@model` function
+# between the RW1 and RW2 cases.
 using Latte
+using DynamicPPL: @model
 using Distributions
+using GaussianMarkovRandomFields: RWModel
+using LinearAlgebra
 
-rw1 = RandomWalk()
-f_rw1 = @formula(quakes ~ 1 + rw1(year))
-
-# We need a prior for the RW1 precision. A PC prior says "I believe there is only
-# a 1% chance that the standard deviation of the first differences exceeds 1":
-hp_rw1 = @hyperparams begin
-    (τ_rw1 ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
+@model function quake_rw(y, n, ::Val{Order}) where {Order}
+    τ_rw ~ PCPrior.Precision(1.0, α = 0.01)
+    β ~ MvNormal(zeros(1), 100.0 * I(1))
+    f ~ RWModel{Order}(n)(τ = τ_rw)
+    for i in eachindex(y)
+        y[i] ~ Poisson(exp(β[1] + f[i]); check_args = false)
+    end
 end
 
-# Now we run INLA:
-result_rw1 = inla(f_rw1, hp_rw1, eq_data; family = Poisson, progress = false)
+# The PC prior `PCPrior.Precision(1.0, α = 0.01)` says "I believe there is only
+# a 1% chance that the standard deviation of the first differences exceeds 1".
+#
+# Now we build the `LatentGaussianModel` and run INLA. For INLA on DPPL models with
+# higher-order random walks, `FiniteDiffStrategy` is the robust outer differentiation
+# choice — see the ODE tutorial for why the default `ADStrategy` can be brittle
+# with certain latent priors today.
+n_years = nrow(eq_data)
+lgm_rw1 = latte_from_dppl(
+    quake_rw(eq_data.quakes, n_years, Val(1));
+    random = (:β, :f),
+)
+result_rw1 = inla(
+    lgm_rw1, eq_data.quakes;
+    progress = false, diff_strategy = FiniteDiffStrategy(),
+)
 
 # Let's look at the fitted trend. The observation marginals give us the posterior
 # distribution of $\lambda_t = \exp(\eta_t)$, the expected count per year:
@@ -110,15 +130,16 @@ fig
 # ```
 #
 # This penalises changes in *slope* rather than changes in *level*, producing
-# smoother, more slowly varying trends.
-rw2 = RandomWalk(2)
-f_rw2 = @formula(quakes ~ 1 + rw2(year))
-
-hp_rw2 = @hyperparams begin
-    (τ_rw2 ~ PCPrior.Precision(1.0, α = 0.01), transform = log)
-end
-
-result_rw2 = inla(f_rw2, hp_rw2, eq_data; family = Poisson, progress = false)
+# smoother, more slowly varying trends. Re-using the same `@model` function with
+# `Val(2)`:
+lgm_rw2 = latte_from_dppl(
+    quake_rw(eq_data.quakes, n_years, Val(2));
+    random = (:β, :f),
+)
+result_rw2 = inla(
+    lgm_rw2, eq_data.quakes;
+    progress = false, diff_strategy = FiniteDiffStrategy(),
+)
 
 # And the fitted trend:
 obs_rw2 = observation_marginals(result_rw2)
@@ -177,8 +198,8 @@ ax2 = Axis(
     xlabel = "Precision (τ)", ylabel = "Density",
     title = "RW2 precision posterior"
 )
-plot!(ax1, result_rw1.hyperparameter_marginals.τ_rw1)
-plot!(ax2, result_rw2.hyperparameter_marginals.τ_rw2)
+plot!(ax1, result_rw1.hyperparameter_marginals.τ_rw)
+plot!(ax2, result_rw2.hyperparameter_marginals.τ_rw)
 fig
 
 # Higher precision means smaller differences between consecutive time points,
