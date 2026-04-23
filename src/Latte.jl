@@ -53,6 +53,7 @@ include("model/latent_gaussian_model.jl")
 # ─── InferenceResult protocol (abstract supertype + Tier 1 methods) ──────────
 # Declared early so both INLAResult and TMBResult can subtype it.
 include("posterior/result_protocol.jl")
+include("posterior/named_marginals.jl")
 
 # ─── Laplace approximation (shared inner machinery) ──────────────────────────
 include("laplace/types.jl")

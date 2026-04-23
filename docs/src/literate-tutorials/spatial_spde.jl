@@ -182,6 +182,13 @@ A_pred = evaluation_matrix(base_matern.discretization, pred_points)
 
 pred_marginals = linear_combinations(result; β = 1.0, field = A_pred)
 
+# For completeness: the latent marginals themselves are symbol-addressable
+# too. `result.latent_marginals.field` returns just the mesh-node marginals,
+# `result.latent_marginals.β` just the intercept. That's handy for quick
+# summaries without remembering index ranges:
+println("intercept (β) posterior summary:")
+println(summary_df(result.latent_marginals.β))
+
 # The predictions are on the linear predictor scale (log-intensity).
 # We exponentiate to get the actual intensity (expected events per degree²).
 pred_means = mean.(pred_marginals)
