@@ -122,9 +122,18 @@ function try_exponential_family_fast_path(
         sparsity_detector = TracerLocalSparsityDetector(),
         coloring_algorithm = GreedyColoringAlgorithm(),
     )
-    prep = prepare_jacobian(η_of_x, backend, zeros(n_latent))
-    A = jacobian(η_of_x, prep, backend, zeros(n_latent))
-    A_check = jacobian(η_of_x, prep, backend, ones(n_latent))
+    # The tracer may fail to flow through black-box likelihoods (e.g.
+    # OrdinaryDiffEq solvers). Treat any failure here as "can't prove
+    # linearity" → punt to AD fallback.
+    A, A_check = try
+        prep = prepare_jacobian(η_of_x, backend, zeros(n_latent))
+        (
+            jacobian(η_of_x, prep, backend, zeros(n_latent)),
+            jacobian(η_of_x, prep, backend, ones(n_latent)),
+        )
+    catch
+        return nothing
+    end
     isapprox(A, A_check; atol = 1.0e-10) || return nothing           # nonlinear → punt
 
     # 4) assemble. Non-zero `b = η(0)` → wrap in OffsetObservationModel

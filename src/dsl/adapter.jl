@@ -48,6 +48,7 @@ function latte_from_dppl(
         random::Union{Symbol, Tuple},
         force_ad_obs_model::Bool = false,
         augment::Bool = true,
+        likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
     )
     random_syms = random isa Symbol ? (random,) : random
     priors = extract_priors(dppl_model)
@@ -81,16 +82,38 @@ function latte_from_dppl(
     #    must pre-include this pattern for the workspace's symbolic
     #    factorization. Compute `A'A`'s boolean pattern directly from A.
     #  - AD fallback (augmented or not): auto-detect via DPPL.
+    n_tot = sum(dims[s] for s in random_syms)
+    dense_pattern() = SparseMatrixCSC{Bool, Int}(trues(n_tot, n_tot))
+
     extra_pattern = if use_fast_path && !augment
         A = _extract_design_matrix(fast_obs)
         _bool_AtA_pattern(A)
-    else
+    elseif use_fast_path
         nothing
+    elseif likelihood_hessian_pattern isa SparseMatrixCSC
+        likelihood_hessian_pattern
+    elseif likelihood_hessian_pattern === :dense
+        dense_pattern()
+    elseif likelihood_hessian_pattern === :auto
+        # Try structural tracing; if the likelihood's internals don't survive
+        # SparseConnectivityTracer (common for black-box code paths like
+        # OrdinaryDiffEq solvers), fall back to a dense pattern. Dense costs
+        # a bit more per evaluation but is correct for any likelihood.
+        try
+            detect_likelihood_pattern(dppl_model, hp_names, n_tot)
+        catch e
+            @warn "Tracer-based sparsity detection failed; falling back to a dense likelihood Hessian pattern. Pass `likelihood_hessian_pattern = ...` to silence or override." exception = e
+            dense_pattern()
+        end
+    else
+        throw(ArgumentError("likelihood_hessian_pattern must be :auto, :dense, or a SparseMatrixCSC"))
     end
 
+    # The pattern-augmentation inside `build_latent_model` is now redundant:
+    # we've already resolved `extra_pattern` above. Tell it not to re-detect.
     latent, path = build_latent_model(
         dppl_model, random_syms, hp_names;
-        skip_pattern_augment = use_fast_path,
+        skip_pattern_augment = true,
         extra_pattern = extra_pattern,
     )
     @debug "latent extraction path" path fast_path = use_fast_path augmented = augment
@@ -99,6 +122,7 @@ function latte_from_dppl(
         extract_obs_model(
             dppl_model, length(latent), random_syms, dims;
             hp_names = hp_names,
+            hessian_pattern = extra_pattern,  # nothing, dense, or user-supplied
         )
     # Only the LTM-specialised LGM constructor takes `augment_latent=` —
     # for the AD fallback (AutoDiffObservationModel), there's no
