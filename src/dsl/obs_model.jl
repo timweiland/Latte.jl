@@ -2,7 +2,7 @@
 # as an `AutoDiffObservationModel`. Uses DPPL's accumulator split to isolate
 # the likelihood from the prior.
 
-using ADTypes: AutoSparse, AutoForwardDiff
+using ADTypes: AutoSparse, AutoForwardDiff, KnownHessianSparsityDetector
 using SparseConnectivityTracer: TracerLocalSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
 using GaussianMarkovRandomFields: AutoDiffObservationModel
@@ -17,7 +17,8 @@ WAIC / CPO accumulators.
 """
 function extract_obs_model(
         dppl_model, n_latent::Int, random_syms, dims;
-        hp_names::Tuple
+        hp_names::Tuple,
+        hessian_pattern::Union{Nothing, SparseMatrixCSC} = nothing,
     )
     function loglik(x; kwargs...)
         hp_nt = NamedTuple{hp_names}(Tuple(kwargs[k] for k in hp_names))
@@ -49,9 +50,17 @@ function extract_obs_model(
         return collect(values(pointwise))
     end
 
+    # When the caller has pre-supplied a Hessian sparsity pattern (e.g. for
+    # black-box likelihoods where tracer-based detection can't flow, like
+    # ODE solvers), bake it into the sparse-AD backend via
+    # `KnownHessianSparsityDetector`. Otherwise default to the local
+    # tracer, which works for standard DPPL models.
+    sparsity_detector = hessian_pattern === nothing ?
+        TracerLocalSparsityDetector() :
+        KnownHessianSparsityDetector(hessian_pattern)
     hess_backend = AutoSparse(
         AutoForwardDiff();
-        sparsity_detector = TracerLocalSparsityDetector(),
+        sparsity_detector = sparsity_detector,
         coloring_algorithm = GreedyColoringAlgorithm(),
     )
     return AutoDiffObservationModel(
