@@ -2,6 +2,33 @@ using Random
 using Distributions: Categorical
 
 """
+    _x_for_obs_model(model, x_sample) -> AbstractVector
+
+Slice the joint latent sample down to the entries consumed by
+`conditional_distribution(model.observation_model, ...)`.
+
+For unaugmented models this is just `x_sample`. For augmented models the
+observation model is restricted to a subset of linear-predictor indices
+(and further restricted to the observed subset when the LGM was built
+with `missing` observations for prediction). We honour that by slicing
+through `obs_model.indices` when present.
+
+`conditional_distribution(::ExponentialFamily, x)` produces one
+distribution per element of `x`, ignoring the model's `indices` field —
+so if we don't slice here, `y` comes out with extra components for
+augmented / missing positions.
+"""
+function _x_for_obs_model(model, x_sample::AbstractVector)
+    obs_inner = _unwrap_to_exponential_family(model.observation_model)
+    idx = obs_inner isa ExponentialFamily ? obs_inner.indices : nothing
+    if idx isa AbstractVector{<:Integer} || idx isa AbstractRange
+        return view(x_sample, idx)
+    else
+        return x_sample
+    end
+end
+
+"""
     rand([rng], result::InferenceResult; include_y=false)
     rand([rng], result::InferenceResult, n::Int; include_y=false)
 
@@ -88,8 +115,9 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
             x_mat[i, :] = x_sample
 
             if include_y
+                x_for_obs = _x_for_obs_model(m, x_sample)
                 y_dist = GaussianMarkovRandomFields.conditional_distribution(
-                    m.observation_model, x_sample; θ_natural_nt...
+                    m.observation_model, x_for_obs; θ_natural_nt...
                 )
                 y_sample = rand(rng, y_dist)
                 if y_mat === nothing

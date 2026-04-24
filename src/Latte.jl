@@ -135,6 +135,7 @@ include("posterior/accumulators/cpo.jl")
 
 include("posterior/observation_marginals.jl")
 include("posterior/sampling.jl")
+include("posterior/posterior_predictive.jl")
 include("posterior/linear_combinations.jl")
 include("posterior/predict.jl")
 include("posterior/model_averaging.jl")

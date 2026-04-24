@@ -195,8 +195,9 @@ function Random.rand(rng::AbstractRNG, r::HMCLaplaceResult, n::Int; include_y::B
             x_sample = rand(rng, x_post)
             x_mat[i, :] = x_sample
             if include_y
+                x_for_obs = _x_for_obs_model(r.model, x_sample)
                 y_dist = GaussianMarkovRandomFields.conditional_distribution(
-                    r.model.observation_model, x_sample; θ_nt...
+                    r.model.observation_model, x_for_obs; θ_nt...
                 )
                 y_sample = rand(rng, y_dist)
                 if y_mat === nothing
