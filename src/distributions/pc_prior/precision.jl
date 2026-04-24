@@ -27,6 +27,8 @@ struct Precision <: ContinuousUnivariateDistribution
 end
 
 Distributions.support(::Precision) = RealInterval(0.0, Inf)
+Distributions.minimum(::Precision) = 0.0
+Distributions.maximum(::Precision) = Inf
 
 function Distributions.logpdf(d::Precision, τ::Real)
     τ <= 0 && return -Inf

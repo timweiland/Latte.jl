@@ -83,6 +83,8 @@ end
 # --- Distribution interface ---------------------------------------------------
 
 Distributions.support(::BYMProportion) = RealInterval(0.0, 1.0)
+Distributions.minimum(::BYMProportion) = 0.0
+Distributions.maximum(::BYMProportion) = 1.0
 
 function Distributions.logpdf(bym::BYMProportion, φ::Real)
     (0 < φ < 1) || return -Inf
