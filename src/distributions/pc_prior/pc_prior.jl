@@ -13,9 +13,6 @@ module PCPrior
     include("ar1_correlation.jl")
     include("bym_proportion.jl")
 
-    # Support on (0, ∞) ⇒ log transform to working space.
-    Bijectors.bijector(::Precision) = Bijectors.elementwise(log)
-
 end # module PCPrior
 
 export PCPrior

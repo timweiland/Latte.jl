@@ -37,6 +37,9 @@ function Distributions.support(d::AR1Correlation)
     end
 end
 
+Distributions.minimum(d::AR1Correlation) = d.positive_only ? 0.0 : -1.0
+Distributions.maximum(::AR1Correlation) = 1.0
+
 function Distributions.logpdf(d::AR1Correlation, ρ::Real)
     # Support check — strict inequalities exclude ρ=0 in both branches
     if d.positive_only

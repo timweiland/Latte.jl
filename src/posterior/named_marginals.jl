@@ -10,9 +10,12 @@ a `sym → UnitRange{Int}` layout so users can pick out named blocks via
 property access (`x.β`) or symbol indexing (`x[:β]`). Iteration and integer
 indexing still behave exactly like the underlying vector.
 """
-struct NamedMarginals{V <: AbstractVector} <: AbstractVector{Any}
+struct NamedMarginals{T, V <: AbstractVector{T}} <: AbstractVector{T}
     parent::V
     groups::OrderedDict{Symbol, UnitRange{Int}}
+
+    NamedMarginals(parent::V, groups::OrderedDict{Symbol, UnitRange{Int}}) where {T, V <: AbstractVector{T}} =
+        new{T, V}(parent, groups)
 end
 
 Base.parent(x::NamedMarginals) = getfield(x, :parent)
@@ -20,7 +23,7 @@ _groups(x::NamedMarginals) = getfield(x, :groups)
 
 Base.size(x::NamedMarginals) = size(parent(x))
 Base.length(x::NamedMarginals) = length(parent(x))
-Base.IndexStyle(::Type{<:NamedMarginals{V}}) where {V} = IndexStyle(V)
+Base.IndexStyle(::Type{<:NamedMarginals{T, V}}) where {T, V} = IndexStyle(V)
 
 Base.getindex(x::NamedMarginals, i::Int) = parent(x)[i]
 Base.getindex(x::NamedMarginals, I::AbstractVector) = parent(x)[I]
