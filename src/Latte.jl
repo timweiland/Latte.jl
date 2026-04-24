@@ -137,6 +137,11 @@ include("posterior/observation_marginals.jl")
 include("posterior/sampling.jl")
 include("posterior/posterior_predictive.jl")
 include("posterior/linear_combinations.jl")
+
+include("diagnostics/sbc/types.jl")
+include("diagnostics/sbc/prior_simulate.jl")
+include("diagnostics/sbc/targets.jl")
+include("diagnostics/sbc/sbc_run.jl")
 include("posterior/predict.jl")
 include("posterior/model_averaging.jl")
 

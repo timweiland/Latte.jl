@@ -26,6 +26,7 @@ makedocs(;
             "Spatial SPDE: earthquake intensity" => "tutorials/spatial_spde.md",
             "Spatio-temporal modeling" => "tutorials/spatio_temporal_separable.md",
             "Posterior predictive checks" => "tutorials/posterior_predictive_checks.md",
+            "Simulation-based calibration" => "tutorials/sbc_calibration.md",
             "Handoff to Turing" => "tutorials/turing_handoff.md",
         ],
         "Main Interface" => "main_interface.md",
