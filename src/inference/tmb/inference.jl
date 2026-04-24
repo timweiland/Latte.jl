@@ -89,9 +89,18 @@ end
 
 # ─── rand(r::TMBResult, n) via the joint Gaussian at the MAP ───────────
 function Random.rand(rng::AbstractRNG, r::TMBResult, n::Int; include_y::Bool = false)
-    # θ samples from N(θ_map, θ_cov)
+    # θ samples from N(θ_map, θ_cov) in *working* space, then transformed
+    # to natural space to match the PosteriorSamples contract.
     θ_dist = MvNormal(r.θ_map, Symmetric(r.θ_cov))
-    θ_mat = Matrix(rand(rng, θ_dist, n)')   # (n × n_hp)
+    θ_wh_mat = rand(rng, θ_dist, n)   # (n_hp × n)
+    spec = r.model.hyperparameter_spec
+    n_hp = size(θ_wh_mat, 1)
+    θ_mat = Matrix{Float64}(undef, n, n_hp)
+    for i in 1:n
+        wh_i = WorkingHyperparameters(θ_wh_mat[:, i], spec)
+        nt_i = convert(NamedTuple, convert(NaturalHyperparameters, wh_i))
+        θ_mat[i, :] = collect(values(nt_i))
+    end
 
     # x samples from the inner Laplace at the MAP. Per-θ reconstruction would
     # be more accurate but expensive; for MVP treat θ and x as independent at

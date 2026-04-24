@@ -170,7 +170,11 @@ function Random.rand(rng::AbstractRNG, r::HMCLaplaceResult, n::Int; include_y::B
     K = size(r.θ_samples, 1)
     idxs = rand(rng, 1:K, n)   # bootstrap
 
-    θ_mat = r.θ_samples[idxs, :]
+    # θ samples on the chain are stored in working space; convert to
+    # natural space to match the PosteriorSamples contract.
+    spec = r.model.hyperparameter_spec
+    n_hp = size(r.θ_samples, 2)
+    θ_mat = Matrix{Float64}(undef, n, n_hp)
     n_x = size(r.x_cond_means, 2)
     x_mat = Matrix{Float64}(undef, n, n_x)
     y_mat = nothing
@@ -179,7 +183,6 @@ function Random.rand(rng::AbstractRNG, r::HMCLaplaceResult, n::Int; include_y::B
     # this gives a proper joint x-draw (capturing correlations), matching the
     # convention used in INLA's rand. Batch by unique index to amortize the
     # Laplace reconstruction cost.
-    spec = r.model.hyperparameter_spec
     names = collect(keys(spec.free))
     sentinel_hp = NamedTuple{Tuple(names)}(Tuple(1.0 for _ in names))
     ws = make_workspace(r.model.latent_prior; sentinel_hp...)
@@ -187,11 +190,13 @@ function Random.rand(rng::AbstractRNG, r::HMCLaplaceResult, n::Int; include_y::B
     for k in unique(idxs)
         θ_wh = WorkingHyperparameters(r.θ_samples[k, :], spec)
         θ_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_wh))
+        θ_nat_vec = collect(values(θ_nt))
         prior = r.model.latent_prior(ws; θ_nt...)
         obs_lik = r.model.observation_model(r.observations; θ_nt...)
         x_post = gaussian_approximation(prior, obs_lik)
 
         for i in findall(==(k), idxs)
+            θ_mat[i, :] = θ_nat_vec
             x_sample = rand(rng, x_post)
             x_mat[i, :] = x_sample
             if include_y
