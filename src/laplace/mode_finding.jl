@@ -7,6 +7,7 @@ posterior π(θ | y) and computing the associated reparameterization.
 
 using LinearAlgebra
 using Optim
+using Optim.LineSearches: LineSearches
 using FiniteDiff
 using Distributions
 
@@ -39,12 +40,58 @@ _robust_initial_value(dist::Distribution) = mode(dist)
 # Specializations for distributions with boundary modes
 _robust_initial_value(dist::Exponential) = mean(dist)  # mode=0, use mean instead
 
-# Specialization for TransformedDistribution (when prior was transformed to working space)
+# For a TransformedDistribution we want the *working-space* mode, not the
+# natural-space mode mapped through the bijector. They differ by a Jacobian
+# term: π_w(u) = π_n(t⁻¹(u)) * |dt⁻¹/du|. Skipping the Jacobian (the old
+# behavior) drops u into a heavy-tailed flank of the working density and can
+# leave BFGS far enough from the data-driven mode to take a wild first step.
+#
+# Brent's method on log π_w in a bracket centered at the natural-mode-mapped
+# point handles all priors uniformly without per-prior special cases.
 function _robust_initial_value(dist::Bijectors.TransformedDistribution)
-    # Get robust initial value from base distribution
     base_value = _robust_initial_value(dist.dist)
-    # Apply the transformation to get value in working space
-    return dist.transform(base_value)
+    u_natural = dist.transform(base_value)
+    return _working_space_mode_1d(dist, u_natural)
+end
+
+function _working_space_mode_1d(dist::Bijectors.TransformedDistribution, u0::Real)
+    neg_log_pw = u -> begin
+        v = try
+            logpdf(dist, u)
+        catch
+            -Inf
+        end
+        return isfinite(v) ? -v : Inf
+    end
+    # If the seed point is itself outside the working support (e.g. a
+    # transformed Uniform whose mode lies on the boundary), give up cleanly.
+    isfinite(neg_log_pw(u0)) || return u0
+    # Shrink the bracket until both ends sit on finite density. Handles
+    # half-open working-space supports where Brent would otherwise see Inf.
+    lo, hi = _finite_bracket(neg_log_pw, u0)
+    lo == hi && return u0
+    res = Optim.optimize(neg_log_pw, lo, hi, Optim.Brent())
+    return Optim.converged(res) && isfinite(Optim.minimum(res)) ?
+        Optim.minimizer(res) : u0
+end
+
+function _finite_bracket(neg_log_pw, u0::Real; max_radius::Real = 10.0)
+    r = max_radius
+    while r > 1.0e-3
+        lo_ok = isfinite(neg_log_pw(u0 - r))
+        hi_ok = isfinite(neg_log_pw(u0 + r))
+        if lo_ok && hi_ok
+            return u0 - r, u0 + r
+        end
+        # Asymmetric fallback: keep the side that's finite, snap the other to u0.
+        if lo_ok && !hi_ok
+            return u0 - r, u0
+        elseif hi_ok && !lo_ok
+            return u0, u0 + r
+        end
+        r /= 2
+    end
+    return u0, u0
 end
 
 function _initial_guess_for_hyperparameter(hp::Hyperparameter{T, S}) where {T, S}
@@ -146,7 +193,9 @@ Optimization is performed in working (unconstrained) space. The mode is returned
 """
 function find_hyperparameter_mode(
         model::LatentGaussianModel, y;
-        method = BFGS(), collect_points = true, progress_callback = nothing,
+        method = BFGS(linesearch = LineSearches.BackTracking(order = 3, maxstep = 5.0)),
+        iterations::Int = 1000,
+        collect_points = true, progress_callback = nothing,
         diff_strategy::DifferentiationStrategy = ADStrategy()
     )
     # Normalize y (Vector{Int} → PoissonObservations, etc.) so direct
@@ -211,7 +260,7 @@ function find_hyperparameter_mode(
         f_abstol = 1.0e-6,     # Absolute tolerance in objective changes
         g_abstol = 1.0e-6,     # Gradient tolerance (less strict than default 1e-8)
         x_reltol = 1.0e-3,     # Relative tolerance in parameter changes
-        iterations = 1000,   # Reasonable max iterations
+        iterations = iterations,
         show_trace = false,  # Set to true for debugging
         allow_f_increases = true,  # Allow occasional increases during search
         callback = optim_callback  # Add progress callback

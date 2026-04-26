@@ -160,13 +160,13 @@ using FiniteDiff
 
         @test length(θ_init) == 3
         @test all(isfinite, θ_init)
-        # Initial guess should be reasonable values in working space
-        # For InverseGamma(2,1): mode = 1/(2+1) = 1/3, so log(1/3) ≈ -1.1
-        # For Beta(2,2): mode = 0.5, so logit(0.5) = 0
-        # For Exponential(1): use mean = 1 (not mode=0), so log(1) = 0
-        @test θ_init[1] < 0  # log(mode(InverseGamma)) should be negative
-        @test θ_init[2] ≈ 0 atol = 1.0e-10  # logit(0.5) = 0
-        @test θ_init[3] ≈ 0 atol = 1.0e-10  # log(mean(Exponential(1))) = log(1) = 0
+        # Initial guesses are working-space modes computed via Brent search
+        # (see _working_space_mode_1d). Tolerance reflects Brent's accuracy.
+        # Beta(2,2) under logit and Exp(1) under log both have working-space
+        # modes at u = 0 by analytical argument.
+        @test θ_init[1] < 0
+        @test θ_init[2] ≈ 0 atol = 1.0e-6
+        @test θ_init[3] ≈ 0 atol = 1.0e-6
     end
 
 end
