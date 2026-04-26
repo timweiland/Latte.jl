@@ -1,5 +1,6 @@
 using LinearAlgebra: Symmetric, diag
 using Distributions: Normal, MvNormal
+using Bijectors: inverse
 using Random
 
 export tmb
@@ -76,7 +77,9 @@ function tmb(
     x_std = Vector{Float64}(sqrt.(max.(diag(Σ_x), 0.0)))
 
     # ─── Marginal Distribution objects (the protocol shape) ─────────────
-    hp_marg = [Normal(θ̂[i], θ_se[i]) for i in eachindex(θ̂)]
+    # Hyperparameter marginals reported in natural space (matching INLA
+    # and HMC-Laplace) via `TransformedNormalMarginal`.
+    hp_marg = _natural_hp_marginals(names, θ̂, θ_se, spec)
     latent_marg = [Normal(x_mean[i], x_std[i]) for i in eachindex(x_mean)]
 
     return TMBResult(
@@ -136,6 +139,20 @@ end
 
 function Random.rand(rng::AbstractRNG, r::TMBResult; include_y::Bool = false)
     return rand(rng, r, 1; include_y = include_y)[1]
+end
+
+# ─── helpers ────────────────────────────────────────────────────────────
+
+# Per-hyperparameter natural-space marginals from the working-space
+# Gaussian Laplace approximation.
+function _natural_hp_marginals(names, θ̂, θ_se, spec)
+    out = Vector{TransformedNormalMarginal}(undef, length(θ̂))
+    for j in eachindex(θ̂)
+        tr = spec.free[names[j]].transform
+        inv_tr = inverse(tr)
+        out[j] = TransformedNormalMarginal(θ̂[j], θ_se[j], tr, inv_tr)
+    end
+    return out
 end
 
 Random.rand(r::TMBResult, n::Int; kwargs...) =

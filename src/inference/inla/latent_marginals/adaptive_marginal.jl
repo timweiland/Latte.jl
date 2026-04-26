@@ -5,14 +5,16 @@ using GaussianMarkovRandomFields: NormalLikelihood, LinearlyTransformedLikelihoo
 # no SimplifiedLaplace or Laplace correction is needed.
 function _marginalize_impl(
         ga, obs_lik::NormalLikelihood, log_prior_θ::Real,
-        method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf
+        method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf;
+        augmentation_info = nothing,
     )
     return _marginalize_impl(ga, obs_lik, log_prior_θ, GaussianMarginal(), indices, prior_gmrf)
 end
 
 function _marginalize_impl(
         ga, obs_lik::LinearlyTransformedLikelihood{<:NormalLikelihood}, log_prior_θ::Real,
-        method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf
+        method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf;
+        augmentation_info = nothing,
     )
     return _marginalize_impl(ga, obs_lik, log_prior_θ, GaussianMarginal(), indices, prior_gmrf)
 end
@@ -28,7 +30,8 @@ since the Gaussian approximation is exact.
 """
 function _marginalize_impl(
         ga, obs_lik, log_prior_θ::Real,
-        method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf
+        method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf;
+        augmentation_info = nothing,
     )
     if isempty(indices)
         return ContinuousUnivariateDistribution[]
@@ -37,8 +40,13 @@ function _marginalize_impl(
     # Collect indices to Vector{Int} for downstream _marginalize_impl methods
     indices_vec = collect(Int, indices)
 
-    # Step 1: Run SimplifiedLaplace for all indices
-    sl_marginals = _marginalize_impl(ga, obs_lik, log_prior_θ, SimplifiedLaplace(), indices_vec, prior_gmrf)
+    # Step 1: Run SimplifiedLaplace for all indices, passing
+    # augmentation_info so the SLA gets its base-coordinate-equivalent
+    # correction when the model is augmented.
+    sl_marginals = _marginalize_impl(
+        ga, obs_lik, log_prior_θ, SimplifiedLaplace(), indices_vec, prior_gmrf;
+        augmentation_info = augmentation_info,
+    )
 
     # Step 2: Compute SKLD(Gaussian, SimplifiedLaplace) per variable
     μ_ga = mean(ga)

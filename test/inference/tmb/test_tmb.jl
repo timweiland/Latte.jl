@@ -48,6 +48,21 @@ using Statistics
         @test log_marginal_likelihood(result) isa Float64
     end
 
+    @testset "Hyperparameter marginals live in natural space" begin
+        # τ uses `transform = log`, so the natural-space support is
+        # τ > 0. Protocol guarantees natural-space marginals.
+        n = 30
+        model = make_poisson_iid_model(n)
+        Random.seed!(42)
+        y = rand(Poisson(3.0), n)
+        result = tmb(model, y)
+
+        m = hyperparameter_marginals(result, :τ)[1]
+        @test mean(m) > 0
+        @test quantile(m, 0.025) > 0
+        @test quantile(m, 0.975) > quantile(m, 0.025)
+    end
+
     @testset "TMB aliases" begin
         n = 10
         model = make_poisson_iid_model(n)
