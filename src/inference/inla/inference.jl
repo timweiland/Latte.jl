@@ -66,7 +66,7 @@ function inla(
         hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
         exploration_strategy::ExplorationStrategy = AutoExplorationStrategy(),
-        mode_method = BFGS(),
+        mode_method = BFGS(linesearch = Optim.LineSearches.BackTracking(order = 3, maxstep = 5.0)),
         mode_iterations::Int = 1000,
         progress::Bool = true,
         accumulators::Tuple = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy()),
@@ -101,6 +101,7 @@ function inla(
     θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(
         model_pred, y_obs;
         method = mode_method,
+        iterations = mode_iterations,
         collect_points = true,
         progress_callback = mode_callback,
         diff_strategy = diff_strategy
