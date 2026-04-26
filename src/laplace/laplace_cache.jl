@@ -318,7 +318,10 @@ function conditional_gmrf(cache::LaplaceApproximationCache, active_set::Vector{I
     c_idx = only(indexin(cache.conditioning_index, active_set))
     fix_row = zeros(1, length(μ_cond_active))
     fix_row[1, c_idx] = 1.0
-    fix_val = μ_conditional[c_idx]
+    # `μ_conditional` is global-indexed, so the fixed value of the
+    # conditioning variable lives at its global index, not at the
+    # local position `c_idx` inside `active_set`.
+    fix_val = μ_conditional[cache.conditioning_index]
 
     constraint_mat, constraint_vec = _build_conditional_constraint(
         cache.prior_constraint, active_set, μ_conditional, fix_row, fix_val,

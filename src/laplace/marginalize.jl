@@ -18,7 +18,8 @@ function _compute_kld_values(::MarginalApproximation, marginals, indices, μ_ga,
 end
 
 """
-    marginalize(ga, obs_lik, log_prior_θ, method, indices=1:length(mean(ga)); prior_gmrf=nothing)
+    marginalize(ga, obs_lik, log_prior_θ, method, indices=1:length(mean(ga));
+                prior_gmrf=nothing, augmentation_info=nothing)
 
 Compute marginal approximations for specified latent variables.
 
@@ -29,6 +30,13 @@ Compute marginal approximations for specified latent variables.
 - `method::MarginalApproximation`: Approximation method
 - `indices::Vector{Int}`: Variable indices to marginalize (default: all)
 - `prior_gmrf`: Original prior GMRF (required for Laplace methods, ignored for Gaussian)
+- `augmentation_info`: Pass the LGM's `augmentation_info` here when the
+  caller is fitting an `AugmentedLatentModel`. `SimplifiedLaplace` uses
+  this to apply a base-coordinate equivalence correction (matches R-INLA
+  compact-mode behaviour) when computing skew for base latents. Other
+  strategies ignore it. `nothing` (default) means "treat the model as
+  un-augmented" — appropriate for direct callers and tests that don't
+  go through `inla()`.
 
 # Returns
 `MarginalResult` containing marginal distributions and computation time.
@@ -37,14 +45,12 @@ function marginalize(
         ga, obs_lik, log_prior_θ::Real,
         method::MarginalApproximation,
         indices::AbstractVector{<:Integer} = collect(1:length(mean(ga)));
-        prior_gmrf = nothing
+        prior_gmrf = nothing,
+        augmentation_info = nothing,
     )
-
-    # Pre-compute GA statistics (used for validation, KLD, and passed to _marginalize_impl)
     μ_ga = mean(ga)
     σ_ga = std(ga)
 
-    # Validate indices
     n = length(μ_ga)
     if any(i -> i < 1 || i > n, indices)
         throw(BoundsError(1:n, indices))
@@ -53,14 +59,24 @@ function marginalize(
         throw(ArgumentError("Duplicate indices not allowed"))
     end
 
-    # Measure computation time
     start_time = time()
-    marginals = _marginalize_impl(ga, obs_lik, log_prior_θ, method, indices, prior_gmrf)
+    marginals = _marginalize_impl(
+        ga, obs_lik, log_prior_θ, method, indices, prior_gmrf;
+        augmentation_info = augmentation_info,
+    )
 
-    # Compute KLD between Gaussian baseline and corrected marginals
     kld_values = _compute_kld_values(method, marginals, indices, μ_ga, σ_ga)
-
     computation_time = time() - start_time
 
     return MarginalResult(indices, marginals, method, computation_time, kld_values)
+end
+
+# Default fallback: methods that don't care about augmentation_info just
+# discard it. Only `SimplifiedLaplace` (and any future method that needs
+# augmented-coordinate awareness) overrides this.
+function _marginalize_impl(
+        ga, obs_lik, log_prior_θ, method, indices, prior_gmrf;
+        augmentation_info = nothing,
+    )
+    return _marginalize_impl(ga, obs_lik, log_prior_θ, method, indices, prior_gmrf)
 end

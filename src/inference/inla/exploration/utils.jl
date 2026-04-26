@@ -68,11 +68,15 @@ function evaluate_at_grid_point(
 
         marginal_result = nothing
         if compute_marginals
-            # Reuse the GA for marginalization
+            # Reuse the GA for marginalization. Pass `augmentation_info`
+            # through so SLA can apply its base-coordinate-equivalent
+            # correction; non-augmented models pass `nothing` and the
+            # marginalization path falls back to vanilla SLA.
             marginal_result = marginalize(
                 ga, obs_lik,
                 log_prior_θ, marginalization_method, marginalization_indices;
-                prior_gmrf = prior_gmrf
+                prior_gmrf = prior_gmrf,
+                augmentation_info = model.augmentation_info,
             )
         end
 

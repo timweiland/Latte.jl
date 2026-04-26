@@ -6,4 +6,5 @@ using Test
     include("test_spline_augmented_gaussian.jl")
     include("test_kld_integration.jl")
     include("test_adaptive_marginal.jl")
+    include("test_fixed_tau_quadrature.jl")
 end
