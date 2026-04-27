@@ -306,10 +306,25 @@ struct CPOPointSummary
 end
 
 function compute_point_summary(acc::CPOAccumulator; ga, obs_lik, kwargs...)
+    _maybe_disable_pit!(acc, obs_lik)
     log_h, pit, ess = _cpo_pit_integrals(
         ga, obs_lik; n_nodes = acc.n_nodes, compute_pit = acc.compute_pit
     )
     return CPOPointSummary(log_h, pit, ess)
+end
+
+# PIT (`E[F(y_i|x_i)]`) needs `_pointwise_cdf`, which is only defined for the
+# specific likelihood families this file dispatches on. For black-box AD-routed
+# likelihoods (e.g. an `AutoDiffLikelihood` from a DPPL model that doesn't fit
+# the fast path), no `_pointwise_cdf` method exists. Auto-fall-back to CPO-only
+# with a one-time warning so users get the rest of the diagnostics rather than
+# a hard crash.
+function _maybe_disable_pit!(acc::CPOAccumulator, obs_lik)
+    if acc.compute_pit && !hasmethod(_pointwise_cdf, Tuple{Vector{Float64}, typeof(obs_lik)})
+        @warn "CPO: PIT unavailable for $(nameof(typeof(obs_lik))); computing CPO only. Pass `CPOStrategy(compute_pit=false)` to silence." maxlog = 1
+        acc.compute_pit = false
+    end
+    return nothing
 end
 
 function accumulate!(acc::CPOAccumulator, summary::CPOPointSummary; kwargs...)
@@ -327,6 +342,7 @@ function accumulate!(
         obs_lik,
         kwargs...
     )
+    _maybe_disable_pit!(acc, obs_lik)
     log_h, pit, ess = _cpo_pit_integrals(
         ga, obs_lik; n_nodes = acc.n_nodes, compute_pit = acc.compute_pit
     )
