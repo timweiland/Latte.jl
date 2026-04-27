@@ -51,18 +51,8 @@ implementations are provided for common exponential family distributions to
 improve performance and numerical stability.
 """
 function loghessian_directional_derivative(x0::AbstractVector, v::AbstractVector, obs_lik::ObservationLikelihood)
-    # Central finite difference of the (sparse) Hessian along direction `v`.
-    # Preserves whatever sparsity `loghessian(obs_lik)` already exploits — the
-    # nested-AD path would either lose it (dense ForwardDiff.hessian) or
-    # collide with `AutoDiffLikelihood`'s prepared DI cache (Vector{Float64}
-    # vs Vector{Dual}). For SLA's third-derivative correction, FD precision
-    # of O(ε²) ≈ 1e-10 is well below the SLA approximation error.
-    x0_dense = Vector{Float64}(x0)
-    v_dense = Vector{Float64}(v)
-    ε = sqrt(eps(Float64)) * max(norm(x0_dense), 1.0) / max(norm(v_dense), 1.0)
-    H_p = loghessian(x0_dense .+ ε .* v_dense, obs_lik)
-    H_m = loghessian(x0_dense .- ε .* v_dense, obs_lik)
-    return (H_p - H_m) ./ (2 * ε)
+    loghessian_path = t -> loghessian(x0 + t * v, obs_lik)
+    return ForwardDiff.derivative(loghessian_path, 0.0)
 end
 
 # ============================================================================
