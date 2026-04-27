@@ -89,6 +89,25 @@ struct AugmentedLatentModel{M <: LatentModel, A <: AbstractMatrix, Alg} <: Laten
             )
         )
 
+        # Warn on poorly-scaled designs. With an intrinsic base prior the
+        # augmentation can become severely ill-conditioned: column-norm
+        # spread `>~ 1e3` is enough to push `Q_joint`'s condition number
+        # past Float64's reliable Cholesky range, manifesting downstream
+        # as `PosDefException`. Centring/standardising the offending
+        # covariates is the standard mitigation.
+        col_norms = map(j -> norm(view(design_matrix, :, j)), 1:n_base)
+        nonzero_norms = filter(>(0), col_norms)
+        if !isempty(nonzero_norms) &&
+                maximum(nonzero_norms) / minimum(nonzero_norms) > 1.0e3
+            @warn (
+                "AugmentedLatentModel: design-matrix column norms span >1e3 " *
+                    "(min=$(round(minimum(nonzero_norms), sigdigits = 3)), " *
+                    "max=$(round(maximum(nonzero_norms), sigdigits = 3))). " *
+                    "Sparse Cholesky on `Q_joint` may fail or be unstable. " *
+                    "Consider centring/standardising covariates."
+            )
+        end
+
         return new{M, A, typeof(alg)}(base_model, design_matrix, linear_predictor_precision, alg)
     end
 end
@@ -155,7 +174,21 @@ function precision_matrix(model::AugmentedLatentModel; kwargs...)
     bottom_right = Q_base + Q_η_scalar * (A' * A)  # Q_base + A' * Q_η * A
 
     # Assemble sparse matrix
-    return _sparse_block_matrix(top_left, top_right, bottom_right)
+    Q_joint = _sparse_block_matrix(top_left, top_right, bottom_right)
+    # Diagonal regularisation matching `RWModel`'s `regularization=1e-5`,
+    # applied only when the base prior is intrinsic (has constraints — e.g.
+    # RW1, RW2, Besag). For those, the augmentation lifts the rank-deficiency
+    # through the design matrix into directions the constraint correction
+    # can't reach, leaving Q_joint genuinely rank-deficient. The shift is
+    # small enough that user priors at typical scales (e.g. diffuse Normal(0,
+    # 100²) on fixed effects → diag entries 1e-4) are essentially untouched,
+    # but large enough for sparse Cholesky to factor. Skipped for proper
+    # base priors so the fast-path / AD-fallback agreement is preserved.
+    if constraints(model.base_model; kwargs...) !== nothing
+        n = size(Q_joint, 1)
+        Q_joint = Q_joint + 1.0e-5 * sparse(I, n, n)
+    end
+    return Q_joint
 end
 
 """
