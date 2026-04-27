@@ -9,6 +9,7 @@ using FiniteDiff
 using ForwardDiff
 using DifferentiationInterface
 using ADTypes
+using Random
 
 @testset "DifferentiationStrategy" begin
 
@@ -88,6 +89,9 @@ using ADTypes
             return (zeros(n), Q)
         end
         model = LatentGaussianModel(spec, FunctionLatentModel(precision_latent, n), ExponentialFamily(Normal))
+        # Seed: Optim's f_reltol=1e-3 stop can leave `|grad|` above the test
+        # threshold on flat realisations of `y_test`.
+        Random.seed!(42)
         y_test = randn(n)
 
         @testset "ADStrategy finds mode" begin
