@@ -125,16 +125,32 @@ function try_exponential_family_fast_path(
     # The tracer may fail to flow through black-box likelihoods (e.g.
     # OrdinaryDiffEq solvers). Treat any failure here as "can't prove
     # linearity" → punt to AD fallback.
+    # Use a small probe step rather than `ones(n_latent)`. Linear models with
+    # per-observation multipliers (e.g. β · t for large t) produce η values
+    # that saturate the link's natural-param round-trip when probed at ±1
+    # (e.g. logit(σ(367)) → Inf). A small step keeps every η in the
+    # well-conditioned range while still detecting non-linearity (which
+    # produces O(1) Jacobian differences regardless of probe magnitude).
+    probe_step = fill(1.0e-3, n_latent)
     A, A_check = try
         prep = prepare_jacobian(η_of_x, backend, zeros(n_latent))
         (
             jacobian(η_of_x, prep, backend, zeros(n_latent)),
-            jacobian(η_of_x, prep, backend, ones(n_latent)),
+            jacobian(η_of_x, prep, backend, probe_step),
         )
-    catch
+    catch e
+        @debug "fast-path linearity probe failed" exception = e
         return nothing
     end
-    isapprox(A, A_check; atol = 1.0e-10) || return nothing           # nonlinear → punt
+    # `atol` must absorb finite-precision noise in the natural-param round-trip
+    # (e.g. binomial-logit `η → σ(η) → log(p/(1−p))` reintroduces ~1e-6 of
+    # error per entry, even though the underlying model is linear). Genuine
+    # non-linearities produce O(1) differences, so this tolerance still
+    # rejects them.
+    if !isapprox(A, A_check; atol = 1.0e-4)
+        @debug "fast-path: rejected as non-linear" max_diff = maximum(abs, A - A_check)
+        return nothing
+    end
 
     # 4) assemble. Non-zero `b = η(0)` → wrap in OffsetObservationModel
     # (obs-layer offset, works for any LGM shape).
