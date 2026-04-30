@@ -1,6 +1,7 @@
 using GaussianMarkovRandomFields
 using SelectedInversion
 using SparseArrays
+using LinearAlgebra: Symmetric
 
 export selinv_mat
 
@@ -30,6 +31,12 @@ function _update_sparsely!(Σ::SparseMatrixCSC, ΣA_T, AΣA_T_cho)
     end
     return
 end
+
+# GMRFs.jl's `selinv` returns `Symmetric(sparse(...))`. Forward to `parent`
+# — only one triangle is stored, but the `Symmetric` wrapper makes reads
+# symmetric so updating the stored triangle is sufficient.
+_update_sparsely!(Σ::Symmetric, ΣA_T, AΣA_T_cho) =
+    _update_sparsely!(parent(Σ), ΣA_T, AΣA_T_cho)
 
 function _update_sparsely!(Σ::SupernodalMatrix, ΣA_T, AΣA_T_cho)
     # Map permuted supernode indices → depermuted (original) indices for ΣA_T lookup
