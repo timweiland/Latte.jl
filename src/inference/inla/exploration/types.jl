@@ -2,6 +2,7 @@ using Printf
 
 export GridPoint, AbstractHyperparameterExploration, GridExploration, CCDExploration
 export ExplorationStrategy, GridExplorationStrategy, CCDExplorationStrategy, AutoExplorationStrategy
+export INLAGridStrategy
 
 # Backward-compat alias: `isa HyperparameterExploration` still works
 export HyperparameterExploration
@@ -59,24 +60,66 @@ end
 CCDExplorationStrategy(; f0::Float64 = 1.1) = CCDExplorationStrategy(f0)
 
 """
-    AutoExplorationStrategy(; grid=GridExplorationStrategy(), ccd=CCDExplorationStrategy())
+    INLAGridStrategy()
 
-Automatic exploration strategy selection: grid for D ≤ 2, CCD for D ≥ 3.
+R-INLA's `int.strategy = "grid"` design — for D=1 and D=2, a hardcoded
+Gauss-Hermite-style point set with precomputed quadrature weights, ported
+verbatim from R-INLA's `GMRFLib_design_grid` (`gmrflib/design.c`).
+
+For D=1 the design is 11 points along the axis; for D=2 it is 45 points
+in a CCD-like layout. For D ≥ 3 this strategy delegates to
+`CCDExplorationStrategy()`. Unlike `GridExplorationStrategy`, the design
+is fixed: `dz`, `max_log_drop`, and similar tuning knobs do not apply —
+the points sit at fixed multiples of the local-Hessian standard deviation.
+
+# When to use
+
+Faster than the default adaptive Cartesian grid for compact,
+well-identified posteriors (typical Binomial / Poisson GLMMs with
+informative random-effect precisions). Speedup at comparable accuracy
+is roughly 30–50 % at D=2.
+
+# When NOT to use
+
+The fixed design covers `±2.25 σ_θ` of the local Hessian. Posteriors
+with a long tail relative to that local σ — typically smoothness
+precisions (RW1/RW2) on near-flat fields — are under-sampled and
+posterior accuracy can degrade severely (max KS > 0.5 vs reference).
+If you see this, revert to the default `GridExplorationStrategy()`,
+which walks the grid outward adaptively until the log-density drops
+by `max_log_drop`.
+"""
+struct INLAGridStrategy <: ExplorationStrategy end
+
+"""
+    AutoExplorationStrategy(; low_dim=GridExplorationStrategy(), high_dim=CCDExplorationStrategy())
+
+Automatic exploration strategy selection: adaptive Cartesian grid for
+D ≤ 2, CCD for D ≥ 3. Cartesian grid is conservative — it walks
+outwards from the mode and stops when log-density drops by
+`max_log_drop`. For posteriors with long tails (e.g. precision
+parameters when the latent field is nearly flat), it expands beyond
+`±~3σ` of the local Hessian, which a fixed-design strategy like
+[`INLAGridStrategy`](@ref) cannot.
+
+For known well-conditioned posteriors, `INLAGridStrategy()` is a
+faster opt-in (R-INLA-style fixed-design quadrature with precomputed
+weights).
 
 # Fields
-- `grid::GridExplorationStrategy`: Strategy used for D ≤ 2
-- `ccd::CCDExplorationStrategy`: Strategy used for D ≥ 3
+- `low_dim::ExplorationStrategy`: Strategy used for D ≤ 2 (default `GridExplorationStrategy()`)
+- `high_dim::ExplorationStrategy`: Strategy used for D ≥ 3 (default `CCDExplorationStrategy()`)
 """
 struct AutoExplorationStrategy <: ExplorationStrategy
-    grid::GridExplorationStrategy
-    ccd::CCDExplorationStrategy
+    low_dim::ExplorationStrategy
+    high_dim::ExplorationStrategy
 end
 
 function AutoExplorationStrategy(;
-        grid::GridExplorationStrategy = GridExplorationStrategy(),
-        ccd::CCDExplorationStrategy = CCDExplorationStrategy()
+        low_dim::ExplorationStrategy = GridExplorationStrategy(),
+        high_dim::ExplorationStrategy = CCDExplorationStrategy()
     )
-    return AutoExplorationStrategy(grid, ccd)
+    return AutoExplorationStrategy(low_dim, high_dim)
 end
 
 """
