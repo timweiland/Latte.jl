@@ -1,4 +1,4 @@
-using GaussianMarkovRandomFields: PoissonObservations
+using GaussianMarkovRandomFields: PoissonObservations, NegativeBinomialObservations
 
 export PredictionInfo, predicted_marginals, observed_marginals, poisson_observations
 
@@ -81,6 +81,11 @@ _normalize_observations(y, obs_model) = y
 # Poisson: plain integer vectors → PoissonObservations
 function _normalize_observations(y::AbstractVector{<:Integer}, obs_model::ExponentialFamily{Poisson})
     return PoissonObservations(collect(Int, y))
+end
+
+# NegativeBinomial: plain integer vectors → NegativeBinomialObservations (no exposure)
+function _normalize_observations(y::AbstractVector{<:Integer}, obs_model::ExponentialFamily{NegativeBinomial})
+    return NegativeBinomialObservations(collect(Int, y))
 end
 
 # LinearlyTransformedObservationModel — delegate to the base obs model.

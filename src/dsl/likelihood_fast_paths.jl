@@ -12,10 +12,10 @@ using ADTypes: AutoSparse, AutoForwardDiff
 using DifferentiationInterface
 using SparseConnectivityTracer: TracerLocalSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
-using Distributions: Poisson, Bernoulli, Binomial, Normal, mean
+using Distributions: Poisson, Bernoulli, Binomial, Normal, NegativeBinomial, Gamma, mean
 using GaussianMarkovRandomFields:
     ExponentialFamily, LinearlyTransformedObservationModel,
-    LogLink, LogitLink, IdentityLink
+    LogLink, LogitLink, IdentityLink, NegativeBinomialObservations
 
 # ─── Custom DPPL accumulator: records observation distributions ───────────
 # `PriorDistributionAccumulator` skips observed (y) sites. We mirror its
@@ -63,6 +63,10 @@ _ef_family_info(::Type{<:Poisson}) = (Poisson, LogLink(), d -> log(mean(d)))
 _ef_family_info(::Type{<:Bernoulli}) = (Bernoulli, LogitLink(), d -> (p = mean(d); log(p / (1 - p))))
 _ef_family_info(::Type{<:Binomial}) = (Binomial, LogitLink(), d -> log(d.p / (1 - d.p)))
 _ef_family_info(::Type{<:Normal}) = (Normal, IdentityLink(), d -> mean(d))
+# NegativeBinomial(r, p): mean μ = r(1-p)/p, so η = log μ = log(r(1-p)/p)
+_ef_family_info(::Type{<:NegativeBinomial}) = (NegativeBinomial, LogLink(), d -> log(d.r * (1 - d.p) / d.p))
+# Gamma(α, θ): mean μ = αθ, so η = log μ = log(αθ)
+_ef_family_info(::Type{<:Gamma}) = (Gamma, LogLink(), d -> log(d.α * d.θ))
 _ef_family_info(_) = nothing
 
 # ─── Main detection + assembly ────────────────────────────────────────────
