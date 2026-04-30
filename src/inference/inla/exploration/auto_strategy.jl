@@ -6,7 +6,7 @@ function explore_hyperparameter_posterior(
         marginalization_method, marginalization_indices;
         kwargs...
     )
-    actual_strategy = length(θ_star) > 2 ? strategy.ccd : strategy.grid
+    actual_strategy = length(θ_star) > 2 ? strategy.high_dim : strategy.low_dim
     return explore_hyperparameter_posterior(
         actual_strategy, model, y, θ_star, marginalization_method, marginalization_indices;
         kwargs...

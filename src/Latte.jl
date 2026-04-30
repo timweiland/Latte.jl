@@ -72,6 +72,7 @@ include("inference/inla/exploration/types.jl")
 include("inference/inla/exploration/utils.jl")
 include("inference/inla/exploration/grid.jl")
 include("inference/inla/exploration/ccd.jl")
+include("inference/inla/exploration/inla_grid.jl")
 include("inference/inla/exploration/auto_strategy.jl")
 
 include("inference/inla/interpolation.jl")
