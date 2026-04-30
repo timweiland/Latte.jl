@@ -212,6 +212,101 @@ using Random
         end
     end
 
+    @testset "NegativeBinomial + LogLink: loglik matches AD fallback" begin
+        @model function hier_nb(y, X, group)
+            r ~ Gamma(2, 1)
+            τ_u ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I)
+            u ~ MvNormal(zeros(maximum(group)), (1 / τ_u) * I)
+            for i in eachindex(y)
+                μ_i = exp(X[i, :] ⋅ β + u[group[i]])
+                y[i] ~ NegativeBinomial(r, r / (r + μ_i); check_args = false)
+            end
+        end
+        Random.seed!(2027)
+        n, p, G = 40, 2, 5
+        X = [ones(n) randn(n)]
+        group = rand(1:G, n)
+        β_true = [0.3, 0.5]
+        u_true = randn(G) ./ 2
+        r_true = 4.0
+        y_obs = [
+            (
+                    μ = exp(X[i, :] ⋅ β_true + u_true[group[i]]);
+                    rand(NegativeBinomial(r_true, r_true / (r_true + μ)))
+                )
+                for i in 1:n
+        ]
+
+        lgm_fast = latte_from_dppl(hier_nb(y_obs, X, group); random = (:β, :u))
+        lgm_ad = latte_from_dppl(
+            hier_nb(y_obs, X, group);
+            random = (:β, :u), force_ad_obs_model = true,
+        )
+
+        spec = lgm_fast.hyperparameter_spec
+        y_wrap = NegativeBinomialObservations(y_obs)
+
+        ws_fast = make_workspace(lgm_fast.latent_prior; r = 1.0, τ_u = 1.0)
+        ws_ad = make_workspace(lgm_ad.latent_prior; r = 1.0, τ_u = 1.0)
+
+        Random.seed!(13)
+        for _ in 1:5
+            θ_vec = randn(2)
+            wh = Latte.WorkingHyperparameters(θ_vec, spec)
+            lp_fast = Latte.hyperparameter_logpdf(lgm_fast, wh, y_wrap; ws = ws_fast)
+            lp_ad = Latte.hyperparameter_logpdf(lgm_ad, wh, y_wrap; ws = ws_ad)
+            @test lp_fast ≈ lp_ad rtol = 1.0e-6
+        end
+    end
+
+    @testset "Gamma + LogLink: loglik matches AD fallback" begin
+        @model function hier_gamma(y, X, group)
+            phi ~ Gamma(2, 1)
+            τ_u ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I)
+            u ~ MvNormal(zeros(maximum(group)), (1 / τ_u) * I)
+            for i in eachindex(y)
+                μ_i = exp(X[i, :] ⋅ β + u[group[i]])
+                y[i] ~ Gamma(phi, μ_i / phi; check_args = false)
+            end
+        end
+        Random.seed!(2028)
+        n, p, G = 40, 2, 5
+        X = [ones(n) randn(n)]
+        group = rand(1:G, n)
+        β_true = [0.2, 0.3]
+        u_true = randn(G) ./ 2
+        phi_true = 2.5
+        y_obs = [
+            (
+                    μ = exp(X[i, :] ⋅ β_true + u_true[group[i]]);
+                    rand(Gamma(phi_true, μ / phi_true))
+                )
+                for i in 1:n
+        ]
+
+        lgm_fast = latte_from_dppl(hier_gamma(y_obs, X, group); random = (:β, :u))
+        lgm_ad = latte_from_dppl(
+            hier_gamma(y_obs, X, group);
+            random = (:β, :u), force_ad_obs_model = true,
+        )
+
+        spec = lgm_fast.hyperparameter_spec
+
+        ws_fast = make_workspace(lgm_fast.latent_prior; phi = 1.0, τ_u = 1.0)
+        ws_ad = make_workspace(lgm_ad.latent_prior; phi = 1.0, τ_u = 1.0)
+
+        Random.seed!(14)
+        for _ in 1:5
+            θ_vec = randn(2)
+            wh = Latte.WorkingHyperparameters(θ_vec, spec)
+            lp_fast = Latte.hyperparameter_logpdf(lgm_fast, wh, y_obs; ws = ws_fast)
+            lp_ad = Latte.hyperparameter_logpdf(lgm_ad, wh, y_obs; ws = ws_ad)
+            @test lp_fast ≈ lp_ad rtol = 1.0e-6
+        end
+    end
+
     @testset "Fast path works with default AutoMarginal (AD path doesn't)" begin
         # Regression test for the specific workaround we eliminated: the
         # fast path accepts default `AutoMarginal` + FiniteDiff; the AD

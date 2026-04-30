@@ -183,6 +183,68 @@ using Random
         @test maximum(abs.(β_aug .- β_noaug)) < 1.0e-4
     end
 
+    @testset "NegativeBinomial + LogLink fires fast path" begin
+        @model function m_nb(y, X, group)
+            r ~ Gamma(2, 1)
+            τ_u ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
+            u ~ MvNormal(zeros(maximum(group)), (1 / τ_u) * I(maximum(group)))
+            for i in eachindex(y)
+                μ_i = exp(X[i, :] ⋅ β + u[group[i]])
+                y[i] ~ NegativeBinomial(r, r / (r + μ_i); check_args = false)
+            end
+        end
+        Random.seed!(20)
+        n, p, G = 30, 2, 3
+        X = [ones(n) randn(n)]
+        group = rand(1:G, n)
+        β_true = [0.3, 0.4]
+        u_true = randn(G) ./ 2
+        r_true = 5.0
+        y_obs = [
+            (
+                    μ = exp(X[i, :] ⋅ β_true + u_true[group[i]]);
+                    rand(NegativeBinomial(r_true, r_true / (r_true + μ)))
+                )
+                for i in 1:n
+        ]
+
+        lgm = latte_from_dppl(m_nb(y_obs, X, group); random = (:β, :u))
+        @test lgm.observation_model isa ExponentialFamily{NegativeBinomial, LogLink}
+        @test lgm.augmentation_info !== nothing
+    end
+
+    @testset "Gamma + LogLink fires fast path" begin
+        @model function m_gamma(y, X, group)
+            phi ~ Gamma(2, 1)
+            τ_u ~ Gamma(2, 1)
+            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
+            u ~ MvNormal(zeros(maximum(group)), (1 / τ_u) * I(maximum(group)))
+            for i in eachindex(y)
+                μ_i = exp(X[i, :] ⋅ β + u[group[i]])
+                y[i] ~ Gamma(phi, μ_i / phi; check_args = false)
+            end
+        end
+        Random.seed!(21)
+        n, p, G = 30, 2, 3
+        X = [ones(n) randn(n)]
+        group = rand(1:G, n)
+        β_true = [0.2, 0.3]
+        u_true = randn(G) ./ 2
+        phi_true = 2.0
+        y_obs = [
+            (
+                    μ = exp(X[i, :] ⋅ β_true + u_true[group[i]]);
+                    rand(Gamma(phi_true, μ / phi_true))
+                )
+                for i in 1:n
+        ]
+
+        lgm = latte_from_dppl(m_gamma(y_obs, X, group); random = (:β, :u))
+        @test lgm.observation_model isa ExponentialFamily{Gamma, LogLink}
+        @test lgm.augmentation_info !== nothing
+    end
+
     @testset "Mixed-family likelihood falls through to AD path" begin
         # Half the sites Poisson, half Normal — fast path demands a
         # homogeneous family and must punt.
