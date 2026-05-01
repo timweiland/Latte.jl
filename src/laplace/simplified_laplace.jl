@@ -109,6 +109,15 @@ function _marginalize_impl(
     pred_idx, base_lookup, Q_aug, Q_η_scalar =
         _augmentation_inputs(augmentation_info, prior_gmrf)
 
+    # Diagonal-third-derivative fast path: for exp-fam likelihoods with a
+    # diagonal log-Hessian (Poisson/Bernoulli/Binomial/Normal), precompute
+    # `λ_k = h'''(μ_k)` once per grid point. Then γ_1 and γ_3 reduce to
+    # explicit weighted sums over `obs_indices`, with no per-index Diagonal
+    # construction and no `M * dir` matvec. Lifts the per-index cost from
+    # ~25 μs (matrix path) to ~5 μs (direct sum) on diagonal exp-fams.
+    diag_h3 = third_derivative_diagonal(obs_lik, μ)
+    σ² = σ .^ 2
+
     for i in indices
         μ_i = μ[i]
         σ_i = σ[i]
@@ -142,11 +151,28 @@ function _marginalize_impl(
             end
         end
 
-        loghess_curv_deriv = loghessian_directional_derivative(μ, curvature_dir, obs_lik)
-        loghess_dir_deriv = loghessian_directional_derivative(μ, dir, obs_lik)
-
-        γ_i_1 = 0.5 * _compute_tr(Σ, conditional_column, σ_i, loghess_curv_deriv)
-        γ_i_3 = dot(dir, loghess_dir_deriv * dir)
+        if diag_h3 !== nothing
+            # Direct sum, no matrix allocation. Math:
+            # γ_1 = 0.5 · Σ_k h'''(μ_k) · curvature_dir[k] · (Σ_kk − τ_i · cond_col[k]²)
+            # γ_3 = Σ_k h'''(μ_k) · dir[k]³
+            τ_i = 1 / σ_i^2
+            γ_i_1 = 0.0
+            γ_i_3 = 0.0
+            @inbounds for (j, k) in enumerate(diag_h3.indices)
+                λ_k = diag_h3.values[j]
+                γ_i_1 += λ_k * curvature_dir[k] *
+                    (σ²[k] - τ_i * conditional_column[k]^2)
+                γ_i_3 += λ_k * dir[k]^3
+            end
+            γ_i_1 *= 0.5
+        else
+            # Fallback for non-diagonal obs_liks (LinearlyTransformedLikelihood,
+            # generic AD-backed). Builds the directional-derivative matrix.
+            loghess_curv_deriv = loghessian_directional_derivative(μ, curvature_dir, obs_lik)
+            loghess_dir_deriv = loghessian_directional_derivative(μ, dir, obs_lik)
+            γ_i_1 = 0.5 * _compute_tr(Σ, conditional_column, σ_i, loghess_curv_deriv)
+            γ_i_3 = dot(dir, loghess_dir_deriv * dir)
+        end
 
         marginal = SkewNormal(_get_skew_params(γ_i_1, γ_i_3, μ_i, σ_i)...)
         push!(marginals, marginal)
