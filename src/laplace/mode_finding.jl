@@ -254,16 +254,22 @@ function find_hyperparameter_mode(
         return false  # Continue optimization
     end
 
-    # Efficient INLA hyperparameter optimization tolerances
+    # Stop on gradient norm only. The relative-tolerance criteria (`f_reltol`,
+    # `x_reltol`) trigger after a single small step regardless of how big the
+    # remaining gradient is — for log-marginal objectives where `f` is in the
+    # hundreds and useful improvements are < 1, that's a constant trap. R-INLA
+    # similarly only uses `gsl_epsg` (gradient norm) plus best-tracking; we
+    # rely on `g_abstol` here, with the iteration cap as a safety net.
     options = Optim.Options(
-        f_reltol = 1.0e-3,     # Relative tolerance in objective (log-likelihood) changes
-        f_abstol = 1.0e-6,     # Absolute tolerance in objective changes
-        g_abstol = 1.0e-6,     # Gradient tolerance (less strict than default 1e-8)
-        x_reltol = 1.0e-3,     # Relative tolerance in parameter changes
+        f_reltol = 0.0,
+        f_abstol = 0.0,
+        g_abstol = 1.0e-6,
+        x_reltol = 0.0,
+        x_abstol = 0.0,
         iterations = iterations,
-        show_trace = false,  # Set to true for debugging
-        allow_f_increases = true,  # Allow occasional increases during search
-        callback = optim_callback  # Add progress callback
+        show_trace = false,
+        allow_f_increases = true,
+        callback = optim_callback,
     )
 
     result = _run_optimization(diff_strategy, objective, model, y, spec, θ_init, ws, method, options)
