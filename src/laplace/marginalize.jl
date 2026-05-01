@@ -1,20 +1,47 @@
 using Distributions: Normal
 
-export marginalize
+export marginalize, reported_moments
 
-# GaussianMarginal: KLD is trivially zero (comparing Gaussian to itself)
-function _compute_kld_values(::GaussianMarginal, marginals, indices, μ_ga, σ_ga)
-    return zeros(length(indices))
-end
+"""
+    reported_moments(method, μ_baseline, σ_baseline, marginal) -> (μ, σ)
 
-# Non-Gaussian methods: compute SKLD against Gaussian baseline from GA
-function _compute_kld_values(::MarginalApproximation, marginals, indices, μ_ga, σ_ga)
+Per-marginal first-and-second moments used to compute the diagnostic
+KLD reported in `MarginalResult.kld_values` and `INLAResult.kld`.
+Default extracts `(mean(marginal), std(marginal))` from the marginal
+distribution; `MarginalApproximation` subtypes can override this hook
+to skip moment re-derivation when construction-time facts already
+imply the moments cheaply.
+
+Used by `_compute_kld_values` to avoid (a) constructing a `Normal`
+baseline per index and (b) re-deriving SkewNormal moments via the
+`Distributions` `mean`/`std` machinery on hot paths. Pairs with the
+scalar form of [`moment_symmetric_kld`](@ref).
+
+For methods whose marginals moment-match the Gaussian baseline by
+construction, the moment-based KLD is identically zero — those methods
+should override `adaptive_upgrade_score` (used by `AdaptiveMarginal`)
+with a shape-aware metric.
+"""
+reported_moments(::MarginalApproximation, μ_baseline::Real, σ_baseline::Real, marginal) =
+    (mean(marginal), std(marginal))
+
+# GaussianMarginal: the "marginal" is just the baseline.
+reported_moments(::GaussianMarginal, μ_baseline::Real, σ_baseline::Real, ::Any) =
+    (μ_baseline, σ_baseline)
+
+# Vector form used by the marginalize wrapper.
+function _compute_kld_values(method::MarginalApproximation, marginals, indices, μ_ga, σ_ga)
     kld_values = Vector{Float64}(undef, length(indices))
-    for (j, i) in enumerate(indices)
-        gaussian_baseline = Normal(μ_ga[i], σ_ga[i])
-        kld_values[j] = symmetric_kld(gaussian_baseline, marginals[j])
+    @inbounds for (j, i) in enumerate(indices)
+        μ_marg, σ_marg = reported_moments(method, μ_ga[i], σ_ga[i], marginals[j])
+        kld_values[j] = moment_symmetric_kld(μ_ga[i], σ_ga[i], μ_marg, σ_marg)
     end
     return kld_values
+end
+
+# GaussianMarginal short-circuit: KLD is identically 0; skip the loop.
+function _compute_kld_values(::GaussianMarginal, marginals, indices, μ_ga, σ_ga)
+    return zeros(length(indices))
 end
 
 """
