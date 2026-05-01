@@ -142,6 +142,21 @@ function build_latent_model(
 end
 
 function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint)
+    # Linear maps are *structural*: they encode the per-edge `child = A·parent + b`
+    # relation in the model graph and do not depend on hyperparameter values.
+    # Compute them once at adapter-build time with concrete Float64 inputs,
+    # cache, and reuse on every `latent_fn` call. This is both a perf win
+    # (no per-call sparse-AD probe) and unblocks outer AD over the latent
+    # function — `extract_linear_map`'s SCT-based sparsity tracing collides
+    # with `ForwardDiff.Dual` when called inside an outer AD pass.
+    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    linear_maps_cached = Dict{Tuple{Symbol, Symbol}, NamedTuple}()
+    for child in random_syms, parent in info.edges[child]
+        linear_maps_cached[(child, parent)] = extract_linear_map(
+            dppl_model, child, parent, random_syms, info.dims, probe_hp,
+        )
+    end
+
     function latent_fn(; kwargs...)
         hp_values = NamedTuple{hp_names}(Tuple(kwargs[k] for k in hp_names))
         # `Any`-valued dicts so Dual-parametrized Q and μ flow through under
@@ -157,15 +172,9 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern,
             cond_Qs[s] = Q_s
             intercepts[s] = int_s
         end
-        linear_maps = Dict{Tuple{Symbol, Symbol}, NamedTuple}()
-        for child in random_syms, parent in info.edges[child]
-            linear_maps[(child, parent)] = extract_linear_map(
-                dppl_model, child, parent, random_syms, info.dims, hp_values,
-            )
-        end
         joint = assemble_joint(
             random_syms, info.dims, info.edges,
-            linear_maps, intercepts, cond_Qs
+            linear_maps_cached, intercepts, cond_Qs
         )
         Q_out = lik_pattern === nothing ? joint.Q : augment_pattern(joint.Q, lik_pattern)
         return (joint.μ, Q_out)
