@@ -35,6 +35,30 @@ make format
 
 - To run a specific test, do `julia --project`, followed by `using TestEnv; TestEnv.activate(); include("...")`, where "..." contains the test file with the tests to run
 
+## TTFX (cold-start) measurement
+
+Single-number harness for tracking cold-start UX:
+
+```bash
+# Spawns a fresh Julia, loads Latte, runs `latte_from_dppl(...)` + `inla(...)`.
+# Reports load_s + adapter_s + first_inla_s = total_cold_s.
+julia --project benchmark/ttfx/measure_ttfx.jl
+
+# Save JSON for diffing across attempts:
+julia --project benchmark/ttfx/measure_ttfx.jl --json /tmp/ttfx.json
+```
+
+The package-level `@compile_workload` (`src/precompile_workloads.jl`)
+covers the post-LGM pipeline for Poisson/Bernoulli/Binomial/Normal
+fast-path likelihoods — that's what makes `inla(lgm, y)`'s first call
+fast on a fresh process. It does NOT cover `latte_from_dppl` for
+arbitrary user `@model` types (DPPL specialises on the model type, which
+only exists at user-call time).
+
+Users who ship Latte inside an application package can call
+`Latte.warmup(model, y; random=...)` from their own `@compile_workload`
+to bake in the per-model specialisation as well.
+
 ## Architecture
 
 - **Main Interface**: `src/main_interface/` - Unified INLA inference interface

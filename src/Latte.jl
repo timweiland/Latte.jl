@@ -146,4 +146,10 @@ include("diagnostics/sbc/sbc_run.jl")
 include("posterior/predict.jl")
 include("posterior/model_averaging.jl")
 
+# ─── User-facing escape hatch for TTFX (depends on `inla` + `latte_from_dppl`) ─
+include("warmup.jl")
+
+# ─── Precompile workloads (must come last) ────────────────────────────────────
+include("precompile_workloads.jl")
+
 end
