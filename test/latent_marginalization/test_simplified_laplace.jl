@@ -205,4 +205,45 @@ using HCubature
         @test length(result_all.marginals) == n
         @test all(m isa SkewNormal for m in result_all.marginals)
     end
+
+    @testset "AutoDiffLikelihood path (regression: dense AD inputs)" begin
+        # Custom Distribution that doesn't go through the fast-path
+        # detection — forces SLA to use `loghessian_directional_derivative`
+        # via the AD fallback. Pre-fix this raised
+        # `DI.PreparationMismatchError` because the SLA loop could pass
+        # SparseVector{Dual} into AD prep that was made for Vector{Dual}
+        # (cache keyed only on eltype). The fix: collect inputs to dense
+        # Vectors before AD, in src/laplace/simplified_laplace.jl.
+        struct _ADTestDist{T <: Real} <: ContinuousUnivariateDistribution
+            μ::T
+        end
+        Distributions.logpdf(d::_ADTestDist, y::Real) = -(y - d.μ)^2 / 2
+        Distributions.minimum(::_ADTestDist) = -Inf
+        Distributions.maximum(::_ADTestDist) = Inf
+        Distributions.insupport(::_ADTestDist, ::Real) = true
+
+        n = 4
+        y = [0.5, -0.3, 1.1, 0.0]
+        Q = spdiagm(0 => fill(1.0, n))
+        prior_gmrf = GMRF(zeros(n), Q)
+
+        # Build an AutoDiffLikelihood directly, bypassing the DPPL adapter
+        # so the test doesn't depend on the broader DSL stack.
+        loglik_func = (x; kwargs...) -> sum(logpdf(_ADTestDist(x[i]), y[i]) for i in eachindex(y))
+        pointwise_func = (x; kwargs...) -> [logpdf(_ADTestDist(x[i]), y[i]) for i in eachindex(y)]
+        obs_model = GaussianMarkovRandomFields.AutoDiffObservationModel(
+            loglik_func; n_latent = n, pointwise_loglik_func = pointwise_func,
+        )
+        obs_lik = obs_model(y)
+
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
+        result = marginalize(
+            ga, obs_lik, 0.0, SimplifiedLaplace(), collect(1:n);
+            prior_gmrf = prior_gmrf,
+        )
+        @test length(result.marginals) == n
+        @test all(m isa SkewNormal for m in result.marginals)
+        @test all(isfinite ∘ mean, result.marginals)
+        @test all(isfinite ∘ std, result.marginals)
+    end
 end

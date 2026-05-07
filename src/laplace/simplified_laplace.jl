@@ -168,10 +168,23 @@ function _marginalize_impl(
         else
             # Fallback for non-diagonal obs_liks (LinearlyTransformedLikelihood,
             # generic AD-backed). Builds the directional-derivative matrix.
-            loghess_curv_deriv = loghessian_directional_derivative(μ, curvature_dir, obs_lik)
-            loghess_dir_deriv = loghessian_directional_derivative(μ, dir, obs_lik)
+            #
+            # Force dense Vectors before AD: `_compute_conditional_column` can
+            # return a SparseVector (workspace solves over WorkspaceGMRFs go
+            # through CHOLMOD which yields a dense vector, but constraint
+            # paths and other GMRF backends can preserve sparsity). When the
+            # direction is sparse, ForwardDiff materialises a SparseVector{Dual}
+            # at execution. AutoDiffLikelihood's hessian prep cache keys only on
+            # `eltype(x)`, so a Vector{Dual} prep gets reused for the SparseVector
+            # call site and DI raises a PreparationMismatchError. The fix is
+            # cheap — copy to a dense Vector before the AD pass, cost O(n).
+            μ_dense = collect(μ)
+            curvature_dir_dense = collect(curvature_dir)
+            dir_dense = collect(dir)
+            loghess_curv_deriv = loghessian_directional_derivative(μ_dense, curvature_dir_dense, obs_lik)
+            loghess_dir_deriv = loghessian_directional_derivative(μ_dense, dir_dense, obs_lik)
             γ_i_1 = 0.5 * _compute_tr(Σ, conditional_column, σ_i, loghess_curv_deriv)
-            γ_i_3 = dot(dir, loghess_dir_deriv * dir)
+            γ_i_3 = dot(dir_dense, loghess_dir_deriv * dir_dense)
         end
 
         marginal = SkewNormal(_get_skew_params(γ_i_1, γ_i_3, μ_i, σ_i)...)
