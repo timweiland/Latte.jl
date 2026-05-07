@@ -47,7 +47,16 @@ function extract_obs_model(
         # AbstractVarInfo, not an init strategy directly.)
         vi = DynamicPPL.VarInfo(cond, InitFromParams(rand_nt, nothing))
         pointwise = DynamicPPL.pointwise_loglikelihoods(cond, vi)
-        return collect(values(pointwise))
+        # `collect(values(::Dict))` gives `Vector{Any}` here because DPPL's
+        # pointwise dict isn't statically typed on its value type. Tighten
+        # the eltype by promoting from the actual contents — without this,
+        # downstream broadcast operations (e.g. inside the FD ext's
+        # `_forwarddiff_workspace_ga_obs_dual` when hyperparameters are
+        # Dual) fall back to `Vector{Any}` and trip `zero(::Type{Any})`.
+        vec = collect(values(pointwise))
+        isempty(vec) && return Float64[]
+        T = mapreduce(typeof, promote_type, vec)
+        return convert(Vector{T}, vec)
     end
 
     # When the caller has pre-supplied a Hessian sparsity pattern (e.g. for
