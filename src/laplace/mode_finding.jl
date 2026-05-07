@@ -14,6 +14,31 @@ using Distributions
 export hyperparameter_logpdf, find_hyperparameter_mode, initial_hyperparameter_guess
 
 """
+    _is_numerical_failure(e) -> Bool
+
+Classifier for exception types that should be silently mapped to `-Inf`
+(numerical failures at extreme hyperparameter values) versus exceptions
+that indicate a real bug — typically AD-incompatibility, missing
+methods, or malformed inputs — and should be re-thrown so the user sees
+them.
+
+Numerical: `DomainError` (e.g. `log(-x)`), Cholesky / linear-solve
+failures (`PosDefException`, `SingularException`,
+`LinearAlgebra.ZeroPivotException`).
+
+NOT numerical (re-thrown): `MethodError` (typically a `Float64(::Dual)`
+conversion in a non-AD-friendly path), `ArgumentError`, `BoundsError`,
+etc. Without this distinction the catch sites below would silently turn
+a broken AD pass into a constant `-Inf`, making the gradient zero and
+fooling BFGS into early convergence.
+"""
+@inline _is_numerical_failure(e) =
+    e isa DomainError ||
+    e isa PosDefException ||
+    e isa LinearAlgebra.SingularException ||
+    e isa LinearAlgebra.ZeroPivotException
+
+"""
     initial_hyperparameter_guess(spec::HyperparameterSpec)
 
 Compute an initial guess for hyperparameter optimization in working space.
@@ -58,7 +83,8 @@ function _working_space_mode_1d(dist::Bijectors.TransformedDistribution, u0::Rea
     neg_log_pw = u -> begin
         v = try
             logpdf(dist, u)
-        catch
+        catch e
+            _is_numerical_failure(e) || rethrow(e)
             -Inf
         end
         return isfinite(v) ? -v : Inf
@@ -224,6 +250,7 @@ function find_hyperparameter_mode(
         try
             logpdf_val = hyperparameter_logpdf(model, θ, y; ws = ws)
         catch e
+            _is_numerical_failure(e) || rethrow(e)
             return Inf
         end
 
@@ -298,7 +325,8 @@ function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_i
         θ = WorkingHyperparameters(θ_vec, spec)
         logpdf_val = try
             hyperparameter_logpdf(model, θ, y; ws = ws)
-        catch
+        catch e
+            _is_numerical_failure(e) || rethrow(e)
             oftype(θ_vec[1], -Inf)
         end
         return isfinite(logpdf_val) ? -logpdf_val : oftype(logpdf_val, Inf)
