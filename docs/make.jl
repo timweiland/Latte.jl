@@ -24,6 +24,7 @@ makedocs(;
             "Temporal trends" => "tutorials/temporal_trend_earthquakes.md",
             "Nonlinear regression" => "tutorials/nonlinear_regression_gam.md",
             "Custom likelihoods: Tweedie" => "tutorials/tweedie_insurance.md",
+            "State-space stock assessment (TMB)" => "tutorials/fisheries_state_space.md",
             "Spatial SPDE: earthquake intensity" => "tutorials/spatial_spde.md",
             "Spatio-temporal modeling" => "tutorials/spatio_temporal_separable.md",
             "Posterior predictive checks" => "tutorials/posterior_predictive_checks.md",
