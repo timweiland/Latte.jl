@@ -1,0 +1,302 @@
+#+title: Handoff — fisheries tutorial + non-Gaussian latent prior correctness
+#+date: 2026-05-07
+#+status: paused mid-stream; pick up when ready
+#+branch: latte-prototype
+
+* TL;DR
+
+We landed a TTFX win (committed as =be25260=), then opened up two
+parallel tracks:
+
+1. *Custom-likelihood tutorials*. Tweedie tutorial drafted, rendered,
+   working — but uncommitted.
+2. *State-space / TMB-style modelling*. Fisheries tutorial drafted
+   with the multi-fleet Schaefer model, runs end-to-end via
+   =OrdinaryDiffEqTsit5= — but discovered en route that Latte's
+   current path *cannot* match TMB's Laplace approximation for
+   non-Gaussian latent priors. Surface-level fixes won't cut it; the
+   correct fix is an algorithmic upgrade in =GaussianMarkovRandomFields.jl=.
+
+What's outstanding:
+- Several local fixes uncommitted (try/catch tightening, AD eltype
+  fixes, tutorials, regression tests).
+- The fisheries tutorial overclaims: it's framed as TMB-shape but
+  uses a non-centered parameterisation that gives a *dense* posterior
+  Hessian instead of TMB's banded one.
+- A design doc has been handed to GMRFs.jl: =local_latent_quadratic.org=
+  at the GMRFs repo root. When that lands, the fisheries tutorial
+  should be refactored to the centered formulation with the proper
+  banded Hessian story.
+
+* Uncommitted change set (Latte side)
+
+** Bug fixes (correctness)
+
+| File | What | Why |
+|--+--+--|
+| =src/laplace/simplified_laplace.jl= | dense-vector conversion before AD in fallback path | bug #1 from earlier audit; SLA + custom AD likelihoods |
+| =src/laplace/mode_finding.jl= | =_is_numerical_failure= classifier + 3 catch sites | surface =MethodError= / programmer bugs instead of silently swallowing them as =-Inf= |
+| =src/inference/inla/exploration/transformation.jl= | classifier applied to its bare =catch= | same as above |
+| =src/dsl/obs_model.jl= | tighten eltype of =collect(values(pointwise))= | =Vector{Any}= bug surfaced when Dual hyperparameters flow through closure-captured pointwise loglik |
+| =test/latent_marginalization/test_simplified_laplace.jl= | regression test for SLA on =AutoDiffLikelihood= path | guard against bug #1 returning |
+| =test/parallel/test_parallel_hessian.jl= | switch to =FiniteDiffStrategy= for AD-path test | nested-AD limitation; mirrors =test/dsl/test_fast_path_agrees.jl= |
+
+Verified: =make test= passes 2767/2769 (2 pre-existing Aqua failures
+unchanged).
+
+** Tutorials
+
+- =docs/src/literate-tutorials/tweedie_insurance.jl= — full Tweedie
+  custom-logpdf tutorial. *Renders cleanly*; posteriors recover truth
+  within 95% CIs. Sanity check uses correct compound-Poisson-Gamma
+  limit (=Gamma(λα, β)=, fixed after an earlier bug).
+- =docs/src/literate-tutorials/fisheries_state_space.jl= — multi-fleet
+  Schaefer state-space, 9 hyperparameters, 24-dim latent, ODE via
+  =Tsit5=. *Renders cleanly*; identifies cleanly thanks to a
+  calibrated research-survey =q= prior. *But framing is misleading*
+  — see [[*Open issue: fisheries tutorial framing is wrong][open issue]] below.
+
+Both wired into =docs/make.jl= and =docs/src/components/TutorialGallery.vue=.
+
+** Docs Manifest patch
+
+=docs/Project.toml= and =docs/Manifest.toml= had to be hand-patched
+to add =OrdinaryDiffEqTsit5=, =SciMLBase=, and =PrecompileTools=
+because =Pkg.add= against =docs/Project.toml= fails on a pre-existing
+=GeometryBasics= / =Makie= / =CairoMakie= version conflict
+(unrelated to our work). The patch is the bare minimum — copied
+manifest entries from the working main project's Manifest. Worth
+fixing the underlying conflict at some point but not blocking.
+
+* Open issue: fisheries tutorial framing is wrong
+
+The current =fisheries_state_space.jl= uses a *non-centered*
+parameterisation:
+
+- Latent: =ε[1:T-1]= IID standard Normal (truly Gaussian prior, IID
+  precision = =I=).
+- Dynamics: =log B[t+1] = ode_step(log B[t], θ) + σ_proc · ε[t]=
+  applied inside the likelihood.
+
+This *fits Latte's LGM framework* (which requires a Gaussian latent
+prior) but throws away the Markov structure: =log B[t]= depends
+*cumulatively* on =ε[1:t-1]=, so the likelihood Hessian on =ε= is
+*dense lower-triangular*, and so is the posterior precision.
+
+Real TMB stock assessments (e.g. SPiCT — Pedersen & Berg 2017) use
+the *centered* parameterisation:
+
+- Latent: =log B[1:T]= directly.
+- Process equation as a likelihood term: =log B[t] ~ Normal(log B[t-1]
+  + drift(log B[t-1], θ), σ_proc)=.
+- Joint Hessian on =log B= is *tridiagonal* — Markov structure
+  preserved.
+
+This is the source of TMB's scalability. Our non-centered approach
+gives correct inference but not the sparse-Hessian story we sold in
+the tutorial.
+
+Sources I confirmed:
+- TMB paper: Kristensen et al. 2016, /Journal of Statistical Software/ 70(5).
+- SPiCT C++ source: =PARAMETER_VECTOR(logB)=, =ans -=
+  dnorm(logBpred(i+1), logB(i+1), sqrt(dt(i))*sdb, 1)=. Tridiagonal
+  Hessian on =logB=.
+- TMB docs: "For latent variables only normal distributions should be
+  used (otherwise the Laplace approximation will perform poorly)."
+
+* The deeper question we punted on
+
+Latte *can* take a non-Gaussian DPPL prior and Gaussianify it via
+sparse-AD on the prior log-density (=_build_joint_sparse_ad_latent= in
+=src/dsl/latent_prior.jl=). But it *linearises at =x_0 = zeros=*,
+fixed at adapter-build time. For state-space Schaefer with
+=log B ≈ log K ≈ 7=, linearising at =x = 0= gives prior-Hessian
+values that are off by ~3 orders of magnitude from where the data
+actually pulls the posterior. *The sparsity pattern is right
+(tridiagonal), but the values are biased.*
+
+TMB instead Newtons the *full joint* and re-evaluates the Hessian
+at each iterate — equivalent to a *per-Newton-step re-linearisation*
+of the prior. That's the missing piece in Latte's algorithm.
+
+* Design doc handed off to GMRFs.jl
+
+=local_latent_quadratic.org= at the root of
+=~/.julia/dev/GaussianMarkovRandomFields/=. Self-contained, no Latte
+references. Proposes:
+
+- New extension point: =local_quadratic(m::LatentModel, x_ref; θ...)
+  -> LocalLatentQuadratic= where =LocalLatentQuadratic= carries =(Q,
+  h, logp_ref, x_ref)=.
+- Default method for genuinely Gaussian latent models — ignores
+  =x_ref= for =(Q, h)=, only uses it for =logp_ref=. *Zero behaviour
+  change* on existing code.
+- Custom override per non-Gaussian-prior model that re-linearises at
+  =x_ref=.
+- =gaussian_approximation= Newton loop calls =local_quadratic= per
+  iterate, with damping + line search on the *exact* joint
+  log-density and modified Cholesky for indefinite =J= during the
+  search.
+- At convergence, recover the undamped =J(x*)= for the Laplace
+  covariance and the *exact* =log p(x*, y | θ)= for the marginal
+  log-likelihood (the =logp_ref= field, which equals the prior at
+  =x*= when =x_ref = x*=).
+
+The math, API sketch, default method strategy, convergence guidance,
+sparse-AD prep gotchas, acceptance criteria, and references are all
+there.
+
+* Pending work, in priority order
+
+** TODO Wait for / drive the GMRFs.jl =LocalLatentQuadratic= work
+:PROPERTIES:
+:priority: highest
+:depends-on: GMRFs.jl maintainer
+:END:
+
+The Latte-side fisheries tutorial refactor depends on this. Until
+=local_quadratic= lands in GMRFs.jl, the centered-form fisheries
+prototype would give biased inference (linearise-at-zero bias on the
+Schaefer drift). The design doc is in
+=~/.julia/dev/GaussianMarkovRandomFields/local_latent_quadratic.org=.
+
+Track upstream progress; once the API ships:
+
+1. Drop =_build_joint_sparse_ad_latent= 's "linearise at zero, return
+   fake Gaussian" hack from =src/dsl/latent_prior.jl=. Replace with
+   a Latte-side override of =local_quadratic= for the DPPL non-Gaussian
+   prior path.
+2. Verify on the existing =test/dsl/test_fast_path_agrees.jl= AD-path
+   tests — should be a no-op for Gaussian-prior models, fix the
+   hidden bias for any non-Gaussian-prior tests we add.
+3. Refactor =fisheries_state_space.jl= to the centered form. Confirm
+   tridiagonal posterior Q at convergence (the original framing is
+   then *correct*).
+
+** TODO Decide on fisheries tutorial near-term framing
+:PROPERTIES:
+:priority: high
+:blocks-on: previous, OR a framing-correction commit now
+:END:
+
+Two options:
+
+a) *Hold the tutorial back* (keep .jl source uncommitted) until the
+   GMRFs.jl change lands; then commit the centered version with the
+   correct sparse-Hessian story.
+
+b) *Commit the non-centered version now* with a callout that
+   transparently explains the Latte-LGM constraint and links to a
+   forward-looking note about the centered formulation. Less elegant
+   but ships a working tutorial today.
+
+Trade-off: (a) is correctness-first; (b) is momentum-first. My
+recommendation is (a) given the tutorial isn't load-bearing for any
+external audience yet.
+
+** TODO Commit the bug fixes + Tweedie tutorial
+:PROPERTIES:
+:priority: high
+:END:
+
+These are independent of the fisheries situation:
+
+- =src/laplace/simplified_laplace.jl= dense-AD fix
+- =src/laplace/mode_finding.jl= classifier + catch updates
+- =src/inference/inla/exploration/transformation.jl= classifier
+- =src/dsl/obs_model.jl= eltype fix
+- =test/latent_marginalization/test_simplified_laplace.jl= regression test
+- =test/parallel/test_parallel_hessian.jl= FD strategy switch
+- =docs/src/literate-tutorials/tweedie_insurance.jl= + rendered .md +
+  PNG figures + =docs/make.jl= and gallery wiring
+
+Suggested commit split:
+
+1. "Surface AD-incompatibility errors instead of silent gradient=0"
+   — classifier + 4 catch-site updates + test_parallel_hessian fix
+2. "Fix Vector{Any} eltype in DPPL custom-AD likelihood path" —
+   obs_model pointwise eltype + the SLA dense-Vec fix
+3. "Add SLA regression test for AutoDiffLikelihood path" — test only
+4. "Add Tweedie regression custom-likelihood tutorial" — tutorial
+   files + docs wiring
+5. *(Eventually)* "Add multi-fleet state-space stock assessment
+   tutorial" — fisheries files, after the centered refactor
+
+Per the standing rule, ask before each =git add= / =git commit=.
+
+** TODO Once fisheries tutorial is correct, consider follow-up tutorials
+
+The custom-likelihood-cookbook idea from earlier — once we have
+Tweedie + (refactored) fisheries shipping, the natural next set:
+
+- Censored Normal regression (Tobit; common in survival, environmental)
+- Robust regression with heavy-tailed Student-t (covers a spec gap)
+- Custom contaminated-normal mixture (R-INLA literally cannot do this)
+- Ordinal regression via cumulative-link
+- Asymmetric-Laplace quantile regression
+
+These were the "cookbook" items from the earlier strategic discussion.
+Each should be ~1 hour of work given the patterns established by Tweedie.
+
+** TODO Lower-priority: =using Latte= load time
+:PROPERTIES:
+:priority: medium
+:END:
+
+After the TTFX precompile workload landed, =using Latte= became the
+biggest remaining cold-start cost (~6 s of ~14.7 s total). Codex
+flagged that Latte unconditionally pulls in =AdvancedHMC=,
+=MCMCChains=, =DataFrames=, =StatsModels=, =KernelDensity=,
+=HCubature=, =ReverseDiff= — splitting those into extensions
+(=LatteFormulaExt=, =LatteHMCExt=, =LatteSummariesExt=) would knock
+2–4 s off load time. Real refactor; useful next major UX push.
+
+** TODO Lower-priority: PSIS-k̂ diagnostic
+:PROPERTIES:
+:priority: low
+:END:
+
+=src/diagnostics/psis.jl= already exists, started earlier. Surfacing
+=k̂= on =INLAResult= / =TMBResult= would give users a principled
+"is this Laplace approximation OK?" check. Nice to have; not blocking.
+
+* Useful artefacts
+
+- =/tmp/tmb_multifleet_prototype.jl= — standalone fisheries prototype
+  with the working multi-fleet Schaefer model. Useful for any further
+  experimentation that doesn't need the docs build.
+- =/tmp/sparsity_repl.jl= — REPL probe written but not run (the
+  =linearise-at-zero= bias was uncovered before this could be
+  executed). Leave as a starting point for verifying the fixed
+  centered formulation once GMRFs.jl ships =local_quadratic=.
+- =/tmp/tweedie_prototype.jl= — Tweedie prototype that informed the
+  tutorial.
+- Earlier diagnosis scripts (=/tmp/diagnose_hessian.jl=,
+  =/tmp/min_repro_outer_fd.jl=, =/tmp/loggrad_test.jl=) — useful as
+  references if any of the AutoDiffLikelihood / nested-AD bugs recur.
+
+* Recent GMRFs.jl issues we filed / drove to resolution
+
+| # | What | Status |
+|---+---+---|
+| 89 | Pointwise-diagonal Hessian fast path for AutoDiffLikelihood | landed |
+| (no #) | Hoist AutoDiffLikelihood Dual-ness onto its type parameter | landed (commit =d662cde=) |
+| (no #) | Probe pointwise output eltype for the diagonal buffer | landed (commit =a975988=) |
+| (no #) | =loggrad= / =loghessian= overrides for closure-Dual =AutoDiffLikelihood= via =OutT=-aware lifting | landed (commit =0a89f67=) |
+| (no #) | "Store hyperparams on AutoDiffLikelihood; route Dual θ via IFT" | landed (commit =fb5bee2=) — the redesign that finally unblocked the Tweedie + fisheries tutorials |
+
+The =local_latent_quadratic.org= design doc is the *next* upstream
+piece to push. Not yet filed as an issue — the doc lives in the
+GMRFs.jl repo root for a maintainer to triage.
+
+* Anchors / context for picking back up
+
+- *Branch*: =latte-prototype=
+- *Latest commit*: =be25260= "Precompile fast-path inla() pipeline; cut TTFX 41%"
+- *GMRFs.jl branch / commit*: check =git log -1= in
+  =~/.julia/dev/GaussianMarkovRandomFields= when picking up — the
+  Tweedie + fisheries tutorials depend on the closure-Dual fix chain
+  ending at =fb5bee2=.
+- *CLAUDE.md* mentions tasks live in =tasks/=. This document is one.
+- *Memory*: per saved feedback, never reference Latte (still pre-public)
+  in upstream / external materials.
