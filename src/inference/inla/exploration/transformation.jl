@@ -71,7 +71,12 @@ function compute_reparameterization(
     logpdf_fn = θ_vec -> with_workspace(pool) do ws
         try
             hyperparameter_logpdf(model, WorkingHyperparameters(θ_vec, θ_star.spec), y; ws = ws)
-        catch
+        catch e
+            # Only swallow real numerical failures (e.g. Cholesky / log of
+            # negative). Re-throw programmer / AD-incompatibility errors so
+            # they don't silently mask as a flat negative-Hessian, which
+            # would later regularise to 1e-6 and blow up the grid step.
+            _is_numerical_failure(e) || rethrow(e)
             -Inf
         end
     end

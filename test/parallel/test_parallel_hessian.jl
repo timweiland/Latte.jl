@@ -91,16 +91,25 @@ using LinearAlgebra
         model = LatentGaussianModel(spec, FunctionLatentModel(latent_2hp, n), ExponentialFamily(Poisson))
         y = PoissonObservations(rand(Poisson(2.0), n))
 
+        # FiniteDiffStrategy: AD through `latent_2hp` produces a Q whose
+        # sparsity pattern can drift from the workspace's Float-pattern at
+        # Dual evaluation points (the user's `spdiagm`-based Q construction
+        # depends on Dual coefficients), tripping the WorkspaceGMRF pattern
+        # check. Same nested-AD limitation as in test_fast_path_agrees.jl.
+        # Sidesteps it via finite-difference outer differentiation; this
+        # test is about parallel-vs-sequential equivalence, not AD.
         r_seq = inla(
             model, y; progress = false,
             latent_marginalization_method = SimplifiedLaplace(),
             hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
+            diff_strategy = FiniteDiffStrategy(),
             executor = SequentialExecutor(),
         )
         r_thr = inla(
             model, y; progress = false,
             latent_marginalization_method = SimplifiedLaplace(),
             hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
+            diff_strategy = FiniteDiffStrategy(),
             executor = ThreadedExecutor(nworkers = max(2, min(4, Threads.nthreads()))),
         )
 
