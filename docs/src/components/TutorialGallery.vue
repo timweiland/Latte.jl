@@ -39,6 +39,12 @@ const tutorials: Tutorial[] = [
     blurb: 'Write any logpdf, get full INLA inference. A hand-coded compound Poisson-Gamma likelihood — zero-inflated continuous, no fast-path support — fits in the same DPPL @model + inla() flow.',
   },
   {
+    href: '/tutorials/fisheries_state_space',
+    tag: 'STATE-SPACE · TMB',
+    title: 'Multi-fleet stock assessment',
+    blurb: 'Schaefer surplus production with a continuous-time logistic ODE, three CPUE indices, and a 9-D hyperparameter space. tmb() finds the MAP and propagates uncertainty in seconds where INLA grid would need billions of points.',
+  },
+  {
     href: '/tutorials/spatial_spde',
     tag: 'SPATIAL · SPDE',
     title: 'Matérn SPDE on a mesh',
