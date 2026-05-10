@@ -161,7 +161,12 @@ of distributions.
 """
 function _probe_obs_syms(dppl_model, hp_names::Tuple, random_syms::Tuple, dims::Dict)
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
-    probe_x = NamedTuple{random_syms}(Tuple(zeros(dims[s]) for s in random_syms))
+    # Seed univariate latents as scalars; DPPL's body for `α ~ Normal(0,1)`
+    # crashes on `exp(::Vector{Float64})` if we hand it a 1-vector.
+    is_scalar = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
+    probe_x = NamedTuple{random_syms}(
+        Tuple(_zero_seed(is_scalar[s], dims[s]) for s in random_syms)
+    )
     cond = DynamicPPL.fix(dppl_model, probe_hp)
     vi = DynamicPPL.OnlyAccsVarInfo((_ObsVnAccumulator(),))
     vi = last(
@@ -350,29 +355,43 @@ function _build_obs_groups_composite(
         dppl_model, groups::AbstractVector,
         hp_names::Tuple, n_latent::Int,
         random_syms::Tuple, dims::Dict,
-        hessian_pattern,
+        hessian_pattern;
+        fast_results::AbstractDict = Dict{Symbol, Any}(),
     )
     args = dppl_model.args
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     is_scalar = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
-    components = Tuple(
-        _build_one_component(
-                dppl_model, syms, hp_names, n_latent, random_syms, dims,
-                hessian_pattern, is_scalar,
-            ) for (_, syms) in groups
-    )
-    routes = Tuple(_identity_route(hp_names) for _ in groups)
-    composite = CompositeObservationModel(components, routes)
 
-    # Build the per-component CompositeObservations payload from the DPPL
-    # args. Each group concatenates the observed arrays for its symbols.
-    composite_obs = CompositeObservations(
-        Tuple(_collect_group_y(args, syms) for (_, syms) in groups)
-    )
+    built = map(groups) do (name, syms)
+        fast = get(fast_results, name, nothing)
+        if fast !== nothing
+            # Fast-path component: rename-only route from the family's
+            # nuisance kwargs to outer hp names, plus emission-order y so
+            # the component's `loglik` aligns with the design matrix rows.
+            # Keep the wrapped observation type (PoissonObservations etc.)
+            # — `collect` would flatten it back to a raw tuple vector and
+            # blow up `_materialize` dispatch.
+            return (component = fast.model, route = fast.route, y = fast.y)
+        end
+        component = _build_one_ad_component(
+            dppl_model, syms, hp_names, n_latent, random_syms, dims,
+            hessian_pattern, is_scalar,
+        )
+        return (
+            component = component,
+            route = _identity_route(hp_names),
+            y = _collect_group_y(args, syms),
+        )
+    end
+
+    components = Tuple(b.component for b in built)
+    routes = Tuple(b.route for b in built)
+    composite = CompositeObservationModel(components, routes)
+    composite_obs = CompositeObservations(Tuple(b.y for b in built))
     return composite, composite_obs
 end
 
-function _build_one_component(
+function _build_one_ad_component(
         dppl_model, group_syms::Tuple,
         hp_names::Tuple, n_latent::Int,
         random_syms::Tuple, dims::Dict,

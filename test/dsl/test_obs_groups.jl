@@ -108,22 +108,26 @@ end
         @test loglik(x, lik_adapter) ≈ ref_phys + ref_sensor atol = 1.0e-9
     end
 
-    @testset "Routes are explicit identity (not nothing)" begin
+    @testset "Routes are NamedTuples with Symbol values (rename-only)" begin
+        # AD-forced groups use the full identity route over hp_names; per-group
+        # fast-path components use a smaller route covering only the family's
+        # nuisance kwargs. Both are rename-only NamedTuples (no value transforms).
         model = latte_from_dppl(
-            dppl; random = (:β,),
+            dppl; random = (:β,), force_ad_obs_model = true,
             obs_groups = [:physics => (:y_phys,), :data => (:y_sensor,)],
         )
-        # The wrapper exposes the underlying composite for inspection.
         composite = Latte._underlying_composite(model.observation_model)
         @test composite isa CompositeObservationModel
-        # Each route is a NamedTuple identity over the full hp tuple, not
-        # `nothing`. Codex flagged passthrough as a weaker contract.
         for route in composite.routes
             @test route isa NamedTuple
-            @test Set(keys(route)) == Set((:σ_phys, :σ_data))
-            for k in keys(route)
-                @test getfield(route, k) === k
+            for v in values(route)
+                @test v isa Symbol
+                @test v in (:σ_phys, :σ_data)
             end
+        end
+        # AD-forced path: each component declares the full hp tuple.
+        for route in composite.routes
+            @test Set(keys(route)) == Set((:σ_phys, :σ_data))
         end
     end
 
@@ -305,5 +309,318 @@ end
         θ_n = Latte.NaturalHyperparameters([0.1, 0.5], model.hyperparameter_spec)
         ll = Latte.log_joint_density(model, x, θ_n, vcat(y_phys, y_sensor))
         @test isfinite(ll)
+    end
+
+    @testset "Per-group fast-path detection" begin
+        using GaussianMarkovRandomFields: LinearlyTransformedObservationModel,
+            ExponentialFamily
+
+        @testset "All-Normal groups → all fast components, none AD" begin
+            model = latte_from_dppl(
+                dppl; random = (:β,),
+                obs_groups = [:physics => (:y_phys,), :data => (:y_sensor,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            @test length(composite.components) == 2
+            for comp in composite.components
+                @test !(comp isa AutoDiffObservationModel)
+                @test comp isa LinearlyTransformedObservationModel
+            end
+        end
+
+        @testset "Per-component routes are scoped to family kwargs" begin
+            model = latte_from_dppl(
+                dppl; random = (:β,),
+                obs_groups = [:physics => (:y_phys,), :data => (:y_sensor,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            # Each fast Normal component routes only `:σ` from the outer hp set.
+            r1, r2 = composite.routes
+            @test keys(r1) == (:σ,) && r1.σ === :σ_phys
+            @test keys(r2) == (:σ,) && r2.σ === :σ_data
+        end
+
+        @testset "Fast vs forced-AD composite: identical loglik & gradient" begin
+            ad = latte_from_dppl(
+                dppl; random = (:β,), force_ad_obs_model = true,
+                obs_groups = [:physics => (:y_phys,), :data => (:y_sensor,)],
+            )
+            fast = latte_from_dppl(
+                dppl; random = (:β,),
+                obs_groups = [:physics => (:y_phys,), :data => (:y_sensor,)],
+            )
+            x = randn(p)
+            hp = (σ_phys = 0.3, σ_data = 1.2)
+            ad_lik = ad.observation_model(nothing; hp...)
+            fast_lik = fast.observation_model(nothing; hp...)
+            @test loglik(x, ad_lik) ≈ loglik(x, fast_lik) atol = 1.0e-9
+            @test loggrad(x, ad_lik) ≈ loggrad(x, fast_lik) atol = 1.0e-9
+        end
+
+        @testset "Mixed Normal + Poisson families: both groups fast" begin
+            @model function _mixed_fams(y_cont, y_count, A, B)
+                σ ~ Gamma(2, 1)
+                β ~ MvNormal(zeros(size(A, 2)), 100.0 * I)
+                for i in eachindex(y_cont)
+                    y_cont[i] ~ Normal(dot(A[i, :], β), σ)
+                end
+                for i in eachindex(y_count)
+                    y_count[i] ~ Poisson(exp(dot(B[i, :], β)); check_args = false)
+                end
+            end
+
+            Random.seed!(2029)
+            n1, n2, q = 5, 4, 3
+            A = randn(n1, q)
+            B = randn(n2, q) ./ 4
+            β_t = randn(q) ./ 4
+            y_cont = A * β_t .+ 0.2 .* randn(n1)
+            y_count = [rand(Poisson(exp(dot(B[i, :], β_t)))) for i in 1:n2]
+
+            dppl_m = _mixed_fams(y_cont, y_count, A, B)
+            model = latte_from_dppl(
+                dppl_m; random = (:β,),
+                obs_groups = [:cont => (:y_cont,), :count => (:y_count,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            for comp in composite.components
+                @test !(comp isa AutoDiffObservationModel)
+                @test comp isa LinearlyTransformedObservationModel
+            end
+            # Poisson route is empty (no nuisance kwargs); Normal routes σ.
+            r_cont, r_count = composite.routes
+            @test keys(r_cont) == (:σ,) && r_cont.σ === :σ
+            @test keys(r_count) == ()
+        end
+
+        @testset "Heterogeneous group → AD fallback for that group only" begin
+            # One group mixes Normal + Poisson; that group must fall back to AD,
+            # the homogeneous group can still go fast.
+            @model function _hetero_grp(y_n, y_p, y_g, A, B, C)
+                σ ~ Gamma(2, 1)
+                β ~ MvNormal(zeros(size(A, 2)), 100.0 * I)
+                for i in eachindex(y_n)
+                    y_n[i] ~ Normal(dot(A[i, :], β), σ)
+                end
+                for i in eachindex(y_p)
+                    y_p[i] ~ Poisson(exp(dot(B[i, :], β)); check_args = false)
+                end
+                # Third channel — pure Normal, lives alone.
+                for i in eachindex(y_g)
+                    y_g[i] ~ Normal(dot(C[i, :], β), σ)
+                end
+            end
+
+            Random.seed!(2030)
+            n1, n2, n3, q = 4, 3, 5, 3
+            A = randn(n1, q); B = randn(n2, q) ./ 4; C = randn(n3, q)
+            β_t = randn(q) ./ 4
+            y_n = A * β_t .+ 0.2 .* randn(n1)
+            y_p = [rand(Poisson(exp(dot(B[i, :], β_t)))) for i in 1:n2]
+            y_g = C * β_t .+ 0.2 .* randn(n3)
+
+            dppl_h = _hetero_grp(y_n, y_p, y_g, A, B, C)
+            model = latte_from_dppl(
+                dppl_h; random = (:β,),
+                obs_groups = [:mixed => (:y_n, :y_p), :pure => (:y_g,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            # First group (mixed Normal+Poisson) → AD; second (pure Normal) → fast.
+            @test composite.components[1] isa AutoDiffObservationModel
+            @test composite.components[2] isa LinearlyTransformedObservationModel
+        end
+
+        @testset "Hardcoded nuisance kwarg → fast component (no AD)" begin
+            # `y_phys[i] ~ Normal(μ, 1e-3)` literal σ — should still fast-path,
+            # baking the constant into the component instead of forcing AD.
+            @model function _hard_sigma(y_phys, y_data, A_phys, A_data)
+                σ_data ~ Gamma(2, 1)
+                β ~ MvNormal(zeros(size(A_phys, 2)), 100.0 * I)
+                for i in eachindex(y_phys)
+                    y_phys[i] ~ Normal(dot(A_phys[i, :], β), 1.0e-3)
+                end
+                for i in eachindex(y_data)
+                    y_data[i] ~ Normal(dot(A_data[i, :], β), σ_data)
+                end
+            end
+
+            Random.seed!(2032)
+            n1, n2, q = 6, 5, 3
+            A_p = randn(n1, q); A_d = randn(n2, q)
+            β_t = randn(q)
+            y_p = A_p * β_t .+ 1.0e-3 .* randn(n1)
+            y_d = A_d * β_t .+ 0.4 .* randn(n2)
+
+            dppl_h = _hard_sigma(y_p, y_d, A_p, A_d)
+            model = latte_from_dppl(
+                dppl_h; random = (:β,),
+                obs_groups = [:phys => (:y_phys,), :data => (:y_data,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            for comp in composite.components
+                @test !(comp isa AutoDiffObservationModel)
+            end
+            # The :phys group has no hp-driven kwargs, so its route is empty.
+            r_phys, r_data = composite.routes
+            @test keys(r_phys) == ()
+            @test keys(r_data) == (:σ,) && r_data.σ === :σ_data
+            # Materialise and compare to the closed-form sum: σ_phys is fixed
+            # at 1e-3 inside the component, σ_data flows from the kwarg.
+            x = randn(q)
+            lik = model.observation_model(nothing; σ_data = 0.4)
+            ref_p = sum(
+                logpdf(Normal(dot(A_p[i, :], x), 1.0e-3), y_p[i])
+                    for i in eachindex(y_p)
+            )
+            ref_d = sum(
+                logpdf(Normal(dot(A_d[i, :], x), 0.4), y_d[i])
+                    for i in eachindex(y_d)
+            )
+            @test loglik(x, lik) ≈ ref_p + ref_d rtol = 1.0e-12
+        end
+
+        @testset "Single-group hardcoded σ → fast (no obs-side hps)" begin
+            # τ drives the β prior precision so we have an outer hp for
+            # INLA, but the obs-side σ is hardcoded — the obs route should
+            # be empty and the component should still be fast.
+            @model function _all_fixed(y, A)
+                τ ~ Gamma(2, 1)
+                β ~ MvNormal(zeros(size(A, 2)), (1 / τ) * I(size(A, 2)))
+                for i in eachindex(y)
+                    y[i] ~ Normal(dot(A[i, :], β), 0.5)
+                end
+            end
+            Random.seed!(2033)
+            n, q = 7, 3
+            A = randn(n, q); β_t = randn(q)
+            y = A * β_t .+ 0.5 .* randn(n)
+            dppl_a = _all_fixed(y, A)
+            model = latte_from_dppl(
+                dppl_a; random = (:β,),
+                obs_groups = [:all => (:y,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            @test !(composite.components[1] isa AutoDiffObservationModel)
+            @test composite.routes[1] == NamedTuple()
+            x = randn(q)
+            lik = model.observation_model(nothing; τ = 0.01)
+            ref = sum(
+                logpdf(Normal(dot(A[i, :], x), 0.5), y[i])
+                    for i in eachindex(y)
+            )
+            @test loglik(x, lik) ≈ ref atol = 1.0e-9
+        end
+
+        @testset "hp-dependent design matrix → AD fallback" begin
+            # PDE-inverse shape: η = -κ·L·u + u — linear in u but the
+            # design-matrix entries depend on κ. The current fast path
+            # would freeze A at probe_hp(κ=1.0); the outer κ Dual would
+            # never reach A, collapsing the κ posterior to its prior.
+            # Detector must reject this group and fall back to AD.
+            @model function _hp_in_A(y, L)
+                κ ~ Gamma(2, 0.1)
+                u ~ MvNormal(zeros(size(L, 1)), 100.0 * I(size(L, 1)))
+                for i in eachindex(y)
+                    y[i] ~ Normal(-κ * dot(L[i, :], u) + u[i], 0.01)
+                end
+            end
+            Random.seed!(2035)
+            n = 6
+            L = randn(n, n)
+            u_t = randn(n)
+            y = (-0.1 .* (L * u_t) .+ u_t) .+ 0.01 .* randn(n)
+            dppl_hpA = _hp_in_A(y, L)
+            model = latte_from_dppl(
+                dppl_hpA; random = (:u,),
+                obs_groups = [:all => (:y,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            @test composite.components[1] isa AutoDiffObservationModel
+        end
+
+        @testset "hp-dependent offset b(θ) → AD fallback" begin
+            # η = u + ω where ω is an outer hp shift. A is constant (= I)
+            # but b(θ) = ω depends on the outer hp. Same failure mode.
+            @model function _hp_in_b(y)
+                ω ~ Gamma(2, 1)
+                u ~ MvNormal(zeros(length(y)), 100.0 * I(length(y)))
+                for i in eachindex(y)
+                    y[i] ~ Normal(u[i] + ω, 0.1)
+                end
+            end
+            Random.seed!(2036)
+            y = randn(5)
+            dppl_b = _hp_in_b(y)
+            model = latte_from_dppl(
+                dppl_b; random = (:u,),
+                obs_groups = [:all => (:y,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            @test composite.components[1] isa AutoDiffObservationModel
+        end
+
+        @testset "Latent-dependent σ → AD fallback (not misclassified as fixed)" begin
+            # σ = exp(α) where α is a latent — at probe x=0, σ=1, so
+            # under hp-only perturbation the fast-path detector would
+            # call it a constant. The latent-invariance check must catch
+            # the dependence and reject the group.
+            @model function _latent_sigma(y, A)
+                τ ~ Gamma(2, 1)
+                α ~ Normal(0, 1)
+                β ~ MvNormal(zeros(size(A, 2)), (1 / τ) * I(size(A, 2)))
+                for i in eachindex(y)
+                    y[i] ~ Normal(dot(A[i, :], β), exp(α))
+                end
+            end
+            Random.seed!(2034)
+            n, q = 5, 3
+            A = randn(n, q); β_t = randn(q)
+            y = A * β_t .+ 0.3 .* randn(n)
+            dppl_l = _latent_sigma(y, A)
+            model = latte_from_dppl(
+                dppl_l; random = (:α, :β),
+                obs_groups = [:all => (:y,)],
+            )
+            composite = Latte._underlying_composite(model.observation_model)
+            @test composite.components[1] isa AutoDiffObservationModel
+        end
+
+        @testset "Emission-order y consistency under interleaved sites" begin
+            # Model with interleaved y_a/y_b sites — A rows for the fast-path
+            # component must align with the y values in DPPL emission order,
+            # not with `_collect_group_y` concatenation order.
+            @model function _interleaved(y_a, y_b, A, B)
+                σ ~ Gamma(2, 1)
+                β ~ MvNormal(zeros(size(A, 2)), 100.0 * I)
+                # Interleave: a, b, a, b, ...
+                n = min(length(y_a), length(y_b))
+                for i in 1:n
+                    y_a[i] ~ Normal(dot(A[i, :], β), σ)
+                    y_b[i] ~ Normal(dot(B[i, :], β), σ)
+                end
+            end
+
+            Random.seed!(2031)
+            n, q = 5, 3
+            A = randn(n, q); B = randn(n, q)
+            β_t = randn(q)
+            y_a = A * β_t .+ 0.1 .* randn(n)
+            y_b = B * β_t .+ 0.1 .* randn(n)
+
+            dppl_i = _interleaved(y_a, y_b, A, B)
+            ad = latte_from_dppl(
+                dppl_i; random = (:β,), force_ad_obs_model = true,
+                obs_groups = [:a => (:y_a,), :b => (:y_b,)],
+            )
+            fast = latte_from_dppl(
+                dppl_i; random = (:β,),
+                obs_groups = [:a => (:y_a,), :b => (:y_b,)],
+            )
+            x = randn(q)
+            hp = (σ = 0.3,)
+            ll_ad = loglik(x, ad.observation_model(nothing; hp...))
+            ll_fast = loglik(x, fast.observation_model(nothing; hp...))
+            @test ll_ad ≈ ll_fast atol = 1.0e-9
+        end
     end
 end
