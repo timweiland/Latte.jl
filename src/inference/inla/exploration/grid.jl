@@ -2,6 +2,12 @@ export explore_hyperparameter_posterior
 
 using StatsFuns: logsumexp
 
+function _grid_tail_exceeded(mode_logpdf::Real, log_density::Real, max_log_drop::Real)
+    isfinite(mode_logpdf) || return true
+    isfinite(log_density) || return true
+    return mode_logpdf - log_density > max_log_drop
+end
+
 """
     explore_half_axis_by_steps(model, y, transform, mode_logpdf, dim, direction, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators)
 
@@ -36,14 +42,14 @@ function explore_half_axis_by_steps(
             marginalization_indices = marginalization_indices,
         )
 
-        if mode_logpdf - result.log_density > max_log_drop
+        if _grid_tail_exceeded(mode_logpdf, result.log_density, max_log_drop)
             break
         end
 
         point = GridPoint(θ_test, result.log_density, result.marginal_result)
 
         # Call accumulators eagerly and record the grid key for ordering
-        if is_integration_point && !isempty(accumulators) && result.log_density > -Inf
+        if is_integration_point && !isempty(accumulators) && isfinite(result.log_density)
             for acc in accumulators
                 summary = compute_point_summary(acc; result...)
                 if summary !== nothing
@@ -174,9 +180,16 @@ function explore_hyperparameter_posterior(
         )
         mp = GridPoint(θ_star, mode_result.log_density, mode_result.marginal_result)
         mode_log_density = mode_result.log_density
+        if !isfinite(mode_log_density)
+            throw(
+                ArgumentError(
+                    "Grid exploration cannot start because the mode point evaluated to non-finite log density ($(mode_log_density)).",
+                )
+            )
+        end
 
         # Call accumulators for the mode point
-        if !isempty(accumulators) && mode_log_density > -Inf
+        if !isempty(accumulators) && isfinite(mode_log_density)
             for acc in accumulators
                 summary = compute_point_summary(acc; mode_result...)
                 if summary !== nothing
@@ -233,7 +246,7 @@ function explore_hyperparameter_posterior(
             marginalization_method = marginalization_method,
             marginalization_indices = marginalization_indices,
         )
-        summaries = if result.log_density > -Inf
+        summaries = if isfinite(result.log_density)
             map(accumulators) do acc
                 compute_point_summary(acc; result...)
             end
@@ -255,7 +268,7 @@ function explore_hyperparameter_posterior(
             push!(raw_interpolation_points, point_lookup[key_tuple])
         elseif haskey(off_axis_result_map, idx)
             r = off_axis_result_map[idx]
-            if mode_log_density - r.log_density <= max_log_drop
+            if isfinite(r.log_density) && mode_log_density - r.log_density <= max_log_drop
                 push!(raw_interpolation_points, GridPoint(r.θ, r.log_density, r.marginal_result))
 
                 if r.is_integration && !isempty(accumulators)
