@@ -50,6 +50,7 @@ function latte_from_dppl(
         force_ad_obs_model::Bool = false,
         augment::Bool = true,
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
+        obs_groups = nothing,
     )
     random_syms = random isa Symbol ? (random,) : random
     priors = extract_priors(dppl_model)
@@ -69,8 +70,18 @@ function latte_from_dppl(
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     dims = Dict(s => variable_length(dppl_model, s, probe_hp) for s in random_syms)
 
-    # Detect fast path first.
-    fast_obs = force_ad_obs_model ? nothing :
+    # Composite-obs path: when `obs_groups` is supplied we always go through
+    # AD, never the fast path. The two are conceptually composable but
+    # gluing them together (one fast-path component + one AD component
+    # under one composite) is a separate, larger task.
+    obs_groups_spec = _normalize_obs_groups(obs_groups)
+    use_obs_groups = obs_groups_spec !== nothing
+    if use_obs_groups
+        _validate_obs_groups(obs_groups_spec, dppl_model, hp_names, random_syms, dims)
+    end
+
+    # Detect fast path first (skipped when grouping is requested).
+    fast_obs = (force_ad_obs_model || use_obs_groups) ? nothing :
         try_exponential_family_fast_path(dppl_model, random_syms, dims, hp_names)
     use_fast_path = fast_obs !== nothing
 
@@ -119,12 +130,21 @@ function latte_from_dppl(
     )
     @debug "latent extraction path" path fast_path = use_fast_path augmented = augment
 
-    obs = use_fast_path ? fast_obs :
+    obs = if use_fast_path
+        fast_obs
+    elseif use_obs_groups
+        composite, composite_obs = _build_obs_groups_composite(
+            dppl_model, obs_groups_spec, hp_names, length(latent),
+            random_syms, dims, extra_pattern,
+        )
+        _DPPLCompositeObservationModel(composite, composite_obs, hp_names, length(latent))
+    else
         extract_obs_model(
             dppl_model, length(latent), random_syms, dims;
             hp_names = hp_names,
             hessian_pattern = extra_pattern,  # nothing, dense, or user-supplied
         )
+    end
     # Build a `sym → augmented-latent range` layout so downstream callers
     # (`linear_combinations(result; β = …)`, `result.latent_marginals[:β]`,
     # etc.) can look things up by DPPL symbol. When the LGM is augmented
