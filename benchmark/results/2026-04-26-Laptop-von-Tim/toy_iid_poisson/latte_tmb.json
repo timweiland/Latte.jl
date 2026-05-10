@@ -1,0 +1,80 @@
+{
+    "schema_version": 1,
+    "scenario_id": "toy_iid_poisson",
+    "scenario_version": "230f39dd849c427f",
+    "engine_id": "latte_tmb",
+    "engine_version": "0.1.0-DEV",
+    "run_id": "7d0490f5-a54e-425f-8223-bf3236887ee6",
+    "seed": 195939070,
+    "data_id": "35ffb5d511ce78e4",
+    "mode": "full",
+    "status": "success",
+    "error_type": null,
+    "error_message": null,
+    "skip_reason": null,
+    "timings": {
+        "model_construction": 0.000285417,
+        "compilation": null,
+        "optimisation": 0.727604833,
+        "sampling": null,
+        "posterior_summary": null,
+        "total": 0.72789025
+    },
+    "repetitions": 1,
+    "timeout_seconds": 120,
+    "accuracy": {
+        "posterior_ks_max": 0.026490320000285283,
+        "posterior_ks_signed_at_argmax": 0.026490320000285283,
+        "latent_ks_max": 0.0656605486788081,
+        "latent_ks_signed_at_argmax": -0.0656605486788081,
+        "posterior_ci50_mass_error": 0.021341029565666858,
+        "posterior_ci90_mass_error": 0.0197687257231558,
+        "posterior_ci95_mass_error": 0.013511943828348527,
+        "latent_ci50_mass_error": 0.019910268566537437,
+        "latent_ci90_mass_error": 0.0090166466232795,
+        "latent_ci95_mass_error": 0.007861919543347806,
+        "worst_ks": 0.0656605486788081,
+        "verdict": "yellow",
+        "notes": [
+        ]
+    },
+    "diagnostics": {
+        "converged": true,
+        "elapsed_total": 0.6640441417694092,
+        "warm_median_seconds": 0.03590025,
+        "warm_iqr_lo": 0.03590025,
+        "warm_iqr_hi": 0.03590025,
+        "warm_repetitions": 1
+    },
+    "comparability": null,
+    "comparability_notes": null,
+    "external_target": null,
+    "process_startup_seconds": null,
+    "script_path": null,
+    "environment": {
+        "os": "Darwin",
+        "blas_threads": 8,
+        "cpu_brand": "Apple M1 Max",
+        "cpu_threads": 8,
+        "julia_threads": 1,
+        "blas_vendor": "lbt",
+        "package_versions": {
+            "Turing": "0.43.7",
+            "Latte": "0.1.0-DEV",
+            "AdvancedHMC": "0.8.3",
+            "Optim": "1.13.3",
+            "GaussianMarkovRandomFields": "0.10.0",
+            "DynamicPPL": "0.40.24",
+            "ForwardDiff": "0.10.39",
+            "Distributions": "0.25.125"
+        },
+        "hostname": "Laptop-von-Tim",
+        "total_memory_gb": 32,
+        "arch": "aarch64",
+        "julia_version": "1.10.10"
+    },
+    "timestamp_iso": "2026-04-26T00:09:59Z",
+    "git_sha": "9d6936280779f1a4da7574459a46c87f61131917",
+    "notes": [
+    ]
+}
