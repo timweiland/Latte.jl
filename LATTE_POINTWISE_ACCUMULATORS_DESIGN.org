@@ -1,0 +1,481 @@
+#+TITLE: Latte posterior-accumulator integration: design discussion
+#+AUTHOR: Tim Weiland (drafted with Claude)
+#+DATE: 2026-05-10
+#+AUDIENCE: Latte coding agent
+#+STATUS: design discussion — *do not implement yet*
+
+* TL;DR
+
+Latte's WAIC / CPO / LPML accumulators currently assume each observation
+=y_i= depends on a *single* latent component =x_i=. That assumption is
+correct for the existing fast-path obs models (=ExponentialFamily=,
+=OffsetObservationModel=) where each =y_i= sits over its own latent
+entry. It silently breaks for the =LinearlyTransformedObservationModel=
+case used inside =CompositeObservationModel= when the design-matrix
+=A= has rows with more than one nonzero — i.e. when =y_i= depends on a
+*linear combination* of latent components.
+
+The breakage is numerical (element-wise Gauss-Hermite over the latent
+ignores cross-covariances; values blow up by orders of magnitude) and
+the bug is signalled clearly by per-obs reliability counts.
+
+This document argues that the right fix is *not* "add another analytic
+specialisation"; it's a small contract change that makes the
+"integrate pointwise log-likelihood under the latent posterior"
+primitive explicit about which latent entries each =y_i= depends on.
+Three design options are sketched below for discussion before
+implementation.
+
+* The observation
+
+Reproducer:
+=~/.julia/dev/FunctionalGPs/examples/latte_inla/pde_inverse.jl=
+(commit 0fefd99 plus the @latte rewrite in the working tree).
+
+Output excerpt:
+
+#+begin_src
+WAIC: 1.74e9
+LPML: -1.77e10
+Mean CPO: 14.3576   (CPO must be in [0, 1])
+Min CPO:  0.0
+Unreliable observations: 36 / 77
+Max failure score: 0.0
+#+end_src
+
+Mode-finding and the hyperparameter / latent posteriors are *fine* —
+when we drop accumulators or read =hyperparameter_marginals= directly,
+recovery is sharp. The accumulators are the pathology.
+
+The =36 / 77= split is the smoking gun:
+
+| Obs group | =A= row structure                            | Multi-coeff? | Count |
+|-----------|----------------------------------------------|--------------|-------|
+| physics   | =-κ uxx_i - κ uyy_i + u_i = (A·x)_i=        | yes (3 nz)   | 36    |
+| bc        | =A_bc[i, :]= selects the i-th boundary entry | no (1 nz)    | 16    |
+| data      | =A_data[i, :]= selects the i-th sensor entry | no (1 nz)    | 25    |
+
+=36 unreliable= = exactly the multi-coefficient group. The two
+selection-matrix groups are reported as fine.
+
+* Diagnosis: where the assumption hides
+
+Latte's generic posterior-accumulator path lives in
+[[file:~/.julia/dev/IntegratedNestedLaplace/src/posterior/accumulators/waic.jl][src/posterior/accumulators/waic.jl]]:
+
+#+begin_src julia
+function _integrated_pointwise_loglik(ga, obs_lik; n_nodes::Int = 15)
+    μ = mean(ga); σ = std(ga)
+    nodes, weights = gausshermite(n_nodes)
+    for j in 1:n_nodes
+        x_j = μ .+ sqrt(2) .* σ .* nodes[j]   # element-wise perturbation
+        ll_at_nodes[j] = pointwise_loglik(x_j, obs_lik)
+    end
+    ...
+end
+#+end_src
+
+The element-wise quadrature implicitly says: "for each =i=, =y_i= is
+integrated against =N(μ_i, σ_i²)=, the marginal of the i-th latent
+entry". This is exactly correct *if* the accumulator's "i" matches the
+latent's "i" — which holds for direct obs models (=ExponentialFamily=,
+=OffsetObservationModel=).
+
+For =LinearlyTransformedLikelihood{Normal}= inside =CompositeLikelihood=,
+=pointwise_loglik(x_j, comp)= computes =η_j = A · x_j= and evaluates
+=Normal(η_j, σ)= per row. The variance of =η_i= over the j-quadrature is
+
+#+begin_src
+v_η_quad[i] = sum_k A[i,k]² σ_x[k]²
+#+end_src
+
+which differs from the *true* posterior variance of =η_i= under the
+joint =x= posterior:
+
+#+begin_src
+v_η[i] = (A Σ_x A^T)_{ii}
+       = sum_k A[i,k]² σ_x[k]² + 2 sum_{k<l} A[i,k] A[i,l] Cov(x_k, x_l)
+#+end_src
+
+The cross-covariance term is non-trivial whenever (a) =A[i, :]= has
+multiple nonzeros and (b) =Σ_x= is non-diagonal — both true here.
+
+For our physics row at the inferred posterior the cross terms can flip
+the sign or magnitude of =v_η[i]=, and that error feeds into
+
+#+begin_src
+expected_log_ll[i] = -½ log(2π) - log σ - [(y_i - μ_η_i)² + v_η[i]] / (2σ²)
+#+end_src
+
+with =σ = 1e-3=. A wrong =v_η[i]= of order 1 contributes =5×10⁵= to the
+formula. Sum over 36 obs ≈ =2×10⁷=. The =p_WAIC= step then squares the
+discrepancy through =-2(lppd - p_WAIC)= and you land at the =4×10¹⁰=
+WAIC seen in the run.
+
+The =1 / 77 unreliable= count and the =Min CPO = 0= are downstream
+consequences of the same numerical instability.
+
+* Why the existing dispatch doesn't catch this
+
+There *is* an analytic Normal-IdentityLink path
+([[file:~/.julia/dev/IntegratedNestedLaplace/src/posterior/accumulators/waic.jl][waic.jl:88]]):
+
+#+begin_src julia
+function _integrated_pointwise_loglik(
+        ga, obs_lik::NormalLikelihood{IdentityLink}; ...
+    )
+#+end_src
+
+which dispatches only on bare =NormalLikelihood{IdentityLink}=. Our
+composite components are
+=LinearlyTransformedLikelihood{NormalLikelihood{IdentityLink}}= wrapped
+in =CompositeLikelihood=. Neither type matches the signature; the
+generic Gauss-Hermite fallback fires.
+
+A naive fix is to add a dispatch for
+=LinearlyTransformedLikelihood{NormalLikelihood{IdentityLink}}= that
+materialises =A · Σ_x · A^T='s diagonal. That works and is roughly the
+right complexity (=Σ_x= diagonal + cross terms restricted to =A='s
+nonzero pattern), but it doesn't address the underlying contract
+mismatch.
+
+* The fundamental question
+
+What's the right primitive for posterior accumulators that need
+"per-observation integrated log-likelihood"?
+
+Two candidate framings:
+
+** Framing 1: integrate over the latent (current)
+
+The primitive is:
+
+#+begin_src julia
+pointwise_loglik(x, obs_lik) :: Vector{Float64}    # evaluated at full x
+#+end_src
+
+and the accumulator integrates each =y_i='s contribution by sampling /
+quadrature over =x='s posterior. The crux: how do we choose the
+quadrature so it *correctly marginalises out the right latent
+direction* for =y_i=?
+
+For univariate-dependence obs (each =y_i= depends on one =x_i=), 1D
+element-wise quadrature is correct.
+
+For multi-coefficient obs (=y_i= depends on a linear combination
+=η_i = A[i, :] · x=), the relevant marginal is over =η_i= with variance
+=A[i, :] Σ_x A[i, :]^T=. Element-wise quadrature is wrong unless we
+account for cross-covariances.
+
+** Framing 2: integrate over the linear predictor
+
+The primitive becomes:
+
+#+begin_src julia
+linear_predictor(x, obs_lik) :: Vector{Float64}    # η = A · x
+pointwise_loglik(η, base_obs_lik) :: Vector{Float64}
+#+end_src
+
+The accumulator computes =(μ_η, v_η) = (A μ_x, diag(A Σ_x A^T))= and
+runs the per-η integration. For direct obs (=A= = identity / selection
+matrix), =η_i = x_i= and the existing element-wise path is recovered
+trivially. For linearly-transformed obs, =A= is non-trivial but
+=v_η= is computed correctly.
+
+This is closer to the textbook formulation of latent-Gaussian-model
+WAIC: the linear predictor is the natural per-obs random variable.
+
+** A Latte-specific third framing: lean on augmentation
+
+Latte already augments the latent with =η= variables for non-trivial
+likelihoods (=AugmentedLatentModel=, =linear_predictor_precision=).
+For augmented LGMs, =η= *is* a slice of the latent vector. Its
+posterior variance is read off the joint posterior =Σ=.
+
+So the existing element-wise Gauss-Hermite over =x= is *already
+correct* for augmented LGMs — *if* the accumulator uses the η
+indices (=augmentation_info.linear_predictor_indices= or similar)
+instead of treating =x= as flat.
+
+Whether augmentation is on by default for the
+=CompositeObservationModel= path: in our run it is — the printed type
+shows =AugmentedLatentModel= as the latent prior wrapper, with =186 =
+129 + 57= total latents (57 augmented η variables). So in principle
+the right η variances are sitting in the latent posterior already.
+
+Bug becomes: *the accumulator does not know which entries of =x= are
+the η variables*, and treats them on the same footing as base latent.
+
+* Three design options
+
+Each is a coherent fix; they differ in how much contract they touch.
+
+** Option A: add specialisations to the generic path
+
+- Add =_integrated_pointwise_loglik= dispatches for
+  =LinearlyTransformedLikelihood{NormalLikelihood{IdentityLink}}= and
+  =CompositeLikelihood= (delegates per component, concatenates).
+- For Normal cases the analytic formulas are clean.
+- For non-Normal linearly-transformed obs, do Gauss-Hermite over =η=
+  using =(μ_η, v_η)= computed from =A= and the =Σ_x= diagonal +
+  selected off-diagonals where =A= has cross structure.
+
+Pros: minimal disruption to the rest of Latte. Direct fix to a known
+mis-dispatch.
+
+Cons: doesn't fix the underlying contract. Anyone who writes a new
+multi-coefficient obs model that doesn't go through
+=LinearlyTransformedLikelihood= will silently hit the same bug. The
+"is this obs model multi-coefficient?" question is implicit and per-type.
+
+** Option B: refactor the accumulator primitive to the η framing
+
+- Change accumulators to consume =linear_predictor= +
+  =pointwise_loglik(η, base)= instead of =pointwise_loglik(x, obs)=.
+- Existing fast-path obs models trivially expose
+  =linear_predictor(x, obs) = obs.A * x= or similar.
+- Direct obs models have =A = I=, so =η = x=, no math change.
+- The integrated-likelihood formula in the accumulator is now
+  unambiguous (works for any =A= that produces a per-obs scalar
+  linear predictor).
+
+Pros: fixes the contract once, future-proofs against new obs models.
+Mirrors the textbook latent-Gaussian-model formulation.
+
+Cons: real refactor. Touches every obs model, not just the broken
+ones. Potentially incurs a performance regression for the existing
+analytic paths if not careful with dispatch.
+
+** Option C: lean on augmentation, surface =η=-indices to accumulators
+
+- Latte's augmentation step already creates =η= variables in the
+  latent vector. Surface this through =augmentation_info= (e.g. a
+  =per_component_linear_predictor_indices= map keyed by component).
+- Accumulators consume this map: instead of looping over all =x=
+  entries, they loop over =η= entries (one per obs) and use the
+  joint posterior =Σ= entries indexed there.
+- For non-augmented LGMs the map is identity (=η_i = x_i=) and the
+  current behaviour is preserved.
+
+Pros: re-uses existing infrastructure (=AugmentedLatentModel=) without
+a new contract. The η variances are *already* computed as part of the
+joint posterior. Fix is local to the accumulators + the augmentation
+metadata.
+
+Cons: relies on augmentation being on, which is currently a per-obs-model
+toggle (=augment_latent= keyword). Non-augmented composite paths still
+hit the original bug. Introduces a coupling between augmentation
+metadata and accumulators that wasn't there before.
+
+* Recommendation (after two Codex consults)
+
+Updated 2026-05-11 after consulting Codex twice on the trade-off.
+
+**Recommendation: trait-declared accumulator capabilities + user-controlled scope.**
+
+The original Options A / B / C all have something right and something
+wrong. The right shape is a hybrid: Option B's η framing is the right
+*primitive* (accumulators integrate per-observation, not per-latent-
+coordinate), Option C's augmentation backend is a valid optimisation
+when augmentation is on, Option A's specialisations fall out as cases
+in a capability dispatch. But none of them work as the *contract*:
+
+- Option C as contract is too restrictive — one =AutoDiffLikelihood=
+  component in a composite poisons the whole story (AD obs can't be
+  linearly augmented). Augmentation is also approximate (finite κ);
+  reading η variance off Σ_aug differs from the un-augmented
+  =diag(A Σ_x A')= by a noise floor.
+- Option B as contract works correctness-wise but undersells the
+  augmented case (recomputes what's already on Σ_aug) and offers no
+  shape for AD obs.
+- Option A is just a patch; future multi-coefficient obs models
+  silently regress.
+
+The *real* design tension the user identified: WAIC / CPO over a
+physics-residual channel is conceptually confused. It's a
+model-imposed constraint, not exchangeable data. =loo='s held-out
+predictive interpretation doesn't apply. Whatever the implementation,
+the user has to be able to declare scope.
+
+** Capability planning per component
+
+Each component of a =CompositeObservationModel= (or the top-level obs
+when not composite) declares its accumulator capability via a trait:
+
+#+begin_src julia
+abstract type AccumulatorCapability end
+
+struct DirectLatentCapability <: AccumulatorCapability
+    indices       # which entries of x are this component's η
+    likelihood    # the inner likelihood, indexed
+end
+
+struct AugmentedEtaCapability <: AccumulatorCapability
+    eta_indices   # slot positions inside Σ_aug
+    likelihood    # base likelihood (already in η coords)
+end
+
+struct LinearEtaCapability <: AccumulatorCapability
+    A             # design matrix
+    likelihood    # base likelihood in η coords
+    estimated_work::Int   # sum of |J_i|² across rows; for dense detection
+end
+
+struct SampleBasedCapability <: AccumulatorCapability
+    pointwise_loglik   # closure to evaluate per sample
+    pointwise_cdf      # optional / nothing
+end
+
+struct UnsupportedAccumulatorCapability <: AccumulatorCapability
+    reason::String     # human-readable explanation
+end
+#+end_src
+
+Dispatch:
+
+- =ExponentialFamilyLikelihood= → =DirectLatentCapability(indices, lik)=
+- =LinearlyTransformedLikelihood= → =AugmentedEtaCapability= if the LGM
+  is augmented and this LTL's η slots are exposed; else
+  =LinearEtaCapability(A, base, work)=
+- =CompositeLikelihood= → recurse per component (mixed capabilities OK)
+- =AutoDiffLikelihood= → =SampleBasedCapability= or
+  =Unsupported= depending on user policy
+
+** Scope control
+
+Public API gains a control object:
+
+#+begin_src julia
+inla(model, y;
+    accumulators = (WAICStrategy(), CPOStrategy()),
+    loo_control = LOOControl(
+        groups = (:data,),           # which obs groups feed WAIC/CPO
+        fallback = :error,            # :error | :skip | :sample for Unsupported
+        dense = :warn,                # :warn | :error | :allow for dense-A
+        max_linear_work = 10^7,
+        n_samples = 512,
+    ),
+)
+#+end_src
+
+Defaults reasonable: =groups = :all=, =fallback = :error= (don't silently
+return wrong numbers), =dense = :warn=.
+
+For the typical R-INLA workflow (single homogeneous obs, all
+augmentable), the defaults Just Work.
+
+** @latte integration (open question)
+
+The =@latte= macro already analyses observation sites and assigns them
+to groups (when =obs_groups= is supplied). It could declare scope
+inline. Sketches under consideration:
+
+#+begin_src julia
+@latte function pde_inverse(y_phys, y_data, A_phys, A_data)
+    κ ~ Gamma(2, 0.1)
+    σ_data ~ Gamma(2, 1)
+    β ~ MvNormal(...)
+    @constraint for i in eachindex(y_phys)        # opts y_phys out of WAIC
+        y_phys[i] ~ Normal(-κ * lap(β, i) + β[i], 1.0e-3)
+    end
+    for i in eachindex(y_data)
+        y_data[i] ~ Normal(β[obs_idx[i]], σ_data)
+    end
+end
+#+end_src
+
+Versus the more explicit form:
+
+#+begin_src julia
+@latte function pde_inverse(...)
+    ...
+    @observed(:data) for i in eachindex(y_data)   # only this contributes to WAIC
+        y_data[i] ~ Normal(β[obs_idx[i]], σ_data)
+    end
+end
+#+end_src
+
+The macro version is appealing because the model body is the natural
+place to declare obs *semantics* (data vs constraint). Defer the API
+choice until after the capability layer lands — at that point we know
+what scope information the macro needs to surface.
+
+** Implementation order (Codex's suggestion, validated)
+
+1. Capability planning for direct + LTL likelihoods. Fixes the bug
+   for the typical case. Lives mostly in GMRFs (since
+   =LinearlyTransformedLikelihood= and =CompositeLikelihood= are GMRFs
+   types) with the dispatch table; Latte's accumulators consume the
+   capability.
+2. Plumb =model= / =augmentation_info= into =compute_point_summary=
+   so capabilities can detect augmentation.
+3. Scope metadata in accumulator results — printed WAIC says which
+   groups contributed and why others were excluded.
+4. Dense-A work estimates + warnings / errors driven by
+   =LOOControl.dense= and =LOOControl.max_linear_work=.
+5. Sample fallback for =SampleBasedCapability= (universal but slow).
+   Opt-in at first via =LOOControl.fallback = :sample=.
+6. Composite augmentation as a *performance* improvement (read η
+   variances off Σ_aug) — not a correctness prerequisite.
+
+** What this buys us
+
+- Correctness for LTL composites today (Step 1).
+- Self-consistent answers for augmented LGMs (Step 2 + 6).
+- Honest errors for unsupported obs models (Steps 3 + 4) — no
+  silently-wrong WAIC.
+- A path to user-controlled scope that aligns with the conceptual
+  point: WAIC measures predictive accuracy on held-out data, not on
+  model-imposed constraints. The control surface forces the user to
+  declare which is which.
+
+** What this costs
+
+Real refactor. Touches the four accumulator files (=waic.jl=,
+=cpo.jl=, =dic.jl=, =marginal_log_likelihood.jl=), introduces the
+capability types in GMRFs, threads scope metadata through the
+result types. Estimated 2–3 focused sessions. Worth doing in a
+fresh branch.
+
+* Diagnostic to look for in any user run
+
+The =Unreliable observations: N / M= count maps directly to the number
+of multi-coefficient rows in the effective per-component design matrix.
+If N matches the count of obs in groups whose =A= has rows with >1
+nonzero, this bug is firing.
+
+Add a debug log:
+
+#+begin_src
+[ Info: WAIC accumulator: 36 of 77 obs come from multi-coefficient
+        design rows. The element-wise Gauss-Hermite path can be
+        numerically unreliable for these. Consider X (the chosen
+        fix path) once landed.
+#+end_src
+
+That gives users a clear pointer rather than just "Min CPO = 0".
+
+* Out of scope (not to fix here)
+
+These concerns are downstream of the accumulator design and shouldn't
+drive the choice:
+
+- =CPOStrategy(compute_pit=false)= warning surfaces when CompositeLikelihood
+  is detected. The PIT is a different (presumably correct) path; just
+  noting that the warning + the bug in the *non-PIT* path are
+  unrelated.
+- The =augmentation_info= already carries =base_latent_indices=. Whether
+  it should also carry per-component =linear_predictor_indices= is a
+  natural Option-C-shaped extension.
+
+* Pointers
+
+- Reproducer: =~/.julia/dev/FunctionalGPs/examples/latte_inla/pde_inverse.jl=
+- Generic accumulator path: =~/.julia/dev/IntegratedNestedLaplace/src/posterior/accumulators/waic.jl=
+- Linearly-transformed obs:
+  =~/.julia/dev/GaussianMarkovRandomFields/src/observation_models/linearly_transformed.jl=
+- Composite obs evaluation:
+  =~/.julia/dev/GaussianMarkovRandomFields/src/observation_models/composite/composite_evaluation.jl=
+- Augmented latent (where η lives):
+  =~/.julia/dev/IntegratedNestedLaplace/src/model/latent_gaussian_model.jl=
+  (search =AugmentedLatentModel=)
