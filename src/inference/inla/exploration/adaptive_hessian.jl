@@ -64,8 +64,15 @@ Evaluate the stencil disagreement at step size `h`, returning `Inf` if the funct
 evaluation fails (e.g., due to non-positive-definite matrices in the inner solve).
 """
 function _safe_stencil_error(f, x::AbstractVector, f0::Real, h::Real)
+    # Reject non-finite reference value before probing.
+    isfinite(f0) || return Inf
     try
         diag_3pt, diag_5pt = _diagonal_hessian_3pt_5pt(f, x, f0, h)
+        # Numerical failure caught upstream typically returns `-Inf` rather
+        # than throwing (see `compute_reparameterization`'s wrapper). The
+        # 3pt/5pt stencils then propagate Inf/NaN into the result; treat
+        # that as a stencil failure so the adaptive search rejects this h.
+        (any(!isfinite, diag_3pt) || any(!isfinite, diag_5pt)) && return Inf
         return _stencil_disagreement(diag_3pt, diag_5pt)
     catch
         return Inf
@@ -134,6 +141,14 @@ function _full_hessian_3pt(
         f, x::AbstractVector{T}, f0::Real, h::Real;
         executor::ParallelExecutor = SequentialExecutor()
     ) where {T}
+    # Fail fast on a non-finite reference value — the cascade has already
+    # exhausted candidate steps if we got here, and any stencil built on
+    # `-Inf`/`NaN` `f0` will produce non-finite curvature regardless of `h`.
+    isfinite(f0) || throw(
+        ArgumentError(
+            "_full_hessian_3pt: reference value f0=$(f0) is non-finite; the function diverged at x=$(x) and no step size will recover.",
+        ),
+    )
     n = length(x)
 
     # Collect all perturbation points and their roles
@@ -173,6 +188,18 @@ function _full_hessian_3pt(
 
     # Evaluate all points (PARALLEL)
     fvals = pmap_executor(f, eval_points, executor)
+
+    # Reject non-finite probe values: numerical failures upstream return
+    # `-Inf` rather than throwing, which would otherwise propagate Inf/NaN
+    # into the final Hessian and crash the eigen() call downstream.
+    nonfinite = findall(!isfinite, fvals)
+    if !isempty(nonfinite)
+        throw(
+            ArgumentError(
+                "adaptive_negative_hessian: $(length(nonfinite)) of $(length(fvals)) probe evaluations returned non-finite values at h=$(h). Caller should retry with a smaller step.",
+            ),
+        )
+    end
 
     # Reconstruct Hessian from results
     H = zeros(T, n, n)
@@ -274,6 +301,26 @@ function adaptive_negative_hessian(
         @warn "Adaptive Hessian: best stencil disagreement $(round(best_error, digits = 4)) exceeds threshold $max_error. Using h=$(round(h_opt, sigdigits = 3)) (best available)."
     end
 
-    # Phase 3: Full Hessian at optimal step size using 3pt stencil (PARALLEL)
-    return -_full_hessian_3pt(f, x, f0, h_opt; executor = executor)
+    # Phase 3: Full Hessian at optimal step size using 3pt stencil (PARALLEL).
+    # If `_full_hessian_3pt` rejects the chosen step (some probe returned
+    # non-finite, e.g. PosDefException → -Inf), retry with progressively
+    # smaller candidate step sizes until one yields a finite Hessian or we
+    # exhaust the candidate list.
+    h_try = h_opt
+    sorted_smaller = sort([h for h in h_candidates if h < h_opt]; rev = true)
+    candidates_to_try = vcat([h_opt], sorted_smaller)
+    for h_attempt in candidates_to_try
+        try
+            return -_full_hessian_3pt(f, x, f0, h_attempt; executor = executor)
+        catch e
+            e isa ArgumentError || rethrow(e)
+            occursin("non-finite", e.msg) || rethrow(e)
+            h_try = h_attempt
+            @debug "adaptive_negative_hessian: probe at h=$h_attempt hit non-finite values; trying smaller h"
+        end
+    end
+    error(
+        "adaptive_negative_hessian: every candidate step size produced non-finite probe " *
+            "values. Hessian computation failed. Last attempted h=$h_try.",
+    )
 end
