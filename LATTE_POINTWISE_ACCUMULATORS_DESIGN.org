@@ -291,11 +291,15 @@ in a capability dispatch. But none of them work as the *contract*:
 - Option A is just a patch; future multi-coefficient obs models
   silently regress.
 
-The *real* design tension the user identified: WAIC / CPO over a
-physics-residual channel is conceptually confused. It's a
-model-imposed constraint, not exchangeable data. =loo='s held-out
-predictive interpretation doesn't apply. Whatever the implementation,
-the user has to be able to declare scope.
+The user has to be able to declare *scope* — which obs groups feed
+WAIC / CPO and which don't. Not because physics-residual channels are
+"constraints, not data" (they aren't; in a PN setting they're soft
+obs with finite σ, collocation points are typically i.i.d., LOO is
+well-defined and measures the discretization's spatial generalisation
+— a useful quantity, not a category error). The reason scope control
+matters is simpler: users sometimes care about predictive accuracy
+on a specific subset of their obs, and the API should let them ask
+for it. No moral hand-waving about what's "really" data.
 
 ** Capability planning per component
 
@@ -364,41 +368,36 @@ return wrong numbers), =dense = :warn=.
 For the typical R-INLA workflow (single homogeneous obs, all
 augmentable), the defaults Just Work.
 
-** @latte integration (open question)
+** Scope API (open question)
 
-The =@latte= macro already analyses observation sites and assigns them
-to groups (when =obs_groups= is supplied). It could declare scope
-inline. Sketches under consideration:
-
-#+begin_src julia
-@latte function pde_inverse(y_phys, y_data, A_phys, A_data)
-    κ ~ Gamma(2, 0.1)
-    σ_data ~ Gamma(2, 1)
-    β ~ MvNormal(...)
-    @constraint for i in eachindex(y_phys)        # opts y_phys out of WAIC
-        y_phys[i] ~ Normal(-κ * lap(β, i) + β[i], 1.0e-3)
-    end
-    for i in eachindex(y_data)
-        y_data[i] ~ Normal(β[obs_idx[i]], σ_data)
-    end
-end
-#+end_src
-
-Versus the more explicit form:
+The natural place for the user to specify scope is the existing
+=obs_groups= kwarg. Already a per-channel pair list; just allow each
+group to carry capability/scope metadata:
 
 #+begin_src julia
-@latte function pde_inverse(...)
-    ...
-    @observed(:data) for i in eachindex(y_data)   # only this contributes to WAIC
-        y_data[i] ~ Normal(β[obs_idx[i]], σ_data)
-    end
-end
+obs_groups = [
+    :phys => (:y_phys,),                       # default: in scope for WAIC
+    :data => (:y_data,),                       # default: in scope for WAIC
+]
+
+# Restrict WAIC to a subset:
+inla(model, y; loo_control = LOOControl(groups = (:data,)))
 #+end_src
 
-The macro version is appealing because the model body is the natural
-place to declare obs *semantics* (data vs constraint). Defer the API
-choice until after the capability layer lands — at that point we know
-what scope information the macro needs to surface.
+No new macro syntax. =@latte= just produces groups from the body; the
+user controls which contribute to WAIC at =inla()= call time. This
+mirrors R-INLA's =control.compute$cpo= / =waic= flags, which are
+booleans at the model-fit call, not annotations on individual obs
+statements.
+
+An inline macro annotation (=@constraint=, =@noloo=, ...) was
+considered and dropped: the term "constraint" misframes the soft-PN
+case (residual obs with finite σ are genuine probabilistic obs and
+LOO is well-defined on them); a generic "this group is out of LOO"
+annotation duplicates what =LOOControl.groups= already expresses; and
+attaching scope to a *call-time* control struct keeps the model body
+descriptive of "what the model is" rather than "how I want to evaluate
+it".
 
 ** Implementation order (Codex's suggestion, validated)
 
