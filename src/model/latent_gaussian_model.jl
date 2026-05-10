@@ -154,7 +154,9 @@ function _restrict_obs_model_to_indices(obs_model::ObservationModel, indices)
 end
 
 function _restrict_obs_model_to_indices(obs_model::ExponentialFamily, indices)
-    return ExponentialFamily(obs_model.family, obs_model.link, indices)
+    # Preserve kwarg aliases (added upstream in GMRFs #106) when re-wrapping
+    # the obs model with a sliced index range.
+    return ExponentialFamily(obs_model.family, obs_model.link, indices, obs_model.kwarg_aliases)
 end
 
 """
