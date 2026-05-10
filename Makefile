@@ -1,6 +1,6 @@
 # IntegratedNestedLaplace.jl Development Makefile
 
-.PHONY: help setup test test-fast test-full generate-reference clean docs logo
+.PHONY: help setup test test-fast test-full generate-reference clean docs docs-rebuild docs-skip docs-serve docs-preview logo
 
 # Default target
 help:
@@ -23,7 +23,11 @@ help:
 	@echo "Development:"
 	@echo "  make clean           - Clean generated files"
 	@echo "  make format          - Format code with Runic"
-	@echo "  make docs            - Build documentation"
+	@echo "  make docs            - Build documentation (incremental tutorials)"
+	@echo "  make docs-rebuild    - Build docs, force rebuild every tutorial"
+	@echo "  make docs-skip       - Build docs, skip every tutorial"
+	@echo "  make docs-serve      - Vitepress dev server with hot reload (after a build)"
+	@echo "  make docs-preview    - Serve the built static site for preview"
 	@echo "  make logo            - Generate logo"
 
 # Setup development environment
@@ -68,10 +72,33 @@ format:
 	@echo "Formatting code with Runic..."
 	@runic --inplace .
 
-# Build documentation
+# Build documentation. Tutorials only rebuild when their .jl source is newer
+# than the .md output (mtime cache); force a full rebuild after touching
+# package internals via `make docs-rebuild`, or skip tutorials entirely with
+# `make docs-skip` when iterating on prose / theme / layout only.
 docs:
-	@echo "Building documentation..."
+	@echo "Building documentation (incremental tutorials)..."
 	@julia --project=docs docs/make.jl
+
+docs-rebuild:
+	@echo "Building documentation (full tutorial rebuild)..."
+	@LATTE_REBUILD_TUTORIALS=1 julia --project=docs docs/make.jl
+
+docs-skip:
+	@echo "Building documentation (tutorials skipped)..."
+	@LATTE_SKIP_TUTORIALS=1 julia --project=docs docs/make.jl
+
+# Vitepress dev server with hot reload. Edits to .vue/.md/.css files in
+# docs/src/ trigger an automatic page refresh. Requires a build to have
+# run at least once (so build/.documenter/ exists).
+docs-serve:
+	@echo "Starting Vitepress dev server (hot reload). Ctrl-C to stop."
+	@cd docs && npm run docs:dev
+
+# Static preview of the most recent built site.
+docs-preview:
+	@echo "Serving built docs (no hot reload). Ctrl-C to stop."
+	@cd docs && npm run docs:preview
 
 docs-deps:
 	@echo "Instantiating docs environment..."

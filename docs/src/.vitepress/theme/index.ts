@@ -11,6 +11,12 @@ import {
 import VersionPicker from "@/VersionPicker.vue"
 import AuthorBadge from '@/AuthorBadge.vue'
 import Authors from '@/Authors.vue'
+import Landing from '@/Landing.vue'
+import TutorialGallery from '@/TutorialGallery.vue'
+import LatteNav from '@/LatteNav.vue'
+import LatteFooter from '@/LatteFooter.vue'
+import LatteAwning from '@/LatteAwning.vue'
+import Benchmarks from '@/Benchmarks.vue'
 
 import { enhanceAppWithTabs } from 'vitepress-plugin-tabs/client'
 
@@ -22,6 +28,13 @@ export const Theme: ThemeConfig = {
   extends: DefaultTheme,
   Layout() {
     return h(DefaultTheme.Layout, null, {
+      // Latte branding bookends — applied on every doc-layout page so
+      // landing, tutorials/index, and the deep doc pages share one nav
+      // and footer. Pages using layout: false (Landing.vue,
+      // tutorials/index.md) bring their own LatteNav + LatteFooter and
+      // these slot injections don't render for them.
+      'layout-top': () => h(LatteNav),
+      'layout-bottom': () => h(LatteFooter),
       'nav-bar-content-after': () => [
         h(NolebaseEnhancedReadabilitiesMenu), // Enhanced Readabilities menu
       ],
@@ -34,6 +47,12 @@ export const Theme: ThemeConfig = {
     app.component('VersionPicker', VersionPicker);
     app.component('AuthorBadge', AuthorBadge)
     app.component('Authors', Authors)
+    app.component('Landing', Landing)
+    app.component('TutorialGallery', TutorialGallery)
+    app.component('LatteNav', LatteNav)
+    app.component('LatteFooter', LatteFooter)
+    app.component('LatteAwning', LatteAwning)
+    app.component('Benchmarks', Benchmarks)
   }
 }
 export default Theme
