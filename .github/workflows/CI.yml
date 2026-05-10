@@ -68,6 +68,11 @@ jobs:
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CI runs build-from-clean — but the local mtime cache in
+          # docs/generate_literate.jl could rehydrate from a Julia
+          # cache action with stale .md files. Force a full tutorial
+          # rebuild so deployed docs always reflect current source.
+          LATTE_REBUILD_TUTORIALS: '1'
       - name: Run doctests
         shell: julia --project=docs --color=yes {0}
         run: |

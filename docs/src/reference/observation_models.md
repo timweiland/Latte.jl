@@ -144,6 +144,134 @@ result = inla(model, y_composite)
 
 Each component uses its specified latent field indices and extracts its required hyperparameters automatically.
 
+### Auto-detection via `@latte`
+
+For new code, the easiest path is the `@latte` macro: it parses your
+model body at macro time, classifies every `~` block, and produces a
+`LatentGaussianModel` directly. Composite observation grouping is
+detected automatically from each block's hyperparameter dependencies —
+no manual `obs_groups` argument needed in the typical case.
+
+```julia
+using Latte, Distributions, LinearAlgebra
+
+@latte function pde_inverse(y_phys, y_sensor, A_phys, A_sensor)
+    σ_phys ~ Gamma(2, 1)
+    σ_data ~ Gamma(2, 1)
+    β ~ MvNormal(zeros(size(A_phys, 2)), 100.0 * I)
+    for i in eachindex(y_phys)
+        y_phys[i] ~ Normal(dot(A_phys[i, :], β), σ_phys)
+    end
+    for i in eachindex(y_sensor)
+        y_sensor[i] ~ Normal(dot(A_sensor[i, :], β), σ_data)
+    end
+end
+
+lgm = pde_inverse(y_phys, y_sensor, A_phys, A_sensor)   # auto-detected: two obs groups
+```
+
+The macro classifies each `~` block as one of:
+- **observation** — LHS is a positional argument of the function;
+- **random effect** — RHS is a known random-effect-shaped constructor
+  (`MvNormal`, `IIDModel`, `RWModel`, `BesagModel`, `MaternModel`,
+  `BYM2Model`, `SeparableModel`, `GMRF`, `ConstrainedGMRF`, …);
+- **hyperparameter / fixed effect** — anything else.
+
+`@random` and `@fixed` markers override the default per `~` block:
+
+```julia
+@latte function tmb_style(y, X)
+    @random α ~ Normal(0, 1)         # scalar but marginalised (TMB-style)
+    @fixed Σ ~ InverseWishart(...)    # multivariate but treated as hyperparameter
+    σ ~ Gamma(2, 1)                   # default: scalar → fixed
+    β ~ MvNormal(...)                 # default: multivariate Gaussian → random
+    ...
+end
+```
+
+The same body is also exposed as a Turing-compatible DPPL model:
+
+```julia
+turing_model = Latte.dppl_model(pde_inverse)(y_phys, y_sensor, A_phys, A_sensor)
+sample(turing_model, NUTS(), 1000)    # Turing handoff with the same definition
+```
+
+### Manual control through `latte_from_dppl`
+
+When the model is written as a DPPL `@model`, you can split observation `~`
+blocks into named groups via the `obs_groups` keyword. The adapter builds
+one component per group, each with its own kwargs routing — letting two
+otherwise identical likelihoods (e.g. two `MvNormal` blocks) carry
+distinct hyperparameter names.
+
+The motivating case is a PDE-inverse problem with two Gaussian channels —
+a physics residual with `σ_phys` and sensor observations with `σ_data`:
+
+```julia
+using Latte
+using DynamicPPL: @model
+using Distributions, LinearAlgebra
+
+@model function pde_inverse(y_phys, y_sensor, A_phys, A_sensor)
+    σ_phys ~ Gamma(2, 1)
+    σ_data ~ Gamma(2, 1)
+    β ~ MvNormal(zeros(size(A_phys, 2)), 100.0 * I)
+    for i in eachindex(y_phys)
+        y_phys[i] ~ Normal(dot(A_phys[i, :], β), σ_phys)
+    end
+    for i in eachindex(y_sensor)
+        y_sensor[i] ~ Normal(dot(A_sensor[i, :], β), σ_data)
+    end
+end
+
+lgm = latte_from_dppl(
+    pde_inverse(y_phys, y_sensor, A_phys, A_sensor);
+    random = (:β,),
+    obs_groups = [
+        :physics => (:y_phys,),
+        :data    => (:y_sensor,),
+    ],
+)
+```
+
+Either form is accepted:
+
+```julia
+obs_groups = [:physics => (:y_phys,), :data => (:y_sensor,)]
+obs_groups = (physics = (:y_phys,), data = (:y_sensor,))   # NamedTuple
+```
+
+Constraints (validated at adapter time):
+- every observation `~` symbol must appear in exactly one group;
+- each declared symbol must actually be observed by the model (not a
+  hyperparameter or a latent random variable).
+
+#### v1 limitations
+
+The first cut focuses on hyperparameter routing — distinct `σ_phys` /
+`σ_data` for two Gaussian channels. A few things are deliberately *not*
+yet supported, and will surface as separate work:
+
+- **WAIC / CPO** accumulators on composite-obs adapters. Component AD
+  likelihoods don't expose `pointwise_loglik_func` because the upstream
+  diagonal-Hessian shortcut would silently return a wrong (diagonal)
+  Hessian for any block whose linear predictor mixes latent components.
+- **Outer hp-gradient INLA strategies** (mode finder + grid expansion).
+  The single-AD path leans on an IFT dispatch that isn't wired up for
+  `CompositeLikelihood` upstream, so composite-obs LGMs hit nested-AD
+  tag stacking. Fixed-grid strategies and `log_joint_density` calls work
+  fine; full `inla()` will land once the upstream IFT path is extended.
+- **Per-group Hessian-pattern overrides.** All components share the
+  global pattern (`likelihood_hessian_pattern` kwarg). Splitting an
+  opaque PDE solver from a tracer-friendly sensor block into separate
+  patterns is a future feature.
+- **Posterior-predictive utilities** that depend on the observation
+  model's `conditional_distribution` (`rand(model)`, posterior-predictive
+  draws, missing-value prediction) aren't wired up for composite-obs
+  adapters. This matches the existing AD adapter — composite just
+  inherits the same gap. Use the underlying DPPL model directly for
+  prior / generative workflows.
+
 ## Custom Observation Models
 
 For specialized applications beyond the built-in exponential family models, you can implement custom observation models. This requires:
