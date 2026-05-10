@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" width="220" height="220">
+    <defs>
+        <radialGradient id="lattecoffee" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#D9B98A"/>
+            <stop offset="70%" stop-color="#C9A373"/>
+            <stop offset="100%" stop-color="#B88A5C"/>
+        </radialGradient>
+    </defs>
+    <circle cx="110" cy="110" r="104" fill="#E8D9BE"/>
+    <circle cx="110" cy="110" r="104" fill="none" stroke="#8B6F47" stroke-opacity="0.2" stroke-width="1"/>
+    <circle cx="110" cy="110" r="84" fill="#6E4A2C"/>
+    <circle cx="110" cy="110" r="80" fill="#B88A5C"/>
+    <circle cx="110" cy="110" r="78" fill="url(#lattecoffee)"/>
+    <path d="M110 48 C90 52 60 90 58 128 C56 162 85 178 110 178 C135 178 164 162 162 128 C160 90 130 52 110 48 Z" fill="#FFFFFF" fill-opacity="0.38"/>
+    <path d="M110 66 C95 70 74 100 72 128 C70 152 92 166 110 166 C128 166 150 152 148 128 C146 100 125 70 110 66 Z" fill="#FFFFFF" fill-opacity="0.55"/>
+    <path d="M110 84 C100 86 88 108 86 128 C84 146 98 156 110 156 C122 156 136 146 134 128 C132 108 120 86 110 84 Z" fill="#FFFFFF" fill-opacity="0.82"/>
+    <path d="M110 102 C104 104 100 118 98 128 C96 140 105 146 110 146 C115 146 124 140 122 128 C120 118 116 104 110 102 Z" fill="#FFFFFF"/>
+</svg>
