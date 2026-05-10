@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Latte.jl — latent Gaussian, simply brewed</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500;1,9..144,600;1,9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:       #FAF7F2;
+      --cream:    #F5E6D3;
+      --tan:      #E8D5B7;
+      --caramel:  #C9986A;
+      --mocha:    #8B6F47;
+      --bean:     #3D2817;
+      --espresso: #2A1810;
+      --ink:      #1A1410;
+      --berry:    #C04A2A;
+      --foam:     #FFFCF7;
+      --chalk:    rgba(245, 230, 211, 0.92);
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--espresso); font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; }
+    ::selection { background: var(--caramel); color: var(--espresso); }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 0 48px; }
+
+    /* ── Awning strip ── */
+    .awning { background: var(--espresso); color: var(--cream); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.5px; }
+    .awning-inner { display: flex; justify-content: space-between; align-items: center; padding: 10px 48px; max-width: 1200px; margin: 0 auto; }
+    .awning .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #86C068; margin-right: 8px; box-shadow: 0 0 8px rgba(134,192,104,0.5); }
+
+    /* ── Nav ── */
+    nav.top { padding: 22px 0; }
+    nav.top .container { display: flex; align-items: center; justify-content: space-between; }
+    .links { display: flex; gap: 28px; font-size: 14.5px; color: #4A3828; align-items: center; }
+    .links a { text-decoration: none; transition: color .15s; }
+    .links a:hover { color: var(--berry); }
+    .ver { background: var(--bean); color: var(--cream); padding: 5px 10px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; letter-spacing: 0.3px; }
+
+    /* ── Hero ── */
+    .hero { position: relative; padding: 48px 0 96px; overflow: hidden; }
+    .hero-mark { position: absolute; top: -40px; right: -120px; opacity: 0.07; pointer-events: none; }
+    .hero .eyebrow { font-size: 13px; color: var(--berry); font-weight: 500; letter-spacing: 0.5px; display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .hero .eyebrow span.rule { width: 32px; height: 1px; background: var(--berry); }
+    .hero h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 400; font-size: clamp(64px, 9vw, 128px); line-height: 0.92; letter-spacing: -0.04em; margin: 0; max-width: 1000px; }
+    .hero h1 em { font-style: italic; color: var(--bean); font-weight: 400; }
+    .hero .lede { font-size: 21px; line-height: 1.5; color: #4A3828; margin: 32px 0 0; max-width: 640px; }
+    .hero .lede code { background: var(--tan); padding: 2px 8px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 17px; }
+    .cta-row { display: flex; gap: 12px; margin-top: 40px; align-items: center; flex-wrap: wrap; }
+    .btn { border: none; font-family: inherit; font-size: 15px; font-weight: 500; padding: 16px 26px; cursor: pointer; transition: transform .12s, box-shadow .12s; }
+    .btn-primary { background: var(--espresso); color: var(--cream); }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(42,24,16,0.18); }
+    .btn-ghost { background: transparent; color: var(--espresso); border: 1.5px solid var(--bean); }
+    .btn-ghost:hover { background: var(--bean); color: var(--cream); }
+    .install { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--mocha); margin-left: 4px; }
+
+    /* Engine strip */
+    .engines { margin-top: 68px; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--tan); max-width: 900px; background: var(--foam); }
+    .engine { padding: 24px 26px; border-right: 1px solid var(--tan); position: relative; }
+    .engine:last-child { border-right: none; }
+    .engine.default { background: #fff; }
+    .engine .method { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 15px; color: var(--espresso); display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .engine .badge { font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; padding: 2px 7px; border-radius: 2px; font-weight: 500; }
+    .engine .badge.default { background: var(--mocha); color: var(--cream); }
+    .engine .badge.new { background: var(--berry); color: var(--cream); }
+    .engine .desc { font-size: 14px; color: var(--mocha); line-height: 1.45; }
+    .engine .fit { font-size: 11.5px; color: var(--caramel); font-family: 'JetBrains Mono', monospace; margin-top: 10px; font-variant-numeric: tabular-nums; }
+
+    /* ── Section header: chalkboard strip ── */
+    .section-head { background: var(--espresso); color: var(--cream); padding: 56px 0; position: relative; }
+    .section-head::before,
+    .section-head::after {
+      content: ''; position: absolute; left: 48px; right: 48px; height: 1px;
+      background: repeating-linear-gradient(90deg, rgba(201,152,106,0.35) 0 6px, transparent 6px 14px);
+    }
+    .section-head::before { top: 20px; }
+    .section-head::after { bottom: 20px; }
+    .section-head .kicker { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 16px; color: var(--caramel); letter-spacing: 1.5px; margin-bottom: 14px; }
+    .section-head h2 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; font-size: clamp(40px, 5vw, 64px); line-height: 1; letter-spacing: -1.5px; margin: 0; max-width: 900px; }
+    .section-head h2 .pale { color: var(--caramel); }
+
+    /* ── Menu (chalkboard-inspired feature list) ── */
+    .menu { background: var(--espresso); color: var(--cream); padding: 0 0 88px; }
+    .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px 56px; max-width: 1100px; margin: 0 auto; padding: 0 48px; }
+    .menu-item { display: grid; grid-template-columns: 44px 1fr; gap: 20px; align-items: start; }
+    .menu-item .num { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 38px; font-weight: 500; color: var(--caramel); line-height: 1; }
+    .menu-item h3 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 500; font-size: 26px; margin: 0 0 8px; letter-spacing: -0.4px; line-height: 1.15; color: var(--cream); }
+    .menu-item .dots { flex: 1; height: 1px; background-image: radial-gradient(circle, rgba(201,152,106,0.5) 0.8px, transparent 1.2px); background-size: 6px 1px; margin: 0 10px; align-self: center; min-width: 20px; }
+    .menu-item h3 + .sub { color: #D4B896; font-size: 14.5px; line-height: 1.55; font-family: 'Inter', sans-serif; font-style: normal; }
+    .menu-item .tag { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--caramel); text-transform: uppercase; letter-spacing: 1px; margin-top: 10px; }
+
+    /* ── Code + Receipt split ── */
+    .split { padding: 96px 0; background: var(--bg); }
+    .split-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 64px; align-items: start; }
+    .split h2 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; font-size: 52px; line-height: 1; letter-spacing: -1.3px; margin: 0 0 24px; }
+    .split .lede { color: #4A3828; font-size: 17px; line-height: 1.6; margin: 0 0 32px; max-width: 520px; }
+
+    .code-window { background: var(--espresso); border-radius: 6px; overflow: hidden; box-shadow: 0 16px 56px rgba(42,24,16,0.14); }
+    .code-chrome { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .code-chrome .tl { width: 11px; height: 11px; border-radius: 50%; }
+    .code-chrome .fn { margin-left: 14px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #9B8268; }
+    .code-chrome .tabs { margin-left: auto; display: flex; gap: 2px; }
+    .code-chrome .tab { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 4px 10px; color: #9B8268; cursor: pointer; border-radius: 3px; transition: background .12s, color .12s; }
+    .code-chrome .tab.active { color: var(--cream); background: rgba(201,152,106,0.18); }
+    pre.code { font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.6; margin: 0; padding: 26px 28px; color: var(--cream); overflow-x: auto; }
+    .c-comment { color: #9B8268; }
+    .c-kw { color: #E8D5B7; }
+    .c-fn { color: #86C068; }
+    .c-sym { color: var(--berry); }
+    .c-str { color: #C9986A; }
+    .c-var { color: var(--caramel); }
+
+    /* Receipt */
+    .receipt { background: #FFFCF7; padding: 40px 34px 28px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--espresso); line-height: 1.75; box-shadow: 0 18px 48px rgba(42,24,16,0.1); position: relative; }
+    .receipt::after { content: ''; position: absolute; left: 0; right: 0; bottom: -12px; height: 14px; background-image: linear-gradient(-45deg, #FFFCF7 7px, transparent 7px), linear-gradient(45deg, #FFFCF7 7px, transparent 7px); background-size: 14px 14px; background-position: 0 0; }
+    .receipt .head { text-align: center; margin-bottom: 18px; }
+    .receipt .head .name { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 22px; font-weight: 500; }
+    .receipt .head .sub { font-size: 10px; color: var(--mocha); margin-top: 2px; letter-spacing: 0.5px; }
+    .receipt hr { border: none; border-top: 1px dashed var(--mocha); margin: 12px 0; }
+    .receipt .row { display: flex; justify-content: space-between; }
+    .receipt .row.muted { color: var(--mocha); padding-left: 12px; font-size: 11.5px; }
+    .receipt .row.total { font-weight: 700; font-size: 13px; padding-top: 4px; }
+    .receipt .stamp { position: absolute; top: 28px; right: 22px; transform: rotate(-12deg); border: 2px solid var(--berry); color: var(--berry); padding: 4px 10px; border-radius: 4px; font-family: 'Fraunces', serif; font-style: italic; font-size: 13px; font-weight: 600; letter-spacing: 0.5px; opacity: 0.85; }
+    .receipt .barcode { text-align: center; margin-top: 14px; font-size: 11px; letter-spacing: 2px; color: var(--espresso); }
+    .receipt .thanks { text-align: center; margin-top: 12px; font-size: 10px; color: var(--mocha); }
+
+    /* ── Specs strip ── */
+    .specs { background: var(--cream); padding: 64px 0; }
+    .specs-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 48px; }
+    .spec .n { font-family: 'Fraunces', Georgia, serif; font-weight: 500; font-size: 56px; letter-spacing: -2px; color: var(--espresso); line-height: 1; }
+    .spec .n em { font-style: italic; color: var(--bean); }
+    .spec .l { font-size: 13px; color: var(--mocha); margin-top: 8px; text-transform: uppercase; letter-spacing: 1.5px; }
+    .spec .d { font-size: 14.5px; color: #4A3828; margin-top: 10px; line-height: 1.5; }
+
+    /* ── Gallery row ── */
+    .gallery { padding: 96px 0; background: var(--bg); }
+    .gallery .intro { display: flex; align-items: baseline; justify-content: space-between; gap: 32px; margin-bottom: 40px; }
+    .gallery h2 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; font-size: 52px; line-height: 1; letter-spacing: -1.3px; margin: 0; }
+    .gallery .sub { color: var(--mocha); font-size: 16px; max-width: 420px; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .card { background: var(--foam); border: 1px solid var(--tan); padding: 28px 26px 26px; display: flex; flex-direction: column; gap: 14px; min-height: 280px; transition: transform .15s, box-shadow .15s; cursor: pointer; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(42,24,16,0.08); }
+    .card .tag { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--caramel); text-transform: uppercase; letter-spacing: 1.3px; }
+    .card h4 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 500; font-size: 26px; margin: 0; letter-spacing: -0.4px; line-height: 1.12; }
+    .card p { font-size: 14.5px; line-height: 1.55; color: #4A3828; margin: 0; }
+    .card .arrow { margin-top: auto; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--berry); }
+
+    /* ── Footer ── */
+    footer { background: var(--espresso); color: var(--cream); padding: 72px 0 48px; margin-top: 0; }
+    .foot-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 48px; }
+    .foot-grid h5 { font-family: 'Fraunces', serif; font-style: italic; font-weight: 500; font-size: 17px; color: var(--caramel); margin: 0 0 14px; }
+    .foot-grid a { display: block; color: var(--cream); text-decoration: none; font-size: 14px; padding: 5px 0; opacity: 0.85; }
+    .foot-grid a:hover { opacity: 1; color: var(--caramel); }
+    .foot-about { font-size: 14.5px; line-height: 1.6; color: #D4B896; max-width: 320px; margin-top: 10px; }
+    .foot-bottom { display: flex; justify-content: space-between; margin-top: 56px; padding-top: 24px; border-top: 1px dashed rgba(201,152,106,0.25); font-size: 12px; color: #9B8268; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px; }
+
+    /* Wordmark */
+    .wm { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
+    .wm .wm-txt { font-family: 'Fraunces', serif; font-style: italic; font-weight: 500; font-size: 26px; color: var(--espresso); letter-spacing: -0.4px; line-height: 1; }
+    .wm .wm-jl { font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 20px; color: var(--caramel); font-weight: 500; }
+    footer .wm .wm-txt { color: var(--cream); }
+
+    /* Tweaks panel */
+    #tweaks { position: fixed; right: 20px; bottom: 20px; background: var(--espresso); color: var(--cream); padding: 18px 20px; border-radius: 8px; box-shadow: 0 16px 48px rgba(0,0,0,0.3); font-size: 13px; z-index: 100; min-width: 260px; display: none; font-family: 'Inter', sans-serif; }
+    #tweaks.on { display: block; }
+    #tweaks h6 { font-family: 'Fraunces', serif; font-style: italic; font-weight: 500; margin: 0 0 14px; font-size: 16px; color: var(--caramel); letter-spacing: 0.3px; }
+    #tweaks .row { display: flex; align-items: center; justify-content: space-between; margin: 10px 0; }
+    #tweaks label { color: #E8D5B7; }
+    #tweaks select { background: var(--bean); color: var(--cream); border: 1px solid var(--caramel); padding: 5px 8px; border-radius: 3px; font-family: inherit; font-size: 12.5px; }
+    #tweaks .hint { font-size: 11px; color: var(--mocha); margin-top: 12px; font-style: italic; font-family: 'Fraunces', serif; }
+  </style>
+</head>
+<body>
+  <!-- Tweak defaults -->
+  <script>
+    window.TWEAKS = /*EDITMODE-BEGIN*/{
+      "logoMark": "rosetta",
+      "accentHue": "berry",
+      "chalkboardLines": "receipt"
+    }/*EDITMODE-END*/;
+  </script>
+
+  <!-- Awning -->
+  <div class="awning">
+    <div class="awning-inner">
+      <span><span class="dot"></span>OPEN · EST. 2026 · v0.3.2 fresh pour from JuliaCon</span>
+      <span>House special: spatial GLMMs — 10× faster than glmmTMB</span>
+    </div>
+  </div>
+
+  <!-- Nav -->
+  <nav class="top">
+    <div class="container">
+      <a class="wm" href="#">
+        <svg id="nav-mark" width="36" height="36" viewBox="0 0 220 220"></svg>
+        <span class="wm-txt">Latte<span class="wm-jl">.jl</span></span>
+      </a>
+      <div class="links">
+        <a href="#">Docs</a>
+        <a href="#">Gallery</a>
+        <a href="#">Benchmarks</a>
+        <a href="#">Paper</a>
+        <a href="#">GitHub</a>
+        <span class="ver">v0.3.2</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <svg id="hero-mark" class="hero-mark" width="600" height="600" viewBox="0 0 220 220"></svg>
+    <div class="container" style="position: relative;">
+      <div class="eyebrow"><span class="rule"></span>NOW BREWING · LATENT GAUSSIAN MODELS · JULIA</div>
+      <h1>Latent Gaussian,<br/><em>simply brewed.</em></h1>
+      <p class="lede">
+        A Julia package for latent Gaussian models. <b>INLA's</b> speed,
+        <b>TMB's</b> flexibility, <b>Stan's</b> diagnostics — behind one grammar,
+        one <code>brew()</code> call.
+      </p>
+      <div class="cta-row">
+        <button class="btn btn-primary">] add Latte</button>
+        <button class="btn btn-ghost">Five-minute tour →</button>
+        <span class="install">· requires Julia ≥ 1.10</span>
+      </div>
+
+      <div class="engines">
+        <div class="engine default">
+          <div class="method">:laplace <span class="badge default">default</span></div>
+          <div class="desc">INLA-style Laplace approximation. Fast marginals, trustworthy uncertainty.</div>
+          <div class="fit">typical fit · ~ms</div>
+        </div>
+        <div class="engine">
+          <div class="method">:mcmc</div>
+          <div class="desc">tmbstan-powered NUTS with AD gradients. Gold-standard posterior.</div>
+          <div class="fit">typical fit · seconds – minutes</div>
+        </div>
+        <div class="engine">
+          <div class="method">:vi <span class="badge new">new</span></div>
+          <div class="desc">Variational inference for huge latent fields. Experimental.</div>
+          <div class="fit">typical fit · ~ms</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Chalkboard section head → Menu -->
+  <section class="section-head">
+    <div class="container">
+      <div class="kicker">~ today's menu ~</div>
+      <h2>One grammar. <span class="pale">Three engines.</span><br/>Every latent Gaussian model.</h2>
+    </div>
+  </section>
+
+  <section class="menu">
+    <div class="menu-grid">
+      <div class="menu-item">
+        <div class="num">01</div>
+        <div style="display:flex; flex-direction:column;">
+          <h3>Write the model once<span class="dots"></span></h3>
+          <div class="sub">A small DSL for GLMMs, GMRFs, spatial &amp; temporal priors. No boilerplate, no C++.</div>
+          <div class="tag">@latte macro · Julia-native</div>
+        </div>
+      </div>
+      <div class="menu-item">
+        <div class="num">02</div>
+        <div style="display:flex; flex-direction:column;">
+          <h3>Switch engines freely<span class="dots"></span></h3>
+          <div class="sub">The same model runs under Laplace, MCMC, or VI. Pick your speed/rigor trade-off per question.</div>
+          <div class="tag">brew(model; method = :laplace)</div>
+        </div>
+      </div>
+      <div class="menu-item">
+        <div class="num">03</div>
+        <div style="display:flex; flex-direction:column;">
+          <h3>Automatic differentiation<span class="dots"></span></h3>
+          <div class="sub">Gradients &amp; Hessians from Enzyme.jl. Sparse-aware where it matters — no hand-coding templates.</div>
+          <div class="tag">Enzyme.jl · sparse AD</div>
+        </div>
+      </div>
+      <div class="menu-item">
+        <div class="num">04</div>
+        <div style="display:flex; flex-direction:column;">
+          <h3>Posterior summaries included<span class="dots"></span></h3>
+          <div class="sub">Marginals, CIs, posterior predictives, and model-comparison scores from the same fit object.</div>
+          <div class="tag">summary · predict · loo</div>
+        </div>
+      </div>
+      <div class="menu-item">
+        <div class="num">05</div>
+        <div style="display:flex; flex-direction:column;">
+          <h3>INLA-compatible priors<span class="dots"></span></h3>
+          <div class="sub">PC priors, Besag/ICAR, AR(p), RW, SPDE. If R-INLA has it, Latte probably does too.</div>
+          <div class="tag">PC · ICAR · SPDE</div>
+        </div>
+      </div>
+      <div class="menu-item">
+        <div class="num">06</div>
+        <div style="display:flex; flex-direction:column;">
+          <h3>Plays well with Julia<span class="dots"></span></h3>
+          <div class="sub">DataFrames in, Makie figures out. Integrates with Turing.jl for hybrid models and MLJ for pipelines.</div>
+          <div class="tag">DataFrames · Makie · Turing</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Code + Receipt -->
+  <section class="split">
+    <div class="container split-grid">
+      <div>
+        <h2>From model to fit,<br/>in one pour.</h2>
+        <p class="lede">
+          Specify a spatial Poisson GLMM, fit it with a Laplace approximation,
+          then flip to full MCMC when the reviewer asks. Same model object — 
+          no re-writing, no re-parametrizing.
+        </p>
+        <div class="code-window">
+          <div class="code-chrome">
+            <div class="tl" style="background: #E37A5A"></div>
+            <div class="tl" style="background: #C9986A"></div>
+            <div class="tl" style="background: #86C068"></div>
+            <div class="fn">spatial_glmm.jl</div>
+            <div class="tabs">
+              <div class="tab active">model</div>
+              <div class="tab">fit</div>
+              <div class="tab">summary</div>
+            </div>
+          </div>
+          <pre class="code"><span class="c-comment"># Disease mapping — counts on a Besag graph</span>
+<span class="c-var">model</span> = <span class="c-sym">@latte</span> <span class="c-kw">begin</span>
+  <span class="c-kw">β</span>  ~ <span class="c-fn">Normal</span>(<span class="c-str">0</span>, <span class="c-str">10</span>)                 <span class="c-comment"># fixed effects</span>
+  <span class="c-kw">κ</span>  ~ <span class="c-fn">Gamma</span>(<span class="c-str">1</span>, <span class="c-str">5e-5</span>)             <span class="c-comment"># precision</span>
+  <span class="c-kw">u</span>  ~ <span class="c-fn">GMRF</span>(<span class="c-kw">κ</span>; graph = <span class="c-var">mesh</span>)     <span class="c-comment"># spatial prior</span>
+  <span class="c-kw">y</span>  ~ <span class="c-fn">Poisson</span>(<span class="c-fn">exp</span>(<span class="c-var">X</span>*<span class="c-kw">β</span> + <span class="c-kw">u</span> + <span class="c-fn">log</span>(<span class="c-var">E</span>)))
+<span class="c-kw">end</span>
+
+<span class="c-comment"># Laplace first — for the dashboard</span>
+<span class="c-var">fit</span>  = <span class="c-fn">brew</span>(<span class="c-var">model</span>, <span class="c-var">data</span>; method = <span class="c-sym">:laplace</span>)
+
+<span class="c-comment"># MCMC later — for the paper</span>
+<span class="c-var">post</span> = <span class="c-fn">brew</span>(<span class="c-var">model</span>, <span class="c-var">data</span>; method = <span class="c-sym">:mcmc</span>, chains = <span class="c-str">4</span>)
+</pre>
+        </div>
+      </div>
+
+      <div>
+        <div class="receipt">
+          <div class="stamp">FRESH</div>
+          <div class="head">
+            <div class="name">Latte.jl Café</div>
+            <div class="sub">— Benchmark Receipt —</div>
+            <div class="sub">Tue · 21 Apr 2026 · 14:37</div>
+          </div>
+          <hr/>
+          <div class="row"><span>Server</span><span>MBP M3 · 16GB</span></div>
+          <div class="row"><span>Julia</span><span>1.11.2</span></div>
+          <hr/>
+          <div class="row" style="font-weight:600;"><span>Spatial GLMM (n=3k)</span><span>0.8s</span></div>
+          <div class="row muted"><span>vs glmmTMB</span><span>8.2s</span></div>
+          <div class="row muted"><span>vs R-INLA</span><span>1.1s</span></div>
+          <br/>
+          <div class="row" style="font-weight:600;"><span>Joint longitudinal</span><span>4.2s</span></div>
+          <div class="row muted"><span>vs JM</span><span>62s</span></div>
+          <br/>
+          <div class="row" style="font-weight:600;"><span>Bayesian AR(1)</span><span>1.6s</span></div>
+          <div class="row muted"><span>vs brms</span><span>47s</span></div>
+          <hr/>
+          <div class="row total"><span>HOUSE SPEEDUP</span><span>~12×</span></div>
+          <div class="thanks">— thank you, come again —</div>
+          <div class="barcode">║█║▌║█║▌║║▌║█║▌║█</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Specs -->
+  <section class="specs">
+    <div class="container specs-grid">
+      <div class="spec">
+        <div class="n"><em>12</em>×</div>
+        <div class="l">avg speedup</div>
+        <div class="d">vs. glmmTMB on the spatial-GLMM benchmark suite.</div>
+      </div>
+      <div class="spec">
+        <div class="n">3</div>
+        <div class="l">inference engines</div>
+        <div class="d">Laplace, MCMC, VI — behind one model specification.</div>
+      </div>
+      <div class="spec">
+        <div class="n">40+</div>
+        <div class="l">prior families</div>
+        <div class="d">PC priors, GMRFs, SPDE, AR/RW, horseshoe, and more.</div>
+      </div>
+      <div class="spec">
+        <div class="n">MIT</div>
+        <div class="l">license</div>
+        <div class="d">Free for research, teaching, industry. Contributions welcome.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Gallery -->
+  <section class="gallery">
+    <div class="container">
+      <div class="intro">
+        <h2>The house pours.</h2>
+        <div class="sub">Real analyses, reproducible in &lt;50 lines of Latte. Click through for the full notebook.</div>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <div class="tag">SPATIAL · DISEASE MAPPING</div>
+          <h4>Lip cancer in Scotland</h4>
+          <p>The classic Besag benchmark. Rebuilt in 38 lines, fit in 0.8s with matching posterior means to R-INLA.</p>
+          <div class="arrow">Read analysis →</div>
+        </div>
+        <div class="card">
+          <div class="tag">LONGITUDINAL · JOINT MODELS</div>
+          <h4>Primary biliary cirrhosis</h4>
+          <p>Survival × repeated measures, estimated jointly under Laplace with tmbstan validation.</p>
+          <div class="arrow">Read analysis →</div>
+        </div>
+        <div class="card">
+          <div class="tag">TIME SERIES · STATE-SPACE</div>
+          <h4>Arctic sea ice extent</h4>
+          <p>An RW2 trend + AR(1) anomaly decomposition, with year-ahead posterior predictive intervals.</p>
+          <div class="arrow">Read analysis →</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container foot-grid">
+      <div>
+        <a class="wm" href="#" style="color: var(--cream);">
+          <svg id="foot-mark" width="32" height="32" viewBox="0 0 220 220"></svg>
+          <span class="wm-txt">Latte<span class="wm-jl">.jl</span></span>
+        </a>
+        <div class="foot-about">
+          A Julia package for latent Gaussian models — unifying INLA, TMB, and tmbstan behind one grammar.
+        </div>
+      </div>
+      <div>
+        <h5>Learn</h5>
+        <a href="#">Documentation</a>
+        <a href="#">Five-minute tour</a>
+        <a href="#">API reference</a>
+        <a href="#">Migration from R-INLA</a>
+      </div>
+      <div>
+        <h5>Community</h5>
+        <a href="#">GitHub</a>
+        <a href="#">Discourse</a>
+        <a href="#">Slack #latte</a>
+        <a href="#">Contributing</a>
+      </div>
+      <div>
+        <h5>Cite</h5>
+        <a href="#">JOSS paper</a>
+        <a href="#">BibTeX</a>
+        <a href="#">Acknowledgements</a>
+      </div>
+    </div>
+    <div class="container foot-bottom">
+      <span>© 2026 · Latte.jl maintainers · MIT licensed</span>
+      <span>brewed with ♥ in Julia</span>
+    </div>
+  </footer>
+
+  <!-- Tweaks panel -->
+  <div id="tweaks">
+    <h6>Tweaks</h6>
+    <div class="row">
+      <label>Logo mark</label>
+      <select id="tw-logo">
+        <option value="rosetta">Rosetta</option>
+        <option value="heart">Heart</option>
+        <option value="tulip">Tulip</option>
+        <option value="juliafoam">Julia Foam</option>
+        <option value="gaussian">Gaussian Foam</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Accent</label>
+      <select id="tw-accent">
+        <option value="berry">Berry (burnt orange)</option>
+        <option value="caramel">Caramel</option>
+        <option value="bean">Bean (monochrome)</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Side card</label>
+      <select id="tw-side">
+        <option value="receipt">Benchmark receipt</option>
+        <option value="chalk">Chalkboard quote</option>
+      </select>
+    </div>
+    <div class="hint">Edits persist to disk.</div>
+  </div>
+
+  <!-- Logo draw + Tweaks logic -->
+  <script>
+    // ── Latte-art marks (pure SVG) ──────────────────────────────
+    const MARKS = {
+      rosetta: (s) => `
+        <circle cx="110" cy="110" r="${s.outer}" fill="#3D2817"/>
+        <circle cx="110" cy="110" r="${s.outer-4}" fill="#2A1810"/>
+        <g fill="#F5E6D3">
+          <path d="M110 48 Q112 110 110 176 Q108 110 110 48 Z" opacity="0.95"/>
+          <path d="M110 160 Q70 148 56 120 Q78 134 110 152 Z"/>
+          <path d="M110 160 Q150 148 164 120 Q142 134 110 152 Z"/>
+          <path d="M110 138 Q74 126 64 100 Q86 112 110 130 Z"/>
+          <path d="M110 138 Q146 126 156 100 Q134 112 110 130 Z"/>
+          <path d="M110 116 Q80 104 74 82 Q94 92 110 108 Z"/>
+          <path d="M110 116 Q140 104 146 82 Q126 92 110 108 Z"/>
+          <path d="M110 94 Q88 84 86 66 Q100 74 110 86 Z"/>
+          <path d="M110 94 Q132 84 134 66 Q120 74 110 86 Z"/>
+          <path d="M110 72 Q106 60 110 50 Q114 60 110 72 Z"/>
+        </g>`,
+      heart: (s) => `
+        <circle cx="110" cy="110" r="${s.outer}" fill="#3D2817"/>
+        <circle cx="110" cy="110" r="${s.outer-6}" fill="#2A1810"/>
+        <path d="M110 170 C 70 140, 50 112, 60 86 C 70 62, 100 62, 110 88 C 120 62, 150 62, 160 86 C 170 112, 150 140, 110 170 Z" fill="#F5E6D3"/>`,
+      tulip: (s) => `
+        <circle cx="110" cy="110" r="${s.outer}" fill="#2A1810"/>
+        <g fill="#F5E6D3">
+          <ellipse cx="110" cy="98" rx="46" ry="32"/>
+          <ellipse cx="110" cy="112" rx="34" ry="24"/>
+          <ellipse cx="110" cy="126" rx="22" ry="16"/>
+          <path d="M110 140 Q110 168 96 176 Q110 174 118 168 Q112 156 110 140 Z"/>
+        </g>`,
+      juliafoam: (s) => `
+        <circle cx="110" cy="110" r="${s.outer}" fill="#2A1810"/>
+        <path d="M110 110 Q70 96 46 110 Q70 124 110 110 Z" fill="#F5E6D3"/>
+        <path d="M110 110 Q150 96 174 110 Q150 124 110 110 Z" fill="#F5E6D3"/>
+        <path d="M110 110 Q96 150 110 174 Q124 150 110 110 Z" fill="#F5E6D3"/>
+        <circle cx="58" cy="110" r="11" fill="#CB3C33"/>
+        <circle cx="162" cy="110" r="11" fill="#389826"/>
+        <circle cx="110" cy="162" r="11" fill="#9558B2"/>
+        <circle cx="110" cy="110" r="5" fill="#F5E6D3"/>`,
+      gaussian: (s) => `
+        <circle cx="110" cy="110" r="${s.outer}" fill="#2A1810"/>
+        <g transform="rotate(25 110 110)" fill="none" stroke="#F5E6D3" stroke-width="1.8">
+          <ellipse cx="110" cy="110" rx="72" ry="34" opacity="0.25"/>
+          <ellipse cx="110" cy="110" rx="60" ry="28" opacity="0.4"/>
+          <ellipse cx="110" cy="110" rx="48" ry="22" opacity="0.55"/>
+          <ellipse cx="110" cy="110" rx="36" ry="16" opacity="0.75"/>
+          <ellipse cx="110" cy="110" rx="22" ry="10" opacity="0.95"/>
+          <ellipse cx="110" cy="110" rx="8" ry="4" fill="#F5E6D3"/>
+        </g>`,
+    };
+
+    const ACCENTS = {
+      berry:   { berry: '#C04A2A' },
+      caramel: { berry: '#C9986A' },
+      bean:    { berry: '#3D2817' },
+    };
+
+    function applyTweaks(t) {
+      // logo
+      const mk = MARKS[t.logoMark] || MARKS.rosetta;
+      const stdSize = { outer: 100 };
+      for (const id of ['nav-mark','hero-mark','foot-mark']) {
+        const svg = document.getElementById(id);
+        if (svg) svg.innerHTML = mk(stdSize);
+      }
+      // accent
+      document.documentElement.style.setProperty('--berry', ACCENTS[t.accentHue].berry);
+      // side card
+      const receipt = document.querySelector('.receipt');
+      if (receipt) {
+        if (t.chalkboardLines === 'chalk') {
+          receipt.innerHTML = `
+            <div style="background:#2A1810;color:#F5E6D3;padding:44px 34px;margin:-40px -34px -28px;border-radius:2px;height:100%;display:flex;flex-direction:column;">
+              <div style="font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:#C9986A;letter-spacing:1.5px;margin-bottom:18px;">~ from the barista ~</div>
+              <div style="font-family:'Fraunces',serif;font-style:italic;font-size:28px;line-height:1.2;color:#F5E6D3;">
+                "An INLA for the Julia era — the priors are familiar, the fits are instant, and the API finally lets me switch to full MCMC without rewriting anything."
+              </div>
+              <div style="margin-top:auto;padding-top:24px;border-top:1px dashed rgba(201,152,106,0.3);font-size:13px;color:#D4B896;">
+                — Dr. M. Rue (hypothetically)
+              </div>
+            </div>`;
+          receipt.style.padding = '40px 34px 28px';
+          receipt.style.background = '#2A1810';
+        }
+      }
+      // persist
+      window.parent.postMessage({ type: '__edit_mode_set_keys', edits: t }, '*');
+    }
+
+    // Initial draw
+    applyTweaks(window.TWEAKS);
+
+    // ── Tweaks wiring ───────────────────────────────────────────
+    const panel = document.getElementById('tweaks');
+    const tLogo = document.getElementById('tw-logo');
+    const tAcc = document.getElementById('tw-accent');
+    const tSide = document.getElementById('tw-side');
+    tLogo.value = window.TWEAKS.logoMark;
+    tAcc.value = window.TWEAKS.accentHue;
+    tSide.value = window.TWEAKS.chalkboardLines;
+
+    const onChange = () => {
+      window.TWEAKS = {
+        logoMark: tLogo.value,
+        accentHue: tAcc.value,
+        chalkboardLines: tSide.value,
+      };
+      applyTweaks(window.TWEAKS);
+    };
+    tLogo.addEventListener('change', onChange);
+    tAcc.addEventListener('change', onChange);
+    tSide.addEventListener('change', onChange);
+
+    // Listener FIRST
+    window.addEventListener('message', (e) => {
+      const d = e.data;
+      if (!d) return;
+      if (d.type === '__activate_edit_mode') panel.classList.add('on');
+      if (d.type === '__deactivate_edit_mode') panel.classList.remove('on');
+    });
+    // Then announce
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+  </script>
+</body>
+</html>
