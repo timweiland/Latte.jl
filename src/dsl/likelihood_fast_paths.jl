@@ -96,7 +96,12 @@ function try_exponential_family_fast_path(
         dppl_model, random_syms::Tuple, dims::Dict{Symbol, Int}, hp_names::Tuple
     )
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
-    probe_x_nt = NamedTuple{random_syms}(Tuple(zeros(dims[s]) for s in random_syms))
+    # Detect scalar (univariate) latents so probe seeding uses scalars,
+    # not 1-vectors — DPPL's body for `α ~ Normal(0,1)` needs scalar α.
+    is_scalar = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
+    probe_x_nt = NamedTuple{random_syms}(
+        Tuple(_zero_seed(is_scalar[s], dims[s]) for s in random_syms)
+    )
 
     # 1) probe per-site y distributions
     y_dists = _probe_obs_distributions(dppl_model, probe_hp, probe_x_nt)
@@ -116,7 +121,12 @@ function try_exponential_family_fast_path(
     offsets = _component_offsets(random_syms, dims)
 
     function η_of_x(x_vec)
-        x_nt = NamedTuple{random_syms}(Tuple(Vector(x_vec[offsets[s]]) for s in random_syms))
+        x_nt = NamedTuple{random_syms}(
+            Tuple(
+                is_scalar[s] ? x_vec[first(offsets[s])] : Vector(x_vec[offsets[s]])
+                    for s in random_syms
+            )
+        )
         dists = _probe_obs_distributions(dppl_model, probe_hp, x_nt)
         return [natural_param(d) for d in dists]
     end

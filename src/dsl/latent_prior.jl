@@ -153,7 +153,8 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern,
     linear_maps_cached = Dict{Tuple{Symbol, Symbol}, NamedTuple}()
     for child in random_syms, parent in info.edges[child]
         linear_maps_cached[(child, parent)] = extract_linear_map(
-            dppl_model, child, parent, random_syms, info.dims, probe_hp,
+            dppl_model, child, parent, random_syms, info.dims, probe_hp;
+            is_scalar = info.is_scalar,
         )
     end
 
@@ -167,7 +168,8 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern,
         intercepts = Dict{Symbol, Any}()
         for s in random_syms
             Q_s, int_s = atomic_conditional_and_intercept(
-                dppl_model, s, random_syms, info.dims, hp_values,
+                dppl_model, s, random_syms, info.dims, hp_values;
+                is_scalar = info.is_scalar,
             )
             cond_Qs[s] = Q_s
             intercepts[s] = int_s

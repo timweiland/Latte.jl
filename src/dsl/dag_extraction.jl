@@ -31,6 +31,11 @@ Returns `(dims, classification, edges)` describing the DAG structure of
 function analyze_structure(dppl_model, random_syms::Tuple, hp_values::NamedTuple)
     dims = Dict(s => variable_length(dppl_model, s, hp_values) for s in random_syms)
     classification = Dict(s => classify_sym(dppl_model, s, hp_values) for s in random_syms)
+    # Detect scalar (UnivariateDistribution) latents so we can seed probe
+    # values as scalars, not 1-vectors. DPPL's body for `α ~ Normal(0,1)`
+    # expects a scalar α; passing a 1-vector via `DynamicPPL.fix` makes the
+    # body see a vector and crashes downstream operations like `α + ...`.
+    is_scalar = Dict(s => _is_scalar_latent(dppl_model, s, hp_values) for s in random_syms)
 
     edges = Dict(s => Symbol[] for s in random_syms)
     for child in random_syms
@@ -38,8 +43,11 @@ function analyze_structure(dppl_model, random_syms::Tuple, hp_values::NamedTuple
         for parent in random_syms
             child === parent && continue
             others = Tuple(s for s in random_syms if s !== child)
-            fix_0 = NamedTuple{others}(Tuple(zeros(dims[s]) for s in others))
-            fix_1 = merge(fix_0, NamedTuple{(parent,)}((ones(dims[parent]),)))
+            fix_0 = NamedTuple{others}(Tuple(_zero_seed(is_scalar[s], dims[s]) for s in others))
+            fix_1 = merge(
+                fix_0,
+                NamedTuple{(parent,)}((_ones_seed(is_scalar[parent], dims[parent]),)),
+            )
             p0 = extract_priors(DynamicPPL.fix(dppl_model, merge(hp_values, fix_0)))
             p1 = extract_priors(DynamicPPL.fix(dppl_model, merge(hp_values, fix_1)))
             if priors_differ(find_dist(p0, child), find_dist(p1, child))
@@ -47,7 +55,19 @@ function analyze_structure(dppl_model, random_syms::Tuple, hp_values::NamedTuple
             end
         end
     end
-    return (; dims, classification, edges)
+    return (; dims, classification, edges, is_scalar)
+end
+
+# Helpers: scalar vs vector seeds for probe NamedTuples. DPPL needs scalars
+# for univariate variables; seeding as a 1-vector breaks the model body.
+_zero_seed(scalar::Bool, dim::Int) = scalar ? 0.0 : zeros(dim)
+_ones_seed(scalar::Bool, dim::Int) = scalar ? 1.0 : ones(dim)
+
+function _is_scalar_latent(dppl_model, sym::Symbol, hp_values::NamedTuple)
+    cond = DynamicPPL.fix(dppl_model, hp_values)
+    priors = extract_priors(cond)
+    matches = [d for (vn, d) in pairs(priors) if getsym(vn) === sym]
+    return length(matches) == 1 && matches[1] isa UnivariateDistribution
 end
 
 """
@@ -60,16 +80,26 @@ constant in `parent`).
 """
 function extract_linear_map(
         dppl_model, child::Symbol, parent::Symbol,
-        random_syms, dims, hp_values::NamedTuple
+        random_syms, dims, hp_values::NamedTuple;
+        is_scalar::Union{Nothing, Dict{Symbol, Bool}} = nothing,
     )
     p_dim = dims[parent]
-    child_zero = zeros(dims[child])
+    is_scalar_dict = is_scalar === nothing ?
+        Dict(s => _is_scalar_latent(dppl_model, s, hp_values) for s in random_syms) :
+        is_scalar
+    child_zero = _zero_seed(is_scalar_dict[child], dims[child])
     others_rest = Tuple(s for s in random_syms if s !== parent && s !== child)
 
     function μ_of_parent(parent_val)
+        # `prepare_jacobian` / `jacobian` always pass a vector. If the
+        # parent variable is itself a scalar in the DPPL body, unwrap the
+        # 1-element vector before placing it in the init NamedTuple.
+        parent_init = is_scalar_dict[parent] ? parent_val[1] : parent_val
         init_nt = merge(
-            NamedTuple{others_rest}(Tuple(zeros(dims[s]) for s in others_rest)),
-            NamedTuple{(parent,)}((parent_val,)),
+            NamedTuple{others_rest}(
+                Tuple(_zero_seed(is_scalar_dict[s], dims[s]) for s in others_rest)
+            ),
+            NamedTuple{(parent,)}((parent_init,)),
             NamedTuple{(child,)}((child_zero,)),
         )
         cond = DynamicPPL.fix(dppl_model, hp_values)
@@ -116,19 +146,29 @@ other random variables fixed at zero. The conditional distribution is
 `sym | others=0, θ=hp_values`.
 """
 function atomic_conditional_and_intercept(
-        dppl_model, sym::Symbol, random_syms, dims, hp_values::NamedTuple,
+        dppl_model, sym::Symbol, random_syms, dims, hp_values::NamedTuple;
+        is_scalar::Union{Nothing, Dict{Symbol, Bool}} = nothing,
     )
+    is_scalar_dict = is_scalar === nothing ?
+        Dict(s => _is_scalar_latent(dppl_model, s, hp_values) for s in random_syms) :
+        is_scalar
     others = Tuple(s for s in random_syms if s !== sym)
-    others_zero = NamedTuple{others}(Tuple(zeros(dims[s]) for s in others))
+    others_zero = NamedTuple{others}(
+        Tuple(_zero_seed(is_scalar_dict[s], dims[s]) for s in others)
+    )
     cond = DynamicPPL.fix(dppl_model, merge(hp_values, others_zero))
     # No-sample path: `extract_priors`'s default init runs the model via
     # sampling, which breaks when hp_values are Dual and the prior is a
     # ConstrainedGMRF (no Dual-typed `_rand!` downstream). Providing an
     # explicit init value for `sym` sidesteps that.
-    sym_init = NamedTuple{(sym,)}((zeros(dims[sym]),))
+    sym_init = NamedTuple{(sym,)}((_zero_seed(is_scalar_dict[sym], dims[sym]),))
     priors = extract_priors_no_sample(cond, sym_init)
     d = find_dist(priors, sym)
-    return conditional_precision(d), Vector(mean(d))
+    # `mean(d)` returns a scalar for `Normal(...)` and a vector for `MvNormal`.
+    # The downstream `assemble_joint` expects vectors, so wrap scalars.
+    μ = mean(d)
+    μ_vec = μ isa AbstractVector ? Vector(μ) : [μ]
+    return conditional_precision(d), μ_vec
 end
 
 """
