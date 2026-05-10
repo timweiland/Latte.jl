@@ -70,20 +70,35 @@ function latte_from_dppl(
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     dims = Dict(s => variable_length(dppl_model, s, probe_hp) for s in random_syms)
 
-    # Composite-obs path: when `obs_groups` is supplied we always go through
-    # AD, never the fast path. The two are conceptually composable but
-    # gluing them together (one fast-path component + one AD component
-    # under one composite) is a separate, larger task.
+    # Composite-obs path: when `obs_groups` is supplied each group goes
+    # through per-group fast-path detection first; only groups that fail
+    # detection (heterogeneous family, non-linear predictor, transformed
+    # nuisance hp, …) fall back to the AD per-component closure.
     obs_groups_spec = _normalize_obs_groups(obs_groups)
     use_obs_groups = obs_groups_spec !== nothing
     if use_obs_groups
         _validate_obs_groups(obs_groups_spec, dppl_model, hp_names, random_syms, dims)
     end
 
-    # Detect fast path first (skipped when grouping is requested).
+    # Detect whole-model fast path first (skipped when grouping is requested).
     fast_obs = (force_ad_obs_model || use_obs_groups) ? nothing :
         try_exponential_family_fast_path(dppl_model, random_syms, dims, hp_names)
     use_fast_path = fast_obs !== nothing
+
+    # Per-group fast-path planning. Only attempted when grouping is in
+    # play and the user hasn't forced AD.
+    group_fast = if use_obs_groups && !force_ad_obs_model
+        Dict(
+            name => try_group_exponential_family_fast_path(
+                    dppl_model, syms, random_syms, dims, hp_names,
+                ) for (name, syms) in obs_groups_spec
+        )
+    else
+        Dict{Symbol, Any}()
+    end
+    obs_groups_need_ad = use_obs_groups && any(
+        get(group_fast, name, nothing) === nothing for (name, _) in obs_groups_spec
+    )
 
     # Pattern plumbing:
     #  - Augmented fast-path: LGM auto-augmentation already covers the
@@ -102,6 +117,28 @@ function latte_from_dppl(
         _bool_AtA_pattern(A)
     elseif use_fast_path
         nothing
+    elseif use_obs_groups
+        # Union of per-group fast `A'A` patterns; if any group fell back
+        # to AD, also union in the AD-side likelihood pattern (auto-detected,
+        # dense, or user-supplied).
+        fast_pat = _union_group_fast_patterns(group_fast, n_tot)
+        ad_pat = if !obs_groups_need_ad
+            nothing
+        elseif likelihood_hessian_pattern isa SparseMatrixCSC
+            likelihood_hessian_pattern
+        elseif likelihood_hessian_pattern === :dense
+            dense_pattern()
+        elseif likelihood_hessian_pattern === :auto
+            try
+                detect_likelihood_pattern(dppl_model, hp_names, n_tot)
+            catch e
+                @warn "Tracer-based sparsity detection failed; falling back to a dense likelihood Hessian pattern. Pass `likelihood_hessian_pattern = ...` to silence or override." exception = e
+                dense_pattern()
+            end
+        else
+            throw(ArgumentError("likelihood_hessian_pattern must be :auto, :dense, or a SparseMatrixCSC"))
+        end
+        _union_patterns(fast_pat, ad_pat)
     elseif likelihood_hessian_pattern isa SparseMatrixCSC
         likelihood_hessian_pattern
     elseif likelihood_hessian_pattern === :dense
@@ -135,7 +172,8 @@ function latte_from_dppl(
     elseif use_obs_groups
         composite, composite_obs = _build_obs_groups_composite(
             dppl_model, obs_groups_spec, hp_names, length(latent),
-            random_syms, dims, extra_pattern,
+            random_syms, dims, extra_pattern;
+            fast_results = group_fast,
         )
         _DPPLCompositeObservationModel(composite, composite_obs, hp_names, length(latent))
     else
@@ -194,3 +232,19 @@ function _bool_AtA_pattern(A::AbstractMatrix)
     pat = SparseMatrixCSC{Bool, Int}(A .!= 0)
     return pat' * pat   # boolean matrix product → union of column patterns
 end
+
+# Union the per-group fast `A'A` patterns from a `group_fast` dict,
+# skipping groups that fell through to AD. Returns `nothing` when no
+# group succeeded — caller treats that as "fast contributes nothing".
+function _union_group_fast_patterns(group_fast::AbstractDict, n_tot::Int)
+    fasts = [r for r in values(group_fast) if r !== nothing]
+    isempty(fasts) && return nothing
+    pat = SparseMatrixCSC{Bool, Int}(spzeros(Bool, n_tot, n_tot))
+    for r in fasts
+        pat = pat .| r.pattern
+    end
+    return pat
+end
+
+# `_union_patterns` is defined in `dsl/latent_prior.jl` and already handles
+# the `nothing` × pattern combinations we need here.
