@@ -1,0 +1,7 @@
+{
+  "strategy": "simplified.laplace",
+  "n": 56,
+  "inla_version": "25.6.7",
+  "elapsed_seconds": 1.4852,
+  "status": "ok"
+}
