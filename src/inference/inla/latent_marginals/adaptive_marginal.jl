@@ -1,7 +1,15 @@
 using Distributions: ContinuousUnivariateDistribution, SkewNormal, skewness
 using GaussianMarkovRandomFields: NormalLikelihood, LinearlyTransformedLikelihood
+using LinearAlgebra
 
 export adaptive_upgrade_score
+
+function _is_adaptive_marginal_numerical_failure(e)
+    return e isa DomainError ||
+        e isa PosDefException ||
+        e isa LinearAlgebra.ZeroPivotException ||
+        e isa LinearAlgebra.SingularException
+end
 
 """
     adaptive_upgrade_score(adaptive::AdaptiveMarginal, candidate::MarginalApproximation,
@@ -103,9 +111,15 @@ function _marginalize_impl(
     idx_str = length(upgrade_indices) <= 10 ? " at indices $upgrade_indices" : ""
     @info "AdaptiveMarginal: upgrading $(length(upgrade_indices))/$(length(indices_vec)) variables to LaplaceMarginal (score > $(method.kld_threshold))$idx_str"
 
-    la_marginals = _marginalize_impl(
-        ga, obs_lik, log_prior_θ, LaplaceMarginal(true), upgrade_indices, prior_gmrf
-    )
+    la_marginals = try
+        _marginalize_impl(
+            ga, obs_lik, log_prior_θ, LaplaceMarginal(true), upgrade_indices, prior_gmrf
+        )
+    catch e
+        _is_adaptive_marginal_numerical_failure(e) || rethrow(e)
+        @warn "AdaptiveMarginal: Laplace upgrade failed numerically; keeping SimplifiedLaplace marginals for this grid point" exception_type = typeof(e) exception = sprint(showerror, e)
+        return sl_marginals
+    end
 
     # Step 5: Quadrature-based SKLD(SimplifiedLaplace, Laplace) on the
     # upgraded subset only. We use the integration-based SKLD here (not
@@ -114,19 +128,25 @@ function _marginalize_impl(
     # already triggered an upgrade. Cost is bounded by the number of
     # upgraded indices (typically small).
     sl_la_klds = Vector{Float64}(undef, length(upgrade_positions))
-    for (j, pos) in enumerate(upgrade_positions)
-        sl_la_klds[j] = quadrature_symmetric_kld(sl_marginals[pos], la_marginals[j])
-    end
+    try
+        for (j, pos) in enumerate(upgrade_positions)
+            sl_la_klds[j] = quadrature_symmetric_kld(sl_marginals[pos], la_marginals[j])
+        end
 
-    max_sl_la = maximum(sl_la_klds)
-    mean_sl_la = sum(sl_la_klds) / length(sl_la_klds)
+        max_sl_la = maximum(sl_la_klds)
+        mean_sl_la = sum(sl_la_klds) / length(sl_la_klds)
 
-    if max_sl_la > method.kld_threshold
-        @warn "AdaptiveMarginal: SKLD(SimplifiedLaplace, Laplace) exceeds threshold for upgraded variables" *
-            " (max=$(round(max_sl_la, digits = 4)), mean=$(round(mean_sl_la, digits = 4)))"
-    else
-        @info "AdaptiveMarginal: SKLD(SimplifiedLaplace, Laplace) for upgraded variables:" *
-            " max=$(round(max_sl_la, digits = 4)), mean=$(round(mean_sl_la, digits = 4))"
+        if max_sl_la > method.kld_threshold
+            @warn "AdaptiveMarginal: SKLD(SimplifiedLaplace, Laplace) exceeds threshold for upgraded variables" *
+                " (max=$(round(max_sl_la, digits = 4)), mean=$(round(mean_sl_la, digits = 4)))"
+        else
+            @info "AdaptiveMarginal: SKLD(SimplifiedLaplace, Laplace) for upgraded variables:" *
+                " max=$(round(max_sl_la, digits = 4)), mean=$(round(mean_sl_la, digits = 4))"
+        end
+    catch e
+        _is_adaptive_marginal_numerical_failure(e) || rethrow(e)
+        @warn "AdaptiveMarginal: SKLD check failed numerically after Laplace upgrade; keeping SimplifiedLaplace marginals for this grid point" exception_type = typeof(e) exception = sprint(showerror, e)
+        return sl_marginals
     end
 
     # Step 6: Merge results — start with SL, overwrite upgraded positions
