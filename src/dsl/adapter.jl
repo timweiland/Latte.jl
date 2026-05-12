@@ -51,6 +51,7 @@ function latte_from_dppl(
         augment::Bool = true,
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
+        lift_spec = nothing,
     )
     random_syms = random isa Symbol ? (random,) : random
     priors = extract_priors(dppl_model)
@@ -170,12 +171,21 @@ function latte_from_dppl(
     obs = if use_fast_path
         fast_obs
     elseif use_obs_groups
-        composite, composite_obs = _build_obs_groups_composite(
+        # Per-group routing: fast-path components stay fast; AD-fallback
+        # components use the lifted body when `lift_spec !== nothing`,
+        # else the legacy DPPL AD closure. The composite wrapper handles
+        # the prelude precomputation at materialisation time.
+        _build_obs_groups_observation_model(
             dppl_model, obs_groups_spec, hp_names, length(latent),
             random_syms, dims, extra_pattern;
-            fast_results = group_fast,
+            fast_results = group_fast, lift_spec = lift_spec,
         )
-        _DPPLCompositeObservationModel(composite, composite_obs, hp_names, length(latent))
+    elseif lift_spec !== nothing
+        _build_single_lifted_obs_model(
+            dppl_model, length(latent), random_syms, dims;
+            hp_names = hp_names, hessian_pattern = extra_pattern,
+            lift_spec = lift_spec,
+        )
     else
         extract_obs_model(
             dppl_model, length(latent), random_syms, dims;
