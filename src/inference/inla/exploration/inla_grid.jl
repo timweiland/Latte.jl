@@ -104,7 +104,18 @@ function explore_hyperparameter_posterior(
             for (z, w) in zip(z_points, weights)
     ]
 
-    eval_results = pmap_executor(work_items, executor, pool) do item, ws
+    n_inla_grid_points = length(work_items)
+    eval_results = pmap_executor(
+        work_items, executor, pool;
+        on_complete = function (done)
+            return progress_callback(
+                status = "Evaluating INLA grid points",
+                points_evaluated = done,
+                total_points = n_inla_grid_points,
+                progress = done / n_inla_grid_points,
+            )
+        end,
+    ) do item, ws
         result = evaluate_at_grid_point(
             model, y, item.θ;
             ws = ws,

@@ -155,7 +155,18 @@ function explore_hyperparameter_posterior(
     # Build work items with pre-computed θ values
     work_items = [(z = z, θ = transform(z), is_center = all(iszero, z)) for z in z_points]
 
-    eval_results = pmap_executor(work_items, executor, pool) do item, ws
+    n_ccd_points = length(work_items)
+    eval_results = pmap_executor(
+        work_items, executor, pool;
+        on_complete = function (done)
+            return progress_callback(
+                status = "Evaluating CCD points",
+                points_evaluated = done,
+                total_points = n_ccd_points,
+                progress = done / n_ccd_points,
+            )
+        end,
+    ) do item, ws
         result = evaluate_at_grid_point(
             model, y, item.θ;
             ws = ws,

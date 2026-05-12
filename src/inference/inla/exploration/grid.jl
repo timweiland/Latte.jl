@@ -18,7 +18,8 @@ function explore_half_axis_by_steps(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, direction::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
         marginalization_method, marginalization_indices, accumulators::Tuple,
-        accumulator_call_keys::Vector, ws
+        accumulator_call_keys::Vector, ws;
+        progress_callback = nothing,
     )
     n_dim = length(transform.θ_star)
     keyed_points = []
@@ -40,6 +41,17 @@ function explore_half_axis_by_steps(
             compute_marginals = is_integration_point,
             marginalization_method = marginalization_method,
             marginalization_indices = marginalization_indices,
+        )
+
+        # Per-step status update so the user sees the axis walk progress.
+        # Bar position isn't advanced mid-axis — the per-dim completion
+        # callback in the outer loop owns the fractional progress.
+        progress_callback === nothing || progress_callback(
+            status = "Exploring axis",
+            dim = dim, total_dims = n_dim,
+            direction = direction > 0 ? "+" : "-",
+            step = step_count,
+            log_density_drop = round(mode_logpdf - result.log_density; digits = 2),
         )
 
         if _grid_tail_exceeded(mode_logpdf, result.log_density, max_log_drop)
@@ -80,20 +92,21 @@ function explore_dimension_and_build_lookup(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
         marginalization_method, marginalization_indices, accumulators::Tuple,
-        accumulator_call_keys::Vector, ws
+        accumulator_call_keys::Vector, ws;
+        progress_callback = nothing,
     )
     # Call our helper function for both directions
     pos_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, 1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
         marginalization_method, marginalization_indices, accumulators,
-        accumulator_call_keys, ws
+        accumulator_call_keys, ws; progress_callback = progress_callback,
     )
     neg_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, -1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
         marginalization_method, marginalization_indices, accumulators,
-        accumulator_call_keys, ws
+        accumulator_call_keys, ws; progress_callback = progress_callback,
     )
 
     # Return a dictionary for fast, safe lookups
@@ -200,16 +213,30 @@ function explore_hyperparameter_posterior(
 
         point_lookup[mode_key] = mp
 
-        progress_callback(status = "Starting axis exploration", dimensions = n_dim)
+        # Sub-allocation of the exploration phase's bar budget:
+        #   axis exploration → 0..30% within phase,
+        #   off-axis eval    → 30..95% within phase,
+        #   assembly         → 95..100% within phase.
+        progress_callback(
+            status = "Starting axis exploration", dimensions = n_dim, progress = 0.0,
+        )
         for d in 1:n_dim
-            progress_callback(status = "Exploring axis", current_dimension = d, total_dimensions = n_dim)
+            progress_callback(
+                status = "Exploring axis", current_dimension = d, total_dimensions = n_dim,
+                progress = 0.3 * (d - 1) / n_dim,
+            )
             axis_points, axis_range = explore_dimension_and_build_lookup(
                 model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
                 interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators,
-                accumulator_call_keys, ws
+                accumulator_call_keys, ws;
+                progress_callback = progress_callback,
             )
             merge!(point_lookup, axis_points)
             step_ranges_per_dim[d] = axis_range
+            progress_callback(
+                status = "Axis explored", dim = d, total_dims = n_dim,
+                progress = 0.3 * d / n_dim,
+            )
         end
 
         mp
@@ -237,8 +264,22 @@ function explore_hyperparameter_posterior(
         end
     end
 
-    # Phase 1: Evaluate off-axis points (PARALLEL with per-task workspaces)
-    off_axis_results = pmap_executor(off_axis_work, executor, pool) do item, ws
+    # Phase 1: Evaluate off-axis points (PARALLEL with per-task workspaces).
+    # The `on_complete` callback fires per item as each evaluation finishes
+    # so the user sees real progress during the long parallel step (the
+    # default would block on "Building full grid" until pmap returned).
+    n_off_axis = length(off_axis_work)
+    off_axis_results = pmap_executor(
+        off_axis_work, executor, pool;
+        on_complete = n_off_axis > 0 ? function (done)
+                return progress_callback(
+                    status = "Evaluating off-axis points",
+                    points_evaluated = done,
+                    total_points = n_off_axis,
+                    progress = 0.3 + 0.65 * done / n_off_axis,
+                )
+        end : nothing,
+    ) do item, ws
         result = evaluate_at_grid_point(
             model, y, item.θ;
             ws = ws,
