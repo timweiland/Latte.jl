@@ -219,7 +219,11 @@ function _mixed_pointwise(
         [rand(default_rng(), ga) for _ in 1:n_samples] : nothing
     log_w_mc = any_unsupported ? fill(-log(n_samples), n_samples) : nothing
 
-    all_samples = PointwiseLogLikSamples[]
+    # Abstract element type — supported Normal-Identity components emit
+    # `NormalIdentityClosedForm` records while other supported / MC paths
+    # emit `PointwiseLogLikSamples`. The narrow `PointwiseLogLikSamples[]`
+    # would silently `convert`-fail at append time.
+    all_samples = ObsIntegralData[]
     eta_liks = Any[]   # for PIT: one eta-likelihood per component
     for comp in lik.components
         comp_samples, comp_eta_lik = if _supports_lpm(comp)

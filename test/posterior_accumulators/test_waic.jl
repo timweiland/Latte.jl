@@ -228,6 +228,35 @@ include("test_helpers.jl")
         )
     end
 
+    @testset "Mixed composite: Normal-Identity supported + LPM-less" begin
+        # Regression: composites with one supported Normal-Identity
+        # component (emits `NormalIdentityClosedForm`) plus one
+        # LPM-less component (forces MC, emits `PointwiseLogLikSamples`)
+        # went through `_mixed_pointwise`. An overly narrow
+        # `PointwiseLogLikSamples[]` initialiser silently `convert`-failed
+        # on the closed-form records.
+        n_phys, n_data = 4, 3
+        A_phys = randn(n_phys, 5)
+        β_post = randn(5)
+        y_phys = A_phys * β_post .+ 0.1 .* randn(n_phys)
+        y_data = randn(n_data)
+
+        Q = sparse(Matrix(1.0 * I, 5, 5))
+        ga = GMRF(zeros(5), Q)
+
+        phys = LinearlyTransformedObservationModel(ExponentialFamily(Normal), A_phys)(y_phys; σ = 0.1)
+        data = LikWithoutLPM(y_data, 0.5)
+
+        composite = GaussianMarkovRandomFields.CompositeLikelihood((phys, data))
+        # Smoke test — used to throw `convert(::PointwiseLogLikSamples, ::NormalIdentityClosedForm)`.
+        integrated_ll, expected_log_ll = _waic_pointwise_integrals(
+            ga, composite, WAICStrategy(; n_samples = 64),
+        )
+        @test length(integrated_ll) == n_phys + n_data
+        @test all(isfinite, integrated_ll)
+        @test all(isfinite, expected_log_ll)
+    end
+
     @testset "pointwise_loglik consistency" begin
         # Verify that sum(pointwise_loglik) ≈ loglik for our observation models
         n = 10
