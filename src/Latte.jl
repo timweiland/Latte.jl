@@ -32,6 +32,7 @@ include("utils/owens_t.jl")
 include("utils/kld.jl")
 include("utils/distribution_summaries.jl")
 include("utils/plotting_stubs.jl")
+include("utils/pointwise_cdf.jl")
 
 include("distributions/distributions.jl")
 
@@ -134,6 +135,8 @@ include("dsl/latte_macro.jl")
 include("posterior/accumulators/interface.jl")
 include("posterior/accumulators/dic.jl")
 include("posterior/accumulators/marginal_likelihood.jl")
+include("posterior/accumulators/psis.jl")
+include("posterior/accumulators/accumulator_core.jl")
 include("posterior/accumulators/waic.jl")
 include("posterior/accumulators/cpo.jl")
 
