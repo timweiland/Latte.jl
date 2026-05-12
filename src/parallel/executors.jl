@@ -48,16 +48,23 @@ end
 ThreadedExecutor(; nworkers::Int = Threads.nthreads()) = ThreadedExecutor(nworkers)
 
 """
-    pmap_executor(f, xs, executor::ParallelExecutor) -> Vector
+    pmap_executor(f, xs, executor::ParallelExecutor; on_complete=nothing) -> Vector
 
-Apply `f` to each element of `xs` using the given executor. Returns results in the
-same order as `xs`.
+Apply `f` to each element of `xs` using the given executor. Returns
+results in the same order as `xs`.
+
+The optional `on_complete::Function` callback fires per item *from the
+main thread*, with the 1-based completion index — safe to call into
+`ProgressMeter` from there. For the threaded backend it fires as each
+`fetch` returns within a batch, giving real-time progress during long
+parallel evaluations.
 """
-function pmap_executor(f, xs, ::SequentialExecutor)
-    return map(f, xs)
+function pmap_executor(f, xs, ::SequentialExecutor; on_complete = nothing)
+    on_complete === nothing && return map(f, xs)
+    return [(r = f(x); on_complete(i); r) for (i, x) in enumerate(xs)]
 end
 
-function pmap_executor(f, xs, executor::ThreadedExecutor)
+function pmap_executor(f, xs, executor::ThreadedExecutor; on_complete = nothing)
     n = length(xs)
     n == 0 && return []
 
@@ -72,7 +79,9 @@ function pmap_executor(f, xs, executor::ThreadedExecutor)
                 Threads.@spawn f(xs[i])
             end
             for (j, task) in enumerate(tasks)
-                results[batch_start + j - 1] = fetch(task)
+                idx = batch_start + j - 1
+                results[idx] = fetch(task)
+                on_complete === nothing || on_complete(idx)
             end
         end
         return results
@@ -98,13 +107,20 @@ Pool-aware variant of [`pmap_executor`](@ref). `f` has signature
 `f(item, ws)` and receives a workspace checked out from `pool` for each
 evaluation. Returns results in `xs` order.
 """
-function pmap_executor(f, xs, ::SequentialExecutor, pool::AbstractLatentWorkspacePool)
+function pmap_executor(
+        f, xs, ::SequentialExecutor, pool::AbstractLatentWorkspacePool;
+        on_complete = nothing,
+    )
     return with_workspace(pool) do ws
-        map(x -> f(x, ws), xs)
+        on_complete === nothing && return map(x -> f(x, ws), xs)
+        return [(r = f(x, ws); on_complete(i); r) for (i, x) in enumerate(xs)]
     end
 end
 
-function pmap_executor(f, xs, executor::ThreadedExecutor, pool::AbstractLatentWorkspacePool)
+function pmap_executor(
+        f, xs, executor::ThreadedExecutor, pool::AbstractLatentWorkspacePool;
+        on_complete = nothing,
+    )
     n = length(xs)
     n == 0 && return []
 
@@ -121,7 +137,9 @@ function pmap_executor(f, xs, executor::ThreadedExecutor, pool::AbstractLatentWo
                 end
             end
             for (j, task) in enumerate(tasks)
-                results[batch_start + j - 1] = fetch(task)
+                idx = batch_start + j - 1
+                results[idx] = fetch(task)
+                on_complete === nothing || on_complete(idx)
             end
         end
         return results

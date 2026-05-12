@@ -34,7 +34,10 @@ function _marginalize_impl(
     bounds = exploration.integration_bounds
 
     marginals = map(1:n_dim) do d
-        progress_callback(status = "Profiling dimension", dimension = d, total = n_dim)
+        progress_callback(
+            status = "Profiling dimension", dimension = d, total = n_dim,
+            progress = (d - 1) / n_dim,
+        )
         θ_grid, log_profile = profile_marginal(interp, d, method.n_grid, bounds)
         _build_spline_marginal(θ_grid, log_profile, spec, d)
     end
