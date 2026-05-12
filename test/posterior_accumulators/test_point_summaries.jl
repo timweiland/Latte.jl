@@ -2,7 +2,7 @@ using Test
 using Latte
 using Latte: compute_point_summary, accumulate!, finalize!,
     DICPointSummary, WAICPointSummary, CPOPointSummary,
-    _integrated_pointwise_loglik, _cpo_pit_integrals
+    _waic_pointwise_integrals, _cpo_pointwise_integrals
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
@@ -73,7 +73,7 @@ using LinearAlgebra
         @test summary isa CPOPointSummary
         @test length(summary.log_inv_lik_exp) == n
         @test length(summary.pit_exp) == n
-        @test length(summary.inner_ess) == n
+        @test length(summary.pareto_k) == n
 
         # Two-step vs one-step
         acc_twostep = CPOAccumulator()
@@ -84,7 +84,8 @@ using LinearAlgebra
 
         @test acc_twostep.log_inv_lik_expectations == acc_onestep.log_inv_lik_expectations
         @test acc_twostep.pit_expectations == acc_onestep.pit_expectations
-        @test acc_twostep.inner_ess == acc_onestep.inner_ess
+        # NaN-aware equality (analytic paths emit NaN k̂ values).
+        @test isequal(acc_twostep.pareto_k, acc_onestep.pareto_k)
     end
 
     @testset "CPOPointSummary without PIT" begin
