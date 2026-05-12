@@ -119,3 +119,91 @@ function extract_obs_model(
         diagonal_hessian_safe = false,
     )
 end
+
+# ─── Lifted single-group obs model ────────────────────────────────────────────
+# Single-group prelude-lift variant. The hp-dependent prelude is computed
+# once per `model(_y; θ_nt...)` call instead of once per AD sweep through
+# the obs likelihood. See task #80.
+struct _LiftedSingleObsModel{M, P, A, H, O, S, GS} <: ObservationModel
+    ad_model::M
+    prelude_fn::P
+    args_nt::A
+    hp_names::H
+    offsets::O
+    is_scalar::S
+    group_syms::GS
+end
+
+function (w::_LiftedSingleObsModel)(_y; kwargs...)
+    hp_nt = NamedTuple{w.hp_names}(Tuple(kwargs[k] for k in w.hp_names))
+    prelude_state = w.prelude_fn(w.args_nt, hp_nt)
+    payload = (
+        args = w.args_nt, prelude_state = prelude_state,
+        group_syms = w.group_syms,
+        offsets = w.offsets, is_scalar = w.is_scalar,
+    )
+    return w.ad_model(payload; kwargs...)
+end
+
+hyperparameters(w::_LiftedSingleObsModel) = w.hp_names
+latent_dimension(w::_LiftedSingleObsModel, ::Any) = w.ad_model.n_latent
+
+function Base.show(io::IO, w::_LiftedSingleObsModel)
+    print(io, "Lifted single ObservationModel(hp = ", w.hp_names, ")")
+    return
+end
+
+"""
+    _build_single_lifted_obs_model(dppl_model, n_latent, random_syms, dims;
+        hp_names, hessian_pattern, lift_spec)
+
+Build a `_LiftedSingleObsModel` for the case where the LGM has only one
+obs group. The inner `AutoDiffObservationModel` wraps the macro-generated
+`obs_body_fn` (and `pointwise_fn`); the wrapper computes prelude state
+per θ and stuffs it into the payload supplied via GMRFs' `y` slot.
+"""
+function _build_single_lifted_obs_model(
+        dppl_model, n_latent::Int, random_syms, dims;
+        hp_names::Tuple,
+        hessian_pattern::Union{Nothing, SparseMatrixCSC} = nothing,
+        lift_spec::NamedTuple,
+    )
+    args = dppl_model.args
+    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    is_scalar_dict = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
+    offsets_dict = _component_offsets(Tuple(random_syms), dims)
+
+    sparsity_detector = hessian_pattern === nothing ?
+        TracerLocalSparsityDetector() :
+        KnownHessianSparsityDetector(hessian_pattern)
+    hess_backend = AutoSparse(
+        AutoForwardDiff();
+        sparsity_detector = sparsity_detector,
+        coloring_algorithm = GreedyColoringAlgorithm(),
+    )
+    ad_model = AutoDiffObservationModel(
+        lift_spec.obs_body_fn;
+        n_latent = n_latent, hyperparams = hp_names,
+        grad_backend = AutoForwardDiff(),
+        hessian_backend = hess_backend,
+        pointwise_loglik_func = lift_spec.pointwise_fn,
+        diagonal_hessian_safe = false,
+    )
+
+    args_nt = NamedTuple{Tuple(keys(args))}(
+        Tuple(getfield(args, s) for s in keys(args))
+    )
+    rsyms = Tuple(random_syms)
+    offsets_nt = NamedTuple{rsyms}(Tuple(offsets_dict[s] for s in rsyms))
+    is_scalar_nt = NamedTuple{rsyms}(Tuple(is_scalar_dict[s] for s in rsyms))
+
+    # All observed syms are in the single group — sourced from the DPPL
+    # probe-obs symbol set already validated at adapter time.
+    group_syms = _probe_obs_syms(dppl_model, hp_names, rsyms, dims)
+    group_syms_t = Tuple(sort(collect(group_syms)))
+
+    return _LiftedSingleObsModel(
+        ad_model, lift_spec.prelude_fn, args_nt, hp_names,
+        offsets_nt, is_scalar_nt, group_syms_t,
+    )
+end
