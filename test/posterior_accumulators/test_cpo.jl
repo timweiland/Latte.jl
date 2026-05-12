@@ -1,12 +1,14 @@
 using Test
 using Latte
-using Latte: accumulate!, finalize!, _cpo_pit_integrals, _pointwise_cdf
+using Latte: accumulate!, finalize!, _cpo_pointwise_integrals, _pointwise_cdf
 using Random
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
 using LinearAlgebra
 using Statistics
+
+include("test_helpers.jl")
 
 @testset "CPOAccumulator" begin
 
@@ -24,9 +26,8 @@ using Statistics
         y = randn(n)
         obs_lik = ExponentialFamily(Normal)(y; σ = σ_obs)
 
-        log_h, pit, inner_ess = _cpo_pit_integrals(ga, obs_lik)
+        log_h, pit, _ = _cpo_pointwise_integrals(ga, obs_lik)
 
-        # Verify CPO integral against analytic formula
         for i in 1:n
             ratio = v[i] / σ_obs^2
             expected_log_h = 0.5 * log(2π * σ_obs^2) - 0.5 * log(1 - ratio) +
@@ -34,20 +35,13 @@ using Statistics
             @test log_h[i] ≈ expected_log_h
         end
 
-        # Verify PIT against analytic formula
         for i in 1:n
             expected_pit = cdf(Normal(μ[i], sqrt(σ_obs^2 + v[i])), y[i])
             @test pit[i] ≈ expected_pit
         end
 
-        # PIT should be in [0, 1]
         @test all(0 .<= pit .<= 1)
-
-        # log_h should be positive (since h = E[1/p] >= 1/E[p] > 0 and typically > 1)
         @test all(isfinite.(log_h))
-
-        # Analytic path has no inner quadrature — ESS = n_nodes (perfect)
-        @test all(inner_ess .== 15.0)
     end
 
     @testset "CPO failure detection: Normal analytic" begin
@@ -61,7 +55,7 @@ using Statistics
         y = zeros(n)
         obs_lik = ExponentialFamily(Normal)(y; σ = σ_obs)
 
-        log_h, pit, inner_ess = _cpo_pit_integrals(ga, obs_lik)
+        log_h, pit, _ = _cpo_pointwise_integrals(ga, obs_lik)
 
         # v[1] < σ² → should be finite
         @test isfinite(log_h[1])
@@ -72,34 +66,6 @@ using Statistics
 
         # PIT should still be computable for all
         @test all(isfinite.(pit))
-    end
-
-    @testset "Generic quadrature matches analytic for Normal" begin
-        n = 5
-        μ = randn(n)
-        v = rand(n) .* 0.5 .+ 0.1
-        Q = Diagonal(1.0 ./ v)
-        ga = GMRF(μ, Q)
-
-        σ_obs = 2.0
-        y = randn(n)
-        obs_lik = ExponentialFamily(Normal)(y; σ = σ_obs)
-
-        # Analytic result (via NormalLikelihood dispatch)
-        analytic_h, analytic_pit, analytic_ess = _cpo_pit_integrals(ga, obs_lik)
-
-        # Force generic fallback
-        generic_h, generic_pit, generic_ess = invoke(
-            Latte._cpo_pit_integrals,
-            Tuple{Any, Any},
-            ga, obs_lik; n_nodes = 21
-        )
-
-        @test generic_h ≈ analytic_h atol = 1.0e-6
-        @test generic_pit ≈ analytic_pit atol = 1.0e-6
-
-        # Generic should have high ESS for well-behaved Normal (not dominated by one node)
-        @test all(generic_ess .> 1.0)
     end
 
     @testset "Pointwise CDF: Normal" begin
@@ -243,35 +209,6 @@ using Statistics
         @test all(0 .<= cpo_acc.PIT .<= 1)
     end
 
-    @testset "Inner failure detection: high-variance latent" begin
-        # With very high latent variance, GH nodes spread into regions where
-        # 1/p(y|x) spans many orders of magnitude → ESS drops toward 1
-        n = 3
-        Random.seed!(42)
-
-        # High variance latent → large spread across GH nodes
-        v = [100.0, 0.01, 50.0]  # obs 1 and 3 have huge variance, obs 2 is tight
-        μ = [1.0, 1.0, 1.0]  # Reasonable Poisson mean (exp(1) ≈ 2.7)
-        Q = Diagonal(1.0 ./ v)
-        ga = GMRF(μ, Q)
-
-        y = [3, 2, 5]
-        obs_lik = ExponentialFamily(Poisson)(GaussianMarkovRandomFields.PoissonObservations(y))
-
-        _, _, inner_ess = _cpo_pit_integrals(ga, obs_lik; n_nodes = 15)
-
-        # High-variance observations should have lower ESS (fewer effective nodes)
-        @test inner_ess[1] < inner_ess[2]
-        @test inner_ess[3] < inner_ess[2]
-
-        # The high-variance obs should have ESS close to 1 (dominated by one node)
-        @test inner_ess[1] < 2.0
-        @test inner_ess[3] < 2.0
-
-        # The low-variance obs should have high ESS (many nodes contribute)
-        @test inner_ess[2] > 2.0
-    end
-
     @testset "CPO without PIT" begin
         n = 10
         spec = @hyperparams begin
@@ -297,5 +234,104 @@ using Statistics
 
         @test all(isfinite.(cpo_acc.CPO))
         @test isempty(cpo_acc.PIT)
+    end
+
+    @testset "Multi-coefficient LTL: CPO/PIT use correct η marginal" begin
+        # Regression test: pre-fix, the element-wise GH path used
+        # `std(ga)` per latent coord (rank-1 surrogate) instead of
+        # `sqrt(diag(A Σ A'))` per obs. For Normal-IdentityLink CPO has
+        # closed-form `(y - μ_η)² / (2σ²(1-v_η/σ²))` (plus normalisation);
+        # PIT has closed-form `Φ((y - μ_η)/√(σ² + v_η))`. Both should use
+        # the *correct* η marginal post-fix.
+        Random.seed!(43)
+        n_latent = 6
+        n_obs = 4
+        A = sparse(
+            [
+                1.0 0.5 0.0 0.2 0.0 0.0
+                0.0 0.7 -0.3 0.0 0.4 0.0
+                0.1 0.0 0.5 0.6 0.0 -0.2
+                0.0 0.0 0.4 -0.1 0.3 0.5
+            ]
+        )
+        Q_raw = Matrix(1.5 * I, n_latent, n_latent)
+        for i in 1:n_latent, j in (i + 1):n_latent
+            Q_raw[i, j] = Q_raw[j, i] = -0.05
+        end
+        Q = sparse(Q_raw)
+        μ_x = randn(n_latent)
+        ga = GMRF(μ_x, Q)
+        Σ_x = inv(Matrix(Q))
+
+        σ_obs = 1.5  # larger than v_η so CPO doesn't diverge
+        y = randn(n_obs)
+        obs_lik = LinearlyTransformedObservationModel(ExponentialFamily(Normal), A)(y; σ = σ_obs)
+
+        log_inv_lik, pit, _ = Latte._cpo_pointwise_integrals(
+            ga, obs_lik, CPOStrategy(; n_nodes = 15, compute_pit = true),
+        )
+
+        μ_η_ref = A * μ_x
+        v_η_ref = diag(A * Σ_x * A')
+
+        # Verify v_η_ref is in the regime where CPO is finite
+        @test all(v_η_ref .< σ_obs^2)
+
+        expected_log_inv = [
+            0.5 * log(2π * σ_obs^2) -
+                0.5 * log(1 - v_η_ref[i] / σ_obs^2) +
+                (y[i] - μ_η_ref[i])^2 / (2 * σ_obs^2 * (1 - v_η_ref[i] / σ_obs^2))
+                for i in 1:n_obs
+        ]
+        @test log_inv_lik ≈ expected_log_inv atol = 1.0e-2
+
+        expected_pit = [
+            cdf(Normal(μ_η_ref[i], sqrt(σ_obs^2 + v_η_ref[i])), y[i])
+                for i in 1:n_obs
+        ]
+        @test pit ≈ expected_pit atol = 1.0e-2
+    end
+
+    @testset "Sample-based CPO: PSIS pulls MC toward analytic reference" begin
+        # Regression test for the CPO MC-bias pathology: straight MC for
+        # `E[1/p(y_i|x)]` is unstable (heavy-tailed inverse weights —
+        # rare-but-large `1/p_s` values undersampled with finite n_samples),
+        # which systematically *underestimates* the expectation and
+        # therefore *overestimates* CPO = 1/E[1/p]. PSIS smooths the
+        # upper tail of the log weights via a fitted GPD, pulling the
+        # estimate back toward the truth.
+        #
+        # Note: CPO is the per-obs LOO predictive *density* for continuous
+        # likelihoods — it can legitimately exceed 1 (e.g. Normal with
+        # small σ). The regression check is agreement with the analytic
+        # reference, not a [0, 1] bound.
+        # `LikWithoutLPM` (test_helpers.jl) is the shared LPM-less stub.
+        @test !Latte._supports_lpm(LikWithoutLPM(zeros(3), 1.0))
+
+        Random.seed!(2027)
+        n = 6
+        μ_x = randn(n)
+        v = fill(0.25, n)
+        Q = Diagonal(1.0 ./ v)
+        ga = GMRF(μ_x, Q)
+        σ_obs = 0.8
+        y = randn(n)
+
+        # Analytic reference via direct-Normal obs.
+        ef_lik = ExponentialFamily(Normal)(y; σ = σ_obs)
+        ref_log_inv, _, _ = _cpo_pointwise_integrals(ga, ef_lik)
+
+        # Sample-based path via the LPM-less stub.
+        fake_lik = LikWithoutLPM(y, σ_obs)
+        log_inv, _, _ = _cpo_pointwise_integrals(
+            ga, fake_lik,
+            CPOStrategy(; fallback = :sample, n_samples = 4096, compute_pit = false),
+        )
+
+        # PSIS keeps the estimate close to the analytic reference. The
+        # bound is loose because tail observations (large ref_log_inv)
+        # carry residual MC noise even after smoothing.
+        @test log_inv ≈ ref_log_inv atol = 1.0
+        @test all(isfinite, log_inv)
     end
 end

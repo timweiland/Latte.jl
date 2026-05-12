@@ -1,11 +1,14 @@
 using Test
 using Latte
-using Latte: accumulate!, finalize!, _integrated_pointwise_loglik
+using Latte: accumulate!, finalize!, _waic_pointwise_integrals
+using Random
 using GaussianMarkovRandomFields
 using Distributions
 using SparseArrays
 using LinearAlgebra
 using Statistics
+
+include("test_helpers.jl")
 
 @testset "WAICAccumulator" begin
 
@@ -23,7 +26,7 @@ using Statistics
         y = randn(n)
         obs_lik = ExponentialFamily(Normal)(y; σ = σ_obs)
 
-        integrated_ll, expected_log_ll = _integrated_pointwise_loglik(ga, obs_lik)
+        integrated_ll, expected_log_ll = _waic_pointwise_integrals(ga, obs_lik)
 
         # Compare integrated_ll against analytic formula
         expected_int = [logpdf(Normal(μ[i], sqrt(σ_obs^2 + v[i])), y[i]) for i in 1:n]
@@ -38,32 +41,6 @@ using Statistics
 
         # Jensen's inequality: E[log p] ≤ log E[p], so expected_log_ll ≤ integrated_ll
         @test all(expected_log_ll .<= integrated_ll .+ 1.0e-12)
-    end
-
-    @testset "Generic quadrature matches analytic for Normal" begin
-        # Force the generic (quadrature) path via invoke and compare to analytic
-        n = 5
-        μ = randn(n)
-        v = rand(n) .+ 0.1
-        Q = Diagonal(1.0 ./ v)
-        ga = GMRF(μ, Q)
-
-        σ_obs = 2.0
-        y = randn(n)
-        obs_lik = ExponentialFamily(Normal)(y; σ = σ_obs)
-
-        # Analytic result (via NormalLikelihood dispatch)
-        analytic_int, analytic_ell = _integrated_pointwise_loglik(ga, obs_lik)
-
-        # Force generic fallback by invoking with less-specific type signature
-        generic_int, generic_ell = invoke(
-            Latte._integrated_pointwise_loglik,
-            Tuple{Any, Any},
-            ga, obs_lik; n_nodes = 15
-        )
-
-        @test generic_int ≈ analytic_int atol = 1.0e-8
-        @test generic_ell ≈ analytic_ell atol = 1.0e-8
     end
 
     @testset "Pretty printing" begin
@@ -142,6 +119,113 @@ using Statistics
     @testset "n_nodes parameter" begin
         acc = WAICAccumulator(; n_nodes = 25)
         @test acc.n_nodes == 25
+    end
+
+    @testset "Multi-coefficient LTL: η = A·x with row sparsity > 1" begin
+        # Regression test for the bug where element-wise quadrature over
+        # the latent silently used the wrong marginal for obs that depend
+        # on linear combinations of latent entries. Pre-fix:
+        # `(μ, σ) = (mean(ga), std(ga))` → effective variance per row was
+        # the rank-1 surrogate `(Σ_k a_ik σ_k)²`, not `(A Σ A')_ii`.
+        # Post-fix: `linear_predictor_marginals` returns the correct η
+        # marginals and the closed-form Normal-IdentityLink formula
+        # collapses to `log N(y_i; (A μ)_i, σ² + (A Σ A')_ii)`.
+        Random.seed!(42)
+        n_latent = 6
+        # Multi-coefficient A: each row has 3-4 nonzeros, rows differ.
+        n_obs = 4
+        A = sparse(
+            [
+                1.0 0.5 0.0 0.2 0.0 0.0
+                0.0 0.7 -0.3 0.0 0.4 0.0
+                0.1 0.0 0.5 0.6 0.0 -0.2
+                0.0 0.0 0.4 -0.1 0.3 0.5
+            ]
+        )
+        # Build a fully dense SPD Q so selected-inversion returns every
+        # `Σ_{jk}` entry, satisfying `linear_predictor_marginals`'s
+        # documented `Q ⊇ A'A` precondition without having to plumb a
+        # specific sparsity union (the test's job is the accumulator
+        # math, not pattern bookkeeping).
+        Q_raw = Matrix(1.5 * I, n_latent, n_latent)
+        for i in 1:n_latent, j in (i + 1):n_latent
+            Q_raw[i, j] = Q_raw[j, i] = -0.05
+        end
+        Q = sparse(Q_raw)
+        μ_x = randn(n_latent)
+        ga = GMRF(μ_x, Q)
+        Σ_x = inv(Matrix(Q))
+
+        σ_obs = 0.4
+        y = randn(n_obs)
+        base = ExponentialFamily(Normal)
+        obs_model = LinearlyTransformedObservationModel(base, A)
+        obs_lik = obs_model(y; σ = σ_obs)
+
+        # The fix in action — should hit the analytic Normal-IdentityLink path
+        # via the stripped η-likelihood.
+        integrated_ll, expected_log_ll = _waic_pointwise_integrals(ga, obs_lik)
+
+        # Closed-form reference: y ~ N(A μ, σ² I + A Σ A')
+        μ_η_ref = A * μ_x
+        v_η_ref = diag(A * Σ_x * A')
+        expected_int = [
+            logpdf(Normal(μ_η_ref[i], sqrt(σ_obs^2 + v_η_ref[i])), y[i])
+                for i in 1:n_obs
+        ]
+        @test integrated_ll ≈ expected_int atol = 1.0e-2
+
+        # E_η[log N(y; η, σ)] = -½log(2π) - log σ - [(y - μ_η)² + v_η] / (2σ²)
+        expected_ell = [
+            -0.5 * log(2π) - log(σ_obs) -
+                ((y[i] - μ_η_ref[i])^2 + v_η_ref[i]) / (2 * σ_obs^2)
+                for i in 1:n_obs
+        ]
+        @test expected_log_ll ≈ expected_ell atol = 1.0e-2
+
+        # Sanity: the answer differs from what the pre-fix rank-1 surrogate
+        # would have produced. Surrogate variance per row was the diagonal
+        # of the *element-wise* perturbation: `(A · σ_x · I)`'s row norm
+        # squared isn't even meaningful as a marginal — it just produces
+        # different numbers. Confirm we're not coincidentally matching it.
+        σ_x = sqrt.(diag(Σ_x))
+        rank1_surrogate_v = [sum(A[i, k] * σ_x[k] for k in 1:n_latent)^2 for i in 1:n_obs]
+        @test !isapprox(v_η_ref, rank1_surrogate_v; atol = 1.0e-6)
+    end
+
+    @testset "Sample-based fallback for unsupported obs likelihoods" begin
+        # Stub likelihood (`LikWithoutLPM`, from test_helpers.jl) lacks
+        # `linear_predictor_marginals` — only exposes `pointwise_loglik`.
+        # The accumulator must fall back to sample-based aggregation. MC
+        # estimate should converge to the analytic answer (computed via a
+        # parallel direct-Normal path).
+        @test !Latte._supports_lpm(LikWithoutLPM(zeros(3), 1.0))
+
+        Random.seed!(2026)
+        n = 5
+        μ_x = randn(n)
+        v = fill(0.25, n)
+        Q = Diagonal(1.0 ./ v)
+        ga = GMRF(μ_x, Q)
+        σ_obs = 0.8
+        y = randn(n)
+
+        ef_lik = ExponentialFamily(Normal)(y; σ = σ_obs)
+        analytic_int, analytic_ell = _waic_pointwise_integrals(ga, ef_lik)
+
+        fake_lik = LikWithoutLPM(y, σ_obs)
+        sampled_int, sampled_ell = _waic_pointwise_integrals(
+            ga, fake_lik, WAICStrategy(; fallback = :sample, n_samples = 8192),
+        )
+
+        # MC error ~ σ/√n ≈ 0.01–0.05 per obs at 8192 samples for this setup.
+        @test sampled_int ≈ analytic_int atol = 5.0e-2
+        @test sampled_ell ≈ analytic_ell atol = 5.0e-2
+
+        # :error fallback errors instead of falling back
+        @test_throws ArgumentError _waic_pointwise_integrals(
+            ga, fake_lik, WAICStrategy(; fallback = :error, n_samples = 64),
+        )
     end
 
     @testset "pointwise_loglik consistency" begin
