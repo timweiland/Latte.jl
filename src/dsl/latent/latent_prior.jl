@@ -206,30 +206,19 @@ function _build_joint_sparse_ad_latent(dppl_model, random_syms, n_latent, hp_nam
         sparsity_detector = TracerLocalSparsityDetector(),
         coloring_algorithm = GreedyColoringAlgorithm(),
     )
-    grad_backend = AutoForwardDiff()
-    hess_prep_ref = Ref{Any}(nothing)
-    grad_prep_ref = Ref{Any}(nothing)
 
-    function latent_fn(; kwargs...)
-        hp_values = NamedTuple{hp_names}(Tuple(kwargs[k] for k in hp_names))
-        cond = DynamicPPL.fix(dppl_model, hp_values)
+    # `make_logp` builds the conditioned log-prior function at given hp
+    # values. Sparse-AD prep + buffers are cached on the model itself;
+    # the per-call work is just the in-place fill via DI's `hessian!`.
+    make_logp = function (hp_nt::NamedTuple)
+        cond = DynamicPPL.fix(dppl_model, hp_nt)
         ldf = DynamicPPL.LogDensityFunction(cond, getlogprior)
         logp(x) = LogDensityProblems.logdensity(ldf, x)
-
-        x0 = zeros(n_latent)
-        if hess_prep_ref[] === nothing
-            hess_prep_ref[] = prepare_hessian(logp, sparse_backend, x0)
-            grad_prep_ref[] = prepare_gradient(logp, grad_backend, x0)
-        end
-        H = hessian(logp, hess_prep_ref[], sparse_backend, x0)
-        g = gradient(logp, grad_prep_ref[], grad_backend, x0)
-        Q = -H
-        μ = Symmetric(Q) \ g
-        Q_out = lik_pattern === nothing ?
-            SparseMatrixCSC(Q) : augment_pattern(SparseMatrixCSC(Q), lik_pattern)
-        return (μ, Q_out)
+        return logp
     end
-    return joint_constraint === nothing ?
-        FunctionLatentModel(latent_fn, n_latent) :
-        FunctionLatentModel(latent_fn, n_latent, joint_constraint)
+
+    return CachedSparseADLatentModel(
+        make_logp, hp_names, sparse_backend, n_latent, lik_pattern;
+        constraint = joint_constraint,
+    )
 end
