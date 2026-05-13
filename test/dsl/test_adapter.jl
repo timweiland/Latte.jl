@@ -5,6 +5,7 @@ using Distributions
 using LinearAlgebra
 using SparseArrays
 using Random
+using GaussianMarkovRandomFields: precision_matrix
 
 @testset "latte_from_dppl — structural correctness" begin
     # Hierarchical Poisson: τ_u is a hyperparameter; β and u are random.
@@ -53,7 +54,8 @@ using Random
         # structural check to keep the assertions about the base prior
         # focused on what `build_latent_model` produces.
         model = latte_from_dppl(dppl; random = (:β, :u), force_ad_obs_model = true)
-        μ, Q = model.latent_prior.func(τ_u = 4.0)
+        μ = mean(model.latent_prior; τ_u = 4.0)
+        Q = precision_matrix(model.latent_prior; τ_u = 4.0)
 
         @test length(μ) == p + G
 
