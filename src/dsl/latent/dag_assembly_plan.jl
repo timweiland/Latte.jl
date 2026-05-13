@@ -304,42 +304,59 @@ function assemble_values!(
         end
     end
 
-    # Diagonal blocks.
+    # Diagonal blocks. Hand each block off to a function-barrier helper
+    # so the inner write loop sees typed `Qs::SparseMatrixCSC` — the
+    # `cond_Qs::Dict{Symbol, Any}` container would otherwise force every
+    # `nz_local[k]` access through dynamic dispatch and kill perf.
     for (s, _rng) in plan.offsets
-        Qs = cond_Qs[s]
-        idxs = plan.diag_block_nzidx[s]
-        nz_local = Qs.nzval
-        @inbounds for k in eachindex(nz_local)
-            nzval[idxs[k]] += nz_local[k]
-        end
+        _accumulate_block!(nzval, plan.diag_block_nzidx[s], cond_Qs[s], +1)
     end
 
     # Edge contributions.
     for ((child, parent), pp_idxs) in plan.edge_pp_nzidx
         A = linear_maps[(child, parent)].A
         Q_child = cond_Qs[child]
-
-        # Sparse matrix products: still allocate fresh sparse matrices,
-        # but the dominant savings come from avoiding CSC setindex! on
-        # the joint Q. Optimising the products themselves is a possible
-        # follow-up (Phase 2 of the perf doc).
-        M_pp = A' * Q_child * A
-        M_pc = A' * Q_child
-        M_cp = Q_child * A
-
-        @inbounds for k in eachindex(M_pp.nzval)
-            nzval[pp_idxs[k]] += M_pp.nzval[k]
-        end
-        pc_idxs = plan.edge_pc_nzidx[(child, parent)]
-        @inbounds for k in eachindex(M_pc.nzval)
-            nzval[pc_idxs[k]] -= M_pc.nzval[k]
-        end
-        cp_idxs = plan.edge_cp_nzidx[(child, parent)]
-        @inbounds for k in eachindex(M_cp.nzval)
-            nzval[cp_idxs[k]] -= M_cp.nzval[k]
-        end
+        _fill_edge_contributions!(
+            nzval, A, Q_child,
+            plan.edge_pp_nzidx[(child, parent)],
+            plan.edge_pc_nzidx[(child, parent)],
+            plan.edge_cp_nzidx[(child, parent)],
+        )
     end
     return nzval
+end
+
+# Function-barrier helpers: typed args force the compiler to specialise
+# on concrete `SparseMatrixCSC{T, Int}`, which is what makes the hot
+# inner loop type-stable.
+function _accumulate_block!(
+        nzval::AbstractVector, idxs::Vector{Int},
+        Qs::SparseMatrixCSC, sign::Int,
+    )
+    nz_local = Qs.nzval
+    if sign == +1
+        @inbounds for k in eachindex(nz_local)
+            nzval[idxs[k]] += nz_local[k]
+        end
+    else
+        @inbounds for k in eachindex(nz_local)
+            nzval[idxs[k]] -= nz_local[k]
+        end
+    end
+    return nothing
+end
+
+function _fill_edge_contributions!(
+        nzval::AbstractVector, A::SparseMatrixCSC, Q_child::SparseMatrixCSC,
+        pp_idxs::Vector{Int}, pc_idxs::Vector{Int}, cp_idxs::Vector{Int},
+    )
+    M_pp = A' * Q_child * A
+    M_pc = A' * Q_child
+    M_cp = Q_child * A
+    _accumulate_block!(nzval, pp_idxs, M_pp, +1)
+    _accumulate_block!(nzval, pc_idxs, M_pc, -1)
+    _accumulate_block!(nzval, cp_idxs, M_cp, -1)
+    return nothing
 end
 
 """
