@@ -145,7 +145,7 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern,
     # Linear maps are *structural*: they encode the per-edge `child = A·parent + b`
     # relation in the model graph and do not depend on hyperparameter values.
     # Compute them once at adapter-build time with concrete Float64 inputs,
-    # cache, and reuse on every `latent_fn` call. This is both a perf win
+    # cache, and reuse on every assembly call. This is both a perf win
     # (no per-call sparse-AD probe) and unblocks outer AD over the latent
     # function — `extract_linear_map`'s SCT-based sparsity tracing collides
     # with `ForwardDiff.Dual` when called inside an outer AD pass.
@@ -158,33 +158,46 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern,
         )
     end
 
-    function latent_fn(; kwargs...)
-        hp_values = NamedTuple{hp_names}(Tuple(kwargs[k] for k in hp_names))
+    # Probe `cond_Qs` once at probe_hp to capture the structural pattern
+    # of each per-variable conditional precision. The same probe is used
+    # to seed the DAG assembly plan; the per-call closures below recompute
+    # values at the actual hp values.
+    cond_Qs_probe = Dict{Symbol, SparseMatrixCSC{Float64, Int}}()
+    for s in random_syms
+        Q_s, _int_s = atomic_conditional_and_intercept(
+            dppl_model, s, random_syms, info.dims, probe_hp;
+            is_scalar = info.is_scalar,
+        )
+        cond_Qs_probe[s] = SparseMatrixCSC{Float64, Int}(Q_s)
+    end
+
+    plan = build_dag_assembly_plan(
+        random_syms, info.dims, info.edges, linear_maps_cached, cond_Qs_probe;
+        lik_pattern = lik_pattern,
+    )
+
+    compute_cond_state = function (hp_nt::NamedTuple)
         # `Any`-valued dicts so Dual-parametrized Q and μ flow through under
         # outer AD (ForwardDiff through `hyperparameter_logpdf`). Pinning to
-        # Float64 here silently stripped Duals and broke `ADStrategy` on
-        # DPPL-built LGMs.
+        # Float64 silently strips Duals and breaks `ADStrategy` on DPPL-built
+        # LGMs.
         cond_Qs = Dict{Symbol, Any}()
         intercepts = Dict{Symbol, Any}()
         for s in random_syms
             Q_s, int_s = atomic_conditional_and_intercept(
-                dppl_model, s, random_syms, info.dims, hp_values;
+                dppl_model, s, random_syms, info.dims, hp_nt;
                 is_scalar = info.is_scalar,
             )
             cond_Qs[s] = Q_s
             intercepts[s] = int_s
         end
-        joint = assemble_joint(
-            random_syms, info.dims, info.edges,
-            linear_maps_cached, intercepts, cond_Qs
-        )
-        Q_out = lik_pattern === nothing ? joint.Q : augment_pattern(joint.Q, lik_pattern)
-        return (joint.μ, Q_out)
+        return cond_Qs, intercepts
     end
-    n_latent = sum(info.dims[s] for s in random_syms)
-    return joint_constraint === nothing ?
-        FunctionLatentModel(latent_fn, n_latent) :
-        FunctionLatentModel(latent_fn, n_latent, joint_constraint)
+
+    return CachedDAGLatentModel(
+        plan, linear_maps_cached, compute_cond_state, hp_names;
+        constraint = joint_constraint,
+    )
 end
 
 function _build_joint_sparse_ad_latent(dppl_model, random_syms, n_latent, hp_names, lik_pattern, joint_constraint)
