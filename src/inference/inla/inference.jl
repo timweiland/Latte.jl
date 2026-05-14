@@ -68,6 +68,9 @@ function inla(
         exploration_strategy::ExplorationStrategy = AutoExplorationStrategy(),
         mode_method = BFGS(linesearch = Optim.LineSearches.BackTracking(order = 3, maxstep = 5.0)),
         mode_iterations::Int = 1000,
+        mode_init = PriorModeStart(),
+        mode_diagnostic::Symbol = :warn,
+        mode_diagnostic_tol::Float64 = 1.0,
         progress::Bool = true,
         accumulators::Tuple = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy()),
         executor::ParallelExecutor = SequentialExecutor(),
@@ -98,13 +101,14 @@ function inla(
     mode_callback = create_progress_callback(progress_state, "Finding hyperparameter mode")
     mode_start_time = time()
 
-    θ_star, mode_points, mode_logdensities = find_hyperparameter_mode(
+    θ_star, mode_points, mode_logdensities, mode_info = find_hyperparameter_mode(
         model_pred, y_obs;
         method = mode_method,
         iterations = mode_iterations,
         collect_points = true,
         progress_callback = mode_callback,
-        diff_strategy = diff_strategy
+        diff_strategy = diff_strategy,
+        mode_init = mode_init,
     )
 
     timing[:mode_finding] = time() - mode_start_time
@@ -126,6 +130,13 @@ function inla(
 
     timing[:exploration] = time() - exploration_start_time
     advance_phase!(progress_state, "Exploration complete", (points = length(exploration.grid_points),))
+
+    # Mode-quality diagnostic: if the explored grid found a point with
+    # log-density much higher than θ*'s, the mode finder probably stuck
+    # at a local maximum. Cheap post-hoc check.
+    _diagnose_mode_quality(
+        mode_info, exploration, model_pred, mode_diagnostic, mode_diagnostic_tol,
+    )
 
     # Phase 3: Hyperparameter Marginalization (66% → 100%)
     # This step can refine the exploration internally if needed for accurate marginals

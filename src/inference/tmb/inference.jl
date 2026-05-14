@@ -40,7 +40,7 @@ function tmb(
     spec = model.hyperparameter_spec
 
     # ─── Step 1: MAP of the hyperparameters ─────────────────────────────
-    θ̂_wh, _, mode_info = find_hyperparameter_mode(
+    θ̂_wh, _, _, mode_info = find_hyperparameter_mode(
         model, y_obs; diff_strategy = diff_strategy
     )
     θ̂ = θ̂_wh.θ
