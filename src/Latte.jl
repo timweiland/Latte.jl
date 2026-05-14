@@ -59,6 +59,7 @@ include("posterior/named_marginals.jl")
 # ─── Laplace approximation (shared inner machinery) ──────────────────────────
 include("laplace/types.jl")
 include("laplace/mode_finding.jl")
+include("laplace/mode_init.jl")
 include("laplace/gaussian_marginal.jl")
 include("laplace/spline_augmented_gaussian.jl")
 include("laplace/laplace_cache.jl")

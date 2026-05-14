@@ -222,7 +222,8 @@ function find_hyperparameter_mode(
         method = BFGS(linesearch = LineSearches.BackTracking(order = 3, maxstep = 5.0)),
         iterations::Int = 1000,
         collect_points = true, progress_callback = nothing,
-        diff_strategy::DifferentiationStrategy = ADStrategy()
+        diff_strategy::DifferentiationStrategy = ADStrategy(),
+        mode_init = PriorModeStart(),
     )
     # Normalize y (Vector{Int} → PoissonObservations, etc.) so direct
     # callers behave the same as inla() / tmb() which pre-wrap via
@@ -232,85 +233,120 @@ function find_hyperparameter_mode(
     y, model, _ = _prepare_for_prediction(model, y)
     spec = model.hyperparameter_spec
 
-    # Storage for optimization path points
-    mode_points = WorkingHyperparameters[]
-    mode_logdensities = Float64[]
+    starts = resolve_mode_starts(mode_init, spec)
+    n_starts = length(starts)
 
-    # Initial guess (mode of hyperparameter prior in working space)
-    θ_init = initial_hyperparameter_guess(spec)
-    θ_init_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_init))
-
-    # One-time symbolic factorization — reused across every θ iteration below.
-    ws = make_workspace(model.latent_prior; θ_init_nt...)
-
-    # Objective function (negative log-density for minimization)
-    function objective(θ_vec)
-        θ = WorkingHyperparameters(θ_vec, spec)
-        logpdf_val = 0.0
-        try
-            logpdf_val = hyperparameter_logpdf(model, θ, y; ws = ws)
-        catch e
-            _is_numerical_failure(e) || rethrow(e)
-            return Inf
-        end
-
-        if !isfinite(logpdf_val)
-            return Inf
-        end
-
-        if collect_points
-            push!(mode_points, WorkingHyperparameters(copy(θ_vec), spec))
-            push!(mode_logdensities, logpdf_val)
-        end
-
-        return -logpdf_val  # Minimize negative log-density
-    end
-
-    # Handle progress callback
+    # Per-start handler with per-start iteration cap. Builds its own
+    # workspace at the start's natural θ — different starts can sit in
+    # different conditioning regimes, so we don't share a workspace
+    # across them.
     if progress_callback === nothing
         progress_callback = (; kwargs...) -> nothing
     end
 
-    # Create Optim callback for progress tracking
-    optim_callback = function (state)
-        progress_callback(
-            iteration = state.iteration,
-            objective = state.value,
-            gradient_norm = state.g_norm
+    best_θ = first(starts)
+    best_logp = -Inf
+    best_idx = 0
+    best_points = WorkingHyperparameters[]
+    best_logps = Float64[]
+    best_converged = false
+    final_logdensities = Vector{Float64}(undef, n_starts)
+    any_converged = false
+
+    for (i, θ_init) in enumerate(starts)
+        points = WorkingHyperparameters[]
+        logps = Float64[]
+
+        θ_init_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_init))
+        ws = make_workspace(model.latent_prior; θ_init_nt...)
+
+        objective = let _spec = spec, _model = model, _y = y, _ws = ws,
+                _points = points, _logps = logps, _collect = collect_points
+            function (θ_vec)
+                θ = WorkingHyperparameters(θ_vec, _spec)
+                logpdf_val = 0.0
+                try
+                    logpdf_val = hyperparameter_logpdf(_model, θ, _y; ws = _ws)
+                catch e
+                    _is_numerical_failure(e) || rethrow(e)
+                    return Inf
+                end
+                isfinite(logpdf_val) || return Inf
+                if _collect
+                    push!(_points, WorkingHyperparameters(copy(θ_vec), _spec))
+                    push!(_logps, logpdf_val)
+                end
+                return -logpdf_val
+            end
+        end
+
+        optim_callback = function (state)
+            progress_callback(
+                start_index = i, n_starts = n_starts,
+                iteration = state.iteration,
+                objective = state.value,
+                gradient_norm = state.g_norm,
+            )
+            return false
+        end
+
+        options = Optim.Options(
+            f_reltol = 0.0,
+            f_abstol = 0.0,
+            g_abstol = 1.0e-6,
+            x_reltol = 0.0,
+            x_abstol = 0.0,
+            iterations = iterations,
+            show_trace = false,
+            allow_f_increases = true,
+            callback = optim_callback,
         )
-        return false  # Continue optimization
+
+        result = _run_optimization(
+            diff_strategy, objective, model, y, spec, θ_init, ws, method, options,
+        )
+        converged = Optim.converged(result)
+        any_converged |= converged
+
+        θ_final = WorkingHyperparameters(Optim.minimizer(result), spec)
+        final_logp = -Optim.minimum(result)
+        final_logdensities[i] = final_logp
+
+        if final_logp > best_logp
+            best_logp = final_logp
+            best_θ = θ_final
+            best_idx = i
+            best_points = points
+            best_logps = logps
+            best_converged = converged
+        end
     end
 
-    # Stop on gradient norm only. The relative-tolerance criteria (`f_reltol`,
-    # `x_reltol`) trigger after a single small step regardless of how big the
-    # remaining gradient is — for log-marginal objectives where `f` is in the
-    # hundreds and useful improvements are < 1, that's a constant trap. R-INLA
-    # similarly only uses `gsl_epsg` (gradient norm) plus best-tracking; we
-    # rely on `g_abstol` here, with the iteration cap as a safety net.
-    options = Optim.Options(
-        f_reltol = 0.0,
-        f_abstol = 0.0,
-        g_abstol = 1.0e-6,
-        x_reltol = 0.0,
-        x_abstol = 0.0,
-        iterations = iterations,
-        show_trace = false,
-        allow_f_increases = true,
-        callback = optim_callback,
+    if !any_converged
+        @warn "Hyperparameter mode optimization did not converge for any start " *
+            "(n_starts = $n_starts)"
+    end
+
+    # Runner-up gap (best - second best). nothing for single-start runs.
+    runner_up_gap = if n_starts >= 2
+        sorted = sort(final_logdensities; rev = true)
+        sorted[1] - sorted[2]
+    else
+        nothing
+    end
+
+    mode_info = (
+        n_starts = n_starts,
+        best_start_index = best_idx,
+        final_logdensities = final_logdensities,
+        converged = best_converged,
+        runner_up_gap = runner_up_gap,
     )
 
-    result = _run_optimization(diff_strategy, objective, model, y, spec, θ_init, ws, method, options)
-
-    if !Optim.converged(result)
-        @warn "Hyperparameter mode optimization did not converge"
-    end
-
-    θ_star = WorkingHyperparameters(Optim.minimizer(result), spec)
-
     if collect_points
-        return θ_star, mode_points, mode_logdensities
+        return best_θ, best_points, best_logps, mode_info
     else
-        return θ_star, nothing, nothing
+        return best_θ, nothing, nothing, mode_info
     end
 end
 
