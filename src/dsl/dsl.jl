@@ -14,6 +14,7 @@ include("latent/dag_extraction.jl")
 include("latent/dag_assembly_plan.jl")
 include("latent/dag_sparse_ad_plan.jl")
 include("latent/hp_spec.jl")
+include("latent/routed_latent_model.jl")
 include("latent/latent_prior.jl")
 
 include("obs/obs_model.jl")

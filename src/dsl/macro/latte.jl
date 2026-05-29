@@ -43,6 +43,14 @@ macro latte(modeldef)
     random_records = _serialise_records(b for b in blocks if _classify_block(b, posargs_t) === :random)
     fixed_records = _serialise_records(b for b in blocks if _classify_block(b, posargs_t) === :fixed)
 
+    # Concrete-`LatentModel` recognition (macro-pure). MVP scope: recognize
+    # iff there is exactly one random block whose RHS matches a recognized
+    # concrete LatentModel `Family(args...)(; k = hp, …)`, the route draws
+    # only from hyperparameters, and the constructor depends only on
+    # positional args / literals / globals (not on hyperparameters or random
+    # effects). Otherwise fall back to the DAG / sparse-AD extraction path.
+    recognition_expr = _recognition_expr(blocks, posargs_t)
+
     # Build the body to forward to @model: strip markers, lower dot-tilde.
     body_for_dppl = _transform_body(body)
     inner_name = Symbol("__latte_dppl_", fname)
@@ -109,8 +117,9 @@ macro latte(modeldef)
         function $(esc(fname))(args...; kwargs...)
             dppl = $(esc(inner_name))(args...; kwargs...)
             return $(@__MODULE__)._build_lgm_from_latte(
-                dppl, $rand_q, $fixed_q, $obs_q, $posargs_q;
+                dppl, $rand_q, $fixed_q, $obs_q, $posargs_q, args;
                 lift_spec = $lift_spec_expr,
+                recognition = $recognition_expr,
             )
         end
         $(@__MODULE__)._LATTE_DPPL_CONSTRUCTORS[$(esc(fname))] = $(esc(inner_name))
@@ -152,6 +161,44 @@ _serialise_records(it) = collect(
         for b in it
 )
 
+# Macro-time: build the spliceable `recognition` expression for the runtime
+# `_build_lgm_from_latte` call, or `:(nothing)` when the body isn't
+# recognizable (→ DAG / sparse-AD fallback). See the recognition rules in
+# `@latte`'s body.
+function _recognition_expr(blocks, posargs_t::Tuple)
+    random_blocks = [b for b in blocks if _classify_block(b, posargs_t) === :random]
+    length(random_blocks) == 1 || return :(nothing)
+    blk = random_blocks[1]
+    blk.rhs === nothing && return :(nothing)
+    rec = _recognize_latent_rhs(blk.rhs)
+    rec === nothing && return :(nothing)
+    ctor_expr, route = rec
+
+    hp_syms = Set(b.lhs_sym for b in blocks if _classify_block(b, posargs_t) === :fixed)
+    random_syms = Set(b.lhs_sym for b in random_blocks)
+
+    # Route must draw only from hyperparameters.
+    all(hp in hp_syms for (_k, hp) in route) || return :(nothing)
+    # Constructor must depend only on positional args / globals / literals.
+    ctor_free = _free_symbols(ctor_expr, Set{Symbol}(posargs_t), Dict{Symbol, Set{Symbol}}())
+    isempty(intersect(ctor_free, union(hp_syms, random_syms))) || return :(nothing)
+
+    # Anonymous closure over the positional args producing the inner model.
+    closure = Expr(:->, Expr(:tuple, posargs_t...), ctor_expr)
+    # Route NamedTuple `(; k = :hp, …)`.
+    route_nt = Expr(:tuple, Expr(:parameters, [Expr(:kw, k, QuoteNode(hp)) for (k, hp) in route]...))
+    entry = Expr(
+        :tuple,
+        Expr(
+            :parameters,
+            Expr(:kw, :sym, QuoteNode(blk.lhs_sym)),
+            Expr(:kw, :ctor, esc(closure)),
+            Expr(:kw, :route, route_nt),
+        ),
+    )
+    return Expr(:vect, entry)
+end
+
 function _quote_records(records)
     items = Expr(:vect)
     for (lhs, free_vec, dotted, family, marker) in records
@@ -167,8 +214,10 @@ end
 
 # ─── LGM construction from records ────────────────────────────────────────────
 function _build_lgm_from_latte(
-        dppl_model, random_records, fixed_records, obs_records, posargs::Tuple;
+        dppl_model, random_records, fixed_records, obs_records, posargs::Tuple,
+        posarg_vals::Tuple = ();
         lift_spec = nothing,
+        recognition = nothing,
     )
     random_syms = Tuple(unique(r[1] for r in random_records))
     hp_names = Tuple(unique(r[1] for r in fixed_records))
@@ -239,6 +288,22 @@ function _build_lgm_from_latte(
         _needs_ad_fallback(obs_records, hp_names) ||
             _has_scalar_random(random_records)
     )
+
+    # Recognition path: the macro recognized a concrete `LatentModel`. Build
+    # the prebuilt latent and reuse the shared obs / hp / augmentation
+    # assembly. The bare `latte_from_dppl` fallback keeps today's DAG /
+    # sparse-AD behavior.
+    if recognition !== nothing
+        latent = _build_recognized_latent(recognition, posarg_vals)
+        return _assemble_lgm(
+            dppl_model, latent;
+            random = random_syms,
+            obs_groups = obs_groups,
+            force_ad_obs_model = needs_ad_fallback,
+            lift_spec = lift_spec,
+        )
+    end
+
     return latte_from_dppl(
         dppl_model;
         random = random_syms,
@@ -246,6 +311,16 @@ function _build_lgm_from_latte(
         force_ad_obs_model = needs_ad_fallback,
         lift_spec = lift_spec,
     )
+end
+
+# Instantiate the macro-recognized latent prior from the recognition spec and
+# the runtime positional-arg values. MVP: a single recognized component →
+# `RoutedLatentModel`. (Multi-component composition via `CombinedModel` is a
+# follow-up; the macro only emits single-entry recognition specs today.)
+function _build_recognized_latent(recognition, posarg_vals::Tuple)
+    e = only(recognition)
+    inner = e.ctor(posarg_vals...)
+    return RoutedLatentModel(inner, e.route)
 end
 
 # Heuristic: if the static obs RHS deps contain a hp under an *aliased* or
