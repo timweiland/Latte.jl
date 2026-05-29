@@ -4,6 +4,7 @@ using Random
 export InferenceResult, PosteriorSamples
 export latent_marginals, hyperparameter_marginals
 export latent_groups, hyperparameter_groups
+export latent_components
 export hyperparameter_mode, log_marginal_likelihood
 export converged, time_elapsed
 

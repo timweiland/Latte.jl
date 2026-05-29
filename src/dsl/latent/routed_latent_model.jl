@@ -49,3 +49,26 @@ constraints(m::RoutedLatentModel; kwargs...) =
 (m::RoutedLatentModel)(; kwargs...) = m.inner(; _route_inner_kwargs(m, kwargs)...)
 (m::RoutedLatentModel)(ws::GMRFWorkspace; kwargs...) =
     m.inner(ws; _route_inner_kwargs(m, kwargs)...)
+
+"""
+    latent_components(model::LatentGaussianModel) -> OrderedDict{Symbol, LatentModel} | nothing
+
+Per-component concrete latent priors recognized from the `@latte` body,
+keyed by latent symbol in body order. Lets downstream code dispatch on the
+concrete prior type (e.g. `RWModel{1}`, `IIDModel`) rather than a type-erased
+cached latent.
+
+Returns `nothing` when the latent prior was not recognized as concrete
+`LatentModel`(s) — i.e. the DAG / sparse-AD path (`latte_from_dppl` without
+the macro). A single recognized component yields a one-entry mapping; multiple
+components are unwrapped from the `CombinedModel`.
+"""
+function latent_components(model::LatentGaussianModel)
+    lp = model.latent_prior
+    base = lp isa AugmentedLatentModel ? lp.base_model : lp
+    base isa RoutedLatentModel || return nothing
+    syms = collect(keys(model.latent_layout))
+    inner = base.inner
+    comps = inner isa CombinedModel ? inner.components : LatentModel[inner]
+    return OrderedDict{Symbol, LatentModel}(s => c for (s, c) in zip(syms, comps))
+end
