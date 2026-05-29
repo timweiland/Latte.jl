@@ -167,36 +167,41 @@ _serialise_records(it) = collect(
 # `@latte`'s body.
 function _recognition_expr(blocks, posargs_t::Tuple)
     random_blocks = [b for b in blocks if _classify_block(b, posargs_t) === :random]
-    length(random_blocks) == 1 || return :(nothing)
-    blk = random_blocks[1]
-    blk.rhs === nothing && return :(nothing)
-    rec = _recognize_latent_rhs(blk.rhs)
-    rec === nothing && return :(nothing)
-    ctor_expr, route = rec
+    isempty(random_blocks) && return :(nothing)
 
     hp_syms = Set(b.lhs_sym for b in blocks if _classify_block(b, posargs_t) === :fixed)
     random_syms = Set(b.lhs_sym for b in random_blocks)
 
-    # Route must draw only from hyperparameters.
-    all(hp in hp_syms for (_k, hp) in route) || return :(nothing)
-    # Constructor must depend only on positional args / globals / literals.
-    ctor_free = _free_symbols(ctor_expr, Set{Symbol}(posargs_t), Dict{Symbol, Set{Symbol}}())
-    isempty(intersect(ctor_free, union(hp_syms, random_syms))) || return :(nothing)
+    # All-or-nothing: every random block must match the curried shape, draw
+    # only from hyperparameters, and have a constructor free of hp / random
+    # dependencies. Any miss falls the whole body back to the DAG path.
+    entries = Expr[]
+    for blk in random_blocks
+        blk.rhs === nothing && return :(nothing)
+        rec = _recognize_latent_rhs(blk.rhs)
+        rec === nothing && return :(nothing)
+        ctor_expr, route = rec
 
-    # Anonymous closure over the positional args producing the inner model.
-    closure = Expr(:->, Expr(:tuple, posargs_t...), ctor_expr)
-    # Route NamedTuple `(; k = :hp, …)`.
-    route_nt = Expr(:tuple, Expr(:parameters, [Expr(:kw, k, QuoteNode(hp)) for (k, hp) in route]...))
-    entry = Expr(
-        :tuple,
-        Expr(
-            :parameters,
-            Expr(:kw, :sym, QuoteNode(blk.lhs_sym)),
-            Expr(:kw, :ctor, esc(closure)),
-            Expr(:kw, :route, route_nt),
-        ),
-    )
-    return Expr(:vect, entry)
+        all(hp in hp_syms for (_k, hp) in route) || return :(nothing)
+        ctor_free = _free_symbols(ctor_expr, Set{Symbol}(posargs_t), Dict{Symbol, Set{Symbol}}())
+        isempty(intersect(ctor_free, union(hp_syms, random_syms))) || return :(nothing)
+
+        closure = Expr(:->, Expr(:tuple, posargs_t...), ctor_expr)
+        route_nt = Expr(:tuple, Expr(:parameters, [Expr(:kw, k, QuoteNode(hp)) for (k, hp) in route]...))
+        push!(
+            entries,
+            Expr(
+                :tuple,
+                Expr(
+                    :parameters,
+                    Expr(:kw, :sym, QuoteNode(blk.lhs_sym)),
+                    Expr(:kw, :ctor, esc(closure)),
+                    Expr(:kw, :route, route_nt),
+                ),
+            ),
+        )
+    end
+    return Expr(:vect, entries...)
 end
 
 function _quote_records(records)
@@ -295,13 +300,18 @@ function _build_lgm_from_latte(
     # sparse-AD behavior.
     if recognition !== nothing
         latent = _build_recognized_latent(recognition, posarg_vals)
-        return _assemble_lgm(
-            dppl_model, latent;
-            random = random_syms,
-            obs_groups = obs_groups,
-            force_ad_obs_model = needs_ad_fallback,
-            lift_spec = lift_spec,
-        )
+        if latent !== nothing
+            return _assemble_lgm(
+                dppl_model, latent;
+                random = random_syms,
+                obs_groups = obs_groups,
+                force_ad_obs_model = needs_ad_fallback,
+                lift_spec = lift_spec,
+            )
+        end
+        # `_build_recognized_latent` returned `nothing`: a recognized RHS turned
+        # out not to be a `LatentModel` at runtime. Fall through to the DAG /
+        # sparse-AD path below.
     end
 
     return latte_from_dppl(
@@ -314,13 +324,46 @@ function _build_lgm_from_latte(
 end
 
 # Instantiate the macro-recognized latent prior from the recognition spec and
-# the runtime positional-arg values. MVP: a single recognized component →
-# `RoutedLatentModel`. (Multi-component composition via `CombinedModel` is a
-# follow-up; the macro only emits single-entry recognition specs today.)
+# the runtime positional-arg values. A single recognized component becomes a
+# `RoutedLatentModel`; multiple components are composed (in body order) via an
+# upstream `CombinedModel`, wrapped in one `RoutedLatentModel` whose route maps
+# the CombinedModel's auto-prefixed kwarg names to the outer hp symbols.
+#
+# The macro recognizes by *shape* only, so a recognized RHS may instantiate to
+# something that isn't a `LatentModel`. Returns `nothing` in that case so the
+# caller falls back to the DAG / sparse-AD path.
 function _build_recognized_latent(recognition, posarg_vals::Tuple)
-    e = only(recognition)
-    inner = e.ctor(posarg_vals...)
-    return RoutedLatentModel(inner, e.route)
+    inners = LatentModel[]
+    routes = NamedTuple[]
+    for e in recognition
+        inner = e.ctor(posarg_vals...)
+        inner isa LatentModel || return nothing
+        push!(inners, inner)
+        push!(routes, e.route)
+    end
+    length(inners) == 1 && return RoutedLatentModel(inners[1], routes[1])
+    combined = CombinedModel(inners)
+    return RoutedLatentModel(combined, _combined_route(inners, routes))
+end
+
+# Build the route for a `CombinedModel`-backed `RoutedLatentModel`. Replicates
+# CombinedModel's hyperparameter-prefixing (`model_name` + `""`/`_2`/`_3`
+# suffix for duplicate names) so each component's inner kwarg `k` maps to the
+# combined kwarg `Symbol("$(k)_$(final_name)")`, pointing at the outer hp
+# symbol the component draws from.
+function _combined_route(inners, routes)
+    out = Pair{Symbol, Symbol}[]
+    name_counts = Dict{Symbol, Int}()
+    for (inner, route) in zip(inners, routes)
+        base = model_name(inner)
+        name_counts[base] = get(name_counts, base, 0) + 1
+        suffix = name_counts[base] == 1 ? "" : "_$(name_counts[base])"
+        final_name = Symbol("$(base)$(suffix)")
+        for (k, hp) in pairs(route)
+            push!(out, Symbol("$(k)_$(final_name)") => hp)
+        end
+    end
+    return (; out...)
 end
 
 # Heuristic: if the static obs RHS deps contain a hp under an *aliased* or
