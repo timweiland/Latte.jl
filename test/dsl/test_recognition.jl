@@ -72,6 +72,14 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
         end
         ref = latte_from_dppl(rw_poisson_dppl(y_obs); random = (:x,))
 
+        # `latent_components` exposes the recognized concrete prior keyed by
+        # latent symbol; the DAG path is type-erased so it returns `nothing`.
+        comps = latent_components(lgm)
+        @test comps isa AbstractDict{Symbol, <:GaussianMarkovRandomFields.LatentModel}
+        @test collect(keys(comps)) == [:x]
+        @test comps[:x] isa RWModel{1}
+        @test latent_components(ref) === nothing
+
         inla_rec = inla(lgm, y_obs; progress = false)
         inla_ref = inla(ref, y_obs; progress = false)
 
@@ -131,6 +139,14 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
         end
         ref = latte_from_dppl(gam_dppl(y_obs, X); random = (:β, :x))
 
+        # Multi-component: ordered mapping in body order, each entry the
+        # concrete inner model unwrapped from the CombinedModel.
+        comps = latent_components(lgm)
+        @test collect(keys(comps)) == [:β, :x]
+        @test comps[:β] isa IIDModel
+        @test comps[:x] isa RWModel{1}
+        @test latent_components(ref) === nothing
+
         inla_rec = inla(lgm, y_obs; progress = false)
         inla_ref = inla(ref, y_obs; progress = false)
 
@@ -175,6 +191,11 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
             end
         end
         ref = latte_from_dppl(custom_dppl(y_obs); random = (:z,))
+
+        comps = latent_components(lgm)
+        @test collect(keys(comps)) == [:z]
+        @test comps[:z] isa MyCustomLatent
+        @test latent_components(ref) === nothing
 
         inla_rec = inla(lgm, y_obs; progress = false)
         inla_ref = inla(ref, y_obs; progress = false)
