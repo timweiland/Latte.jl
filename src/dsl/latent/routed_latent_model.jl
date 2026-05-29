@@ -16,7 +16,8 @@
 
 import Distributions
 using GaussianMarkovRandomFields:
-    LatentModel, GMRFWorkspace, hyperparameters, precision_matrix, constraints, model_name
+    LatentModel, CombinedModel, GMRFWorkspace,
+    hyperparameters, precision_matrix, constraints, model_name
 
 struct RoutedLatentModel{M <: LatentModel, R <: NamedTuple} <: LatentModel
     inner::M

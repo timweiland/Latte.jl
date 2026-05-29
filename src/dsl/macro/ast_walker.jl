@@ -35,20 +35,6 @@ const _DEFAULT_RANDOM_FAMILIES = Set{Symbol}(
     ]
 )
 
-# Constructor names that produce a concrete `LatentModel` (with the
-# `(model)(; θ...)` GMRF-call interface). A random `~` site of the shape
-# `lhs ~ Family(args...)(; k = hp, …)` whose `Family` is in this set can be
-# *recognized* by the macro and preserved as a `RoutedLatentModel` instead
-# of being type-erased into a (μ, Q) extraction. Distribution families like
-# `MvNormal`/`GMRF` are deliberately excluded — they are not `LatentModel`s.
-const _RECOGNIZED_LATENT_FAMILIES = Set{Symbol}(
-    [
-        :RWModel, :RW1Model, :RW2Model, :IIDModel,
-        :BesagModel, :MaternModel, :BYM2Model, :SeparableModel,
-        :ARModel, :AR1Model, :FixedEffectsModel,
-    ]
-)
-
 function _free_symbols(expr, bound::Set{Symbol}, aliases::Dict{Symbol, Set{Symbol}})
     out = Set{Symbol}()
     _collect_free_syms!(out, expr, bound, aliases)
@@ -444,6 +430,10 @@ function _classify_block(blk::_TildeBlock, posargs::Tuple)
     blk.marker === :random && return :random
     blk.marker === :fixed && return :fixed
     blk.family !== nothing && blk.family in _DEFAULT_RANDOM_FAMILIES && return :random
+    # Curried-constructor shape `Family(args...)(; k = hp, …)` — a concrete
+    # LatentModel prior. Classify as random by shape; the runtime isa-check
+    # falls back to the DAG path if it isn't actually a LatentModel.
+    blk.rhs !== nothing && _recognize_latent_rhs(blk.rhs) !== nothing && return :random
     return :fixed
 end
 
@@ -452,11 +442,15 @@ end
     _recognize_latent_rhs(rhs) -> (ctor_expr, route) | nothing
 
 Recognize a random-block RHS of the shape `Family(args...)(; k = hp, …)`
-(or `Family(args...)(k = hp, …)`) where `Family` is a recognized concrete
-`LatentModel` constructor. Returns `(ctor_expr, route)` where `ctor_expr` is
-the inner `Family(args...)` call and `route` is a `Vector{Pair{Symbol,Symbol}}`
-mapping each inner call-kwarg name to the hyperparameter symbol it draws from.
-Returns `nothing` when the RHS doesn't match this recognized shape.
+(or `Family(args...)(k = hp, …)`). Returns `(ctor_expr, route)` where
+`ctor_expr` is the inner `Family(args...)` call and `route` is a
+`Vector{Pair{Symbol,Symbol}}` mapping each inner call-kwarg name to the
+hyperparameter symbol it draws from. Returns `nothing` when the RHS doesn't
+match this curried shape.
+
+Recognition is shape-only: any curried constructor call with symbol-valued
+kwargs matches. Whether `Family(args...)` actually produces a `LatentModel`
+is verified at runtime — non-`LatentModel` results fall back to the DAG path.
 """
 function _recognize_latent_rhs(rhs)
     rhs isa Expr && rhs.head === :call || return nothing
@@ -464,8 +458,7 @@ function _recognize_latent_rhs(rhs)
     ctor = rhs.args[1]
     # The outer callee must itself be a constructor call `Family(args...)`.
     (ctor isa Expr && ctor.head === :call) || return nothing
-    fam = _callee_top_sym(ctor)
-    (fam !== nothing && fam in _RECOGNIZED_LATENT_FAMILIES) || return nothing
+    _callee_top_sym(ctor) !== nothing || return nothing
 
     # Collect kwargs from the outer call: a `:parameters` node (`(; k=v)`)
     # and/or trailing positional `:kw` args (`(k=v)`).
