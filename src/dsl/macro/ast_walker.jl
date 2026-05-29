@@ -28,9 +28,24 @@ const _RESERVED_SYMS = Set{Symbol}(
 const _DEFAULT_RANDOM_FAMILIES = Set{Symbol}(
     [
         :MvNormal, :MvNormalCanon, :MvLogNormal,
-        :IIDModel, :RWModel, :BesagModel, :MaternModel, :BYM2Model,
+        :IIDModel, :RWModel, :RW1Model, :RW2Model,
+        :BesagModel, :MaternModel, :BYM2Model,
         :SeparableModel, :GMRF, :ConstrainedGMRF, :CombinedModel,
-        :FixedEffectsModel, :ARModel,
+        :FixedEffectsModel, :ARModel, :AR1Model,
+    ]
+)
+
+# Constructor names that produce a concrete `LatentModel` (with the
+# `(model)(; θ...)` GMRF-call interface). A random `~` site of the shape
+# `lhs ~ Family(args...)(; k = hp, …)` whose `Family` is in this set can be
+# *recognized* by the macro and preserved as a `RoutedLatentModel` instead
+# of being type-erased into a (μ, Q) extraction. Distribution families like
+# `MvNormal`/`GMRF` are deliberately excluded — they are not `LatentModel`s.
+const _RECOGNIZED_LATENT_FAMILIES = Set{Symbol}(
+    [
+        :RWModel, :RW1Model, :RW2Model, :IIDModel,
+        :BesagModel, :MaternModel, :BYM2Model, :SeparableModel,
+        :ARModel, :AR1Model, :FixedEffectsModel,
     ]
 )
 
@@ -206,7 +221,12 @@ struct _TildeBlock
     is_dotted::Bool
     family::Union{Symbol, Nothing}        # the RHS callee Symbol if recognisable
     marker::Symbol                         # :random, :fixed, or :auto
+    rhs::Any                               # the raw RHS Expr (for recognition); may be `nothing`
 end
+
+# 5-arg form (no raw RHS) for synthetic blocks built outside the walker.
+_TildeBlock(lhs_sym, rhs_free, is_dotted, family, marker) =
+    _TildeBlock(lhs_sym, rhs_free, is_dotted, family, marker, nothing)
 
 """
 Detect `(L ~ R)` or `(L .~ R)` in an Expr; return `(L, R, is_dotted)` or
@@ -307,7 +327,7 @@ function _walk_tilde!(out, e, bound, aliases, current_marker)
         if lhs_sym !== nothing
             free = _free_symbols(rhs, bound, aliases)
             family = _rhs_family(rhs)
-            push!(out, _TildeBlock(lhs_sym, free, dotted, family, current_marker))
+            push!(out, _TildeBlock(lhs_sym, free, dotted, family, current_marker, rhs))
         end
         return
     end
@@ -425,6 +445,56 @@ function _classify_block(blk::_TildeBlock, posargs::Tuple)
     blk.marker === :fixed && return :fixed
     blk.family !== nothing && blk.family in _DEFAULT_RANDOM_FAMILIES && return :random
     return :fixed
+end
+
+# ─── Concrete-LatentModel recognition ────────────────────────────────────────
+"""
+    _recognize_latent_rhs(rhs) -> (ctor_expr, route) | nothing
+
+Recognize a random-block RHS of the shape `Family(args...)(; k = hp, …)`
+(or `Family(args...)(k = hp, …)`) where `Family` is a recognized concrete
+`LatentModel` constructor. Returns `(ctor_expr, route)` where `ctor_expr` is
+the inner `Family(args...)` call and `route` is a `Vector{Pair{Symbol,Symbol}}`
+mapping each inner call-kwarg name to the hyperparameter symbol it draws from.
+Returns `nothing` when the RHS doesn't match this recognized shape.
+"""
+function _recognize_latent_rhs(rhs)
+    rhs isa Expr && rhs.head === :call || return nothing
+    isempty(rhs.args) && return nothing
+    ctor = rhs.args[1]
+    # The outer callee must itself be a constructor call `Family(args...)`.
+    (ctor isa Expr && ctor.head === :call) || return nothing
+    fam = _callee_top_sym(ctor)
+    (fam !== nothing && fam in _RECOGNIZED_LATENT_FAMILIES) || return nothing
+
+    # Collect kwargs from the outer call: a `:parameters` node (`(; k=v)`)
+    # and/or trailing positional `:kw` args (`(k=v)`).
+    route = Pair{Symbol, Symbol}[]
+    for a in rhs.args[2:end]
+        if a isa Expr && a.head === :parameters
+            for p in a.args
+                kv = _kw_route_entry(p)
+                kv === nothing && return nothing
+                push!(route, kv)
+            end
+        elseif a isa Expr && a.head === :kw
+            kv = _kw_route_entry(a)
+            kv === nothing && return nothing
+            push!(route, kv)
+        else
+            return nothing
+        end
+    end
+    isempty(route) && return nothing
+    return (ctor, route)
+end
+
+# `k = hp_sym` → `:k => :hp_sym`; literal/expression RHS → `nothing`.
+function _kw_route_entry(p)
+    (p isa Expr && p.head === :kw && length(p.args) == 2) || return nothing
+    k, v = p.args[1], p.args[2]
+    (k isa Symbol && v isa Symbol) || return nothing
+    return k => v
 end
 
 # Prelude-lift analyzer + codegen lives in `prelude_lift.jl`, included

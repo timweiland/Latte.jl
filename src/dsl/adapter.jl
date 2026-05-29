@@ -53,6 +53,37 @@ function latte_from_dppl(
         obs_groups = nothing,
         lift_spec = nothing,
     )
+    return _assemble_lgm(
+        dppl_model, nothing;
+        random = random,
+        force_ad_obs_model = force_ad_obs_model,
+        augment = augment,
+        likelihood_hessian_pattern = likelihood_hessian_pattern,
+        obs_groups = obs_groups,
+        lift_spec = lift_spec,
+    )
+end
+
+"""
+    _assemble_lgm(dppl_model, latent_override; random, kwargs...)
+
+Internal shared LGM assembly. When `latent_override === nothing` the latent
+prior is extracted from the DPPL graph via `build_latent_model` (DAG /
+sparse-AD). When a prebuilt latent is supplied — the `@latte` macro's
+concrete-`LatentModel` recognition path passes a `RoutedLatentModel` /
+`CombinedModel` — it is used as-is. Hyperparameter spec, obs-model fast-path
+/ grouping / AD fallback, pattern plumbing, augmentation, and latent layout
+are shared across both paths.
+"""
+function _assemble_lgm(
+        dppl_model, latent_override;
+        random::Union{Symbol, Tuple},
+        force_ad_obs_model::Bool = false,
+        augment::Bool = true,
+        likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
+        obs_groups = nothing,
+        lift_spec = nothing,
+    )
     random_syms = random isa Symbol ? (random,) : random
     priors = extract_priors(dppl_model)
     random_set = Set(random_syms)
@@ -159,14 +190,21 @@ function latte_from_dppl(
         throw(ArgumentError("likelihood_hessian_pattern must be :auto, :dense, or a SparseMatrixCSC"))
     end
 
-    # The pattern-augmentation inside `build_latent_model` is now redundant:
-    # we've already resolved `extra_pattern` above. Tell it not to re-detect.
-    latent, path = build_latent_model(
-        dppl_model, random_syms, hp_names;
-        skip_pattern_augment = true,
-        extra_pattern = extra_pattern,
-    )
-    @debug "latent extraction path" path fast_path = use_fast_path augmented = augment
+    # Latent prior: either the macro-recognized prebuilt latent, or the
+    # default DAG / sparse-AD extraction from the DPPL graph. The pattern-
+    # augmentation inside `build_latent_model` is redundant here — we've
+    # already resolved `extra_pattern` above — so tell it not to re-detect.
+    latent = if latent_override === nothing
+        l, path = build_latent_model(
+            dppl_model, random_syms, hp_names;
+            skip_pattern_augment = true,
+            extra_pattern = extra_pattern,
+        )
+        @debug "latent extraction path" path fast_path = use_fast_path augmented = augment
+        l
+    else
+        latent_override
+    end
 
     obs = if use_fast_path
         fast_obs
