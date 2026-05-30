@@ -28,7 +28,7 @@ were INLA internals — but they aren't:
 
 - `find_hyperparameter_mode` — used by all three Laplace-based methods
 - `hyperparameter_logpdf` (= `L(θ)`) — used by all three
-- `gaussian_approximation` (GMRFs.jl) + `selinv_mat` — used by all three
+- `gaussian_approximation` (GMRFs.jl) + `selected_covariance` — used by all three
 - **Simplified Laplace** — a correction to `q(x|θ)` marginals.
   Orthogonal to the outer θ treatment. A TMB user gets
   skew-corrected x-marginals for free.

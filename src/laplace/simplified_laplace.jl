@@ -95,7 +95,7 @@ function _marginalize_impl(
         augmentation_info = nothing,
     )
     μ = mean(ga)
-    Σ = selinv_mat(ga)
+    Σ = selected_covariance(ga)
     σ = sqrt.(max.(diag(Σ), 0.0))
 
     marginals = SkewNormal{Float64}[]
@@ -129,8 +129,8 @@ function _marginalize_impl(
             continue
         end
 
-        conditional_column = _compute_conditional_column(ga, i)
-        a_coeffs = conditional_column ./ (σ * σ_i)
+        cond_col = conditional_column(ga, i)
+        a_coeffs = cond_col ./ (σ * σ_i)
 
         # γ_1 needs the full conditional path including σ_i at slot i —
         # the σ_i perturbation of x_i itself enters the log|H_M| term
@@ -161,7 +161,7 @@ function _marginalize_impl(
             @inbounds for (j, k) in enumerate(diag_h3.indices)
                 λ_k = diag_h3.values[j]
                 γ_i_1 += λ_k * curvature_dir[k] *
-                    (σ²[k] - τ_i * conditional_column[k]^2)
+                    (σ²[k] - τ_i * cond_col[k]^2)
                 γ_i_3 += λ_k * dir[k]^3
             end
             γ_i_1 *= 0.5
@@ -169,7 +169,7 @@ function _marginalize_impl(
             # Fallback for non-diagonal obs_liks (LinearlyTransformedLikelihood,
             # generic AD-backed). Builds the directional-derivative matrix.
             #
-            # Force dense Vectors before AD: `_compute_conditional_column` can
+            # Force dense Vectors before AD: `conditional_column` can
             # return a SparseVector (workspace solves over WorkspaceGMRFs go
             # through CHOLMOD which yields a dense vector, but constraint
             # paths and other GMRF backends can preserve sparsity). When the
@@ -183,7 +183,7 @@ function _marginalize_impl(
             dir_dense = collect(dir)
             loghess_curv_deriv = loghessian_directional_derivative(μ_dense, curvature_dir_dense, obs_lik)
             loghess_dir_deriv = loghessian_directional_derivative(μ_dense, dir_dense, obs_lik)
-            γ_i_1 = 0.5 * _compute_tr(Σ, conditional_column, σ_i, loghess_curv_deriv)
+            γ_i_1 = 0.5 * _compute_tr(Σ, cond_col, σ_i, loghess_curv_deriv)
             γ_i_3 = dot(dir_dense, loghess_dir_deriv * dir_dense)
         end
 

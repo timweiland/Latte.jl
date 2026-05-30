@@ -9,6 +9,7 @@ using LinearSolve
 
 export LaplaceApproximationCache, fit_density_correction_spline, evaluate_corrected_density
 export setup_conditional_computation, conditional_gmrf, evaluate_laplace_logpdf
+export conditional_column
 
 """
     submatrix(A, idcs)
@@ -182,12 +183,31 @@ function _solve_with_cache!(lsc::LinearSolve.LinearCache, e_i::Vector{Float64})
     return copy(sol.u)
 end
 
-function _compute_conditional_column(base_gmrf::AbstractGMRF, conditioning_index::Int)
+"""
+    conditional_column(q, i) -> Vector
+    conditional_column(q, i, lsc) -> Vector
+
+The full `i`-th column of the posterior covariance `Σ = Q⁻¹[:, i]`, constraint-
+corrected. One of the three covariance primitives of Latte's posterior-query
+interface (see [`selected_covariance`](@ref), [`lincomb_variance`](@ref)).
+
+This is the *expensive* primitive — a full factor solve per index, whose
+support is data-dependent (the corrected-Laplace active set is discovered by
+thresholding the whole column), so it is **not** reducible to
+[`selected_covariance`](@ref). The engine prefers `var`/`selected_covariance`
+and reaches for `conditional_column` only where a full column is genuinely
+required (simplified- and corrected-Laplace marginals).
+
+The `(q, i, lsc)` form reuses a shared `LinearSolve` cache across indices so
+the factor is not refactorized per column. A non-GMRF backend overrides these
+methods; the defaults back the sparse-GMRF case.
+"""
+function conditional_column(base_gmrf::AbstractGMRF, conditioning_index::Int)
     lsc = GaussianMarkovRandomFields.linsolve_cache(base_gmrf)
-    return _compute_conditional_column(base_gmrf, conditioning_index, lsc)
+    return conditional_column(base_gmrf, conditioning_index, lsc)
 end
 
-function _compute_conditional_column(base_gmrf::AbstractGMRF, conditioning_index::Int, lsc::LinearSolve.LinearCache)
+function conditional_column(base_gmrf::AbstractGMRF, conditioning_index::Int, lsc::LinearSolve.LinearCache)
     n = length(base_gmrf)
 
     # Solve Q * v = e_i to get Q^{-1}[:,i] using precomputed factorization
@@ -199,7 +219,7 @@ end
 # WorkspaceGMRF path: use the workspace's solver (reuses factorization without
 # a LinearSolve cache). Constrained case adds a Woodbury correction against the
 # workspace's embedded ConstraintInfo.
-function _compute_conditional_column(base_gmrf::GaussianMarkovRandomFields.WorkspaceGMRF, conditioning_index::Int)
+function conditional_column(base_gmrf::GaussianMarkovRandomFields.WorkspaceGMRF, conditioning_index::Int)
     GaussianMarkovRandomFields.ensure_loaded!(base_gmrf)
     n = length(base_gmrf)
     e_i = zeros(n)
@@ -213,12 +233,12 @@ function _compute_conditional_column(base_gmrf::GaussianMarkovRandomFields.Works
     return base - correction
 end
 
-function _compute_conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int)
+function conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int)
     lsc = GaussianMarkovRandomFields.linsolve_cache(constrained_gmrf.base_gmrf)
-    return _compute_conditional_column(constrained_gmrf, conditioning_index, lsc)
+    return conditional_column(constrained_gmrf, conditioning_index, lsc)
 end
 
-function _compute_conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int, lsc::LinearSolve.LinearCache)
+function conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_index::Int, lsc::LinearSolve.LinearCache)
     # Account for existing constraints via a Woodbury correction term
     n = length(constrained_gmrf)
     e_i = zeros(n)
@@ -251,25 +271,25 @@ This function performs the expensive computations that are independent of the
 specific value of x_i, allowing efficient evaluation at multiple x_i points.
 """
 function setup_conditional_computation(base_gmrf, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}; threshold = 0.001)
-    conditional_column = _compute_conditional_column(base_gmrf, conditioning_index)
-    return _setup_active_set(conditional_column, conditioning_index, σ; threshold = threshold)
+    cond_col = conditional_column(base_gmrf, conditioning_index)
+    return _setup_active_set(cond_col, conditioning_index, σ; threshold = threshold)
 end
 
 function setup_conditional_computation(base_gmrf, conditioning_index::Int, μ::Vector{Float64}, σ::Vector{Float64}, lsc::LinearSolve.LinearCache; threshold = 0.001)
-    conditional_column = _compute_conditional_column(base_gmrf, conditioning_index, lsc)
-    return _setup_active_set(conditional_column, conditioning_index, σ; threshold = threshold)
+    cond_col = conditional_column(base_gmrf, conditioning_index, lsc)
+    return _setup_active_set(cond_col, conditioning_index, σ; threshold = threshold)
 end
 
-function _setup_active_set(conditional_column::Vector{Float64}, conditioning_index::Int, σ::Vector{Float64}; threshold = 0.001)
+function _setup_active_set(cond_col::Vector{Float64}, conditioning_index::Int, σ::Vector{Float64}; threshold = 0.001)
     # Use precomputed standard deviations
     # Compute influence coefficients a_{ij} = -(Q^{-1})_{ji} / (σ_j * σ_i)
     σ_i = σ[conditioning_index]
-    a_coeffs = conditional_column ./ (σ * σ_i)
+    a_coeffs = cond_col ./ (σ * σ_i)
 
     # Find active set based on threshold
     active_set = findall(abs.(a_coeffs) .> threshold)
 
-    return conditional_column, active_set
+    return cond_col, active_set
 end
 
 """
@@ -385,13 +405,13 @@ function evaluate_laplace_logpdf(cache::LaplaceApproximationCache, x_i::Real, lo
     # Extract cached values
     base_gmrf = cache.base_gmrf
     conditioning_index = cache.conditioning_index
-    conditional_column = cache.conditional_column
+    cond_col = cache.conditional_column
     active_set = cache.active_set
 
     # Compute conditional configuration once
     μ_prior = cache.μ  # Use cached mean
-    σ_i_squared = conditional_column[conditioning_index]
-    μ_conditional = μ_prior - conditional_column * (μ_prior[conditioning_index] - x_i) / σ_i_squared
+    σ_i_squared = cond_col[conditioning_index]
+    μ_conditional = μ_prior - cond_col * (μ_prior[conditioning_index] - x_i) / σ_i_squared
 
     # Build conditional GMRF using the computed conditional mean
     gmrf_gg = conditional_gmrf(cache, active_set, μ_conditional)

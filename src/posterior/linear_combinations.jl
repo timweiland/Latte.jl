@@ -1,7 +1,28 @@
 using LinearAlgebra: dot
-using LinearSolve: solve!
 
-export linear_combinations
+export linear_combinations, lincomb_variance
+
+"""
+    lincomb_variance(q, a) -> Real
+
+Posterior variance of the linear functional `aᵀx`, i.e. `aᵀ Σ a = aᵀ Q⁻¹ a`,
+via a single factor solve. The third covariance primitive of Latte's
+posterior-query interface (see [`selected_covariance`](@ref),
+[`conditional_column`](@ref)).
+
+!!! warning "Constraint correction gap (pre-existing)"
+    The GMRF default solves against the *base* factor and does **not** apply the
+    constraint Woodbury correction that `selected_covariance` / `conditional_column`
+    do. This reproduces the historical `linear_combinations` behavior exactly and
+    is a known correctness gap for constrained models — it is preserved
+    deliberately here and must not be "fixed" inline without sign-off, since
+    doing so would change results for constrained models.
+"""
+function lincomb_variance(q, a::AbstractVector)
+    base = q isa ConstrainedGMRF ? q.base_gmrf : q
+    GaussianMarkovRandomFields.ensure_loaded!(base)
+    return dot(a, GaussianMarkovRandomFields.workspace_solve(base.workspace, collect(a)))
+end
 
 """
     _reconstruct_ga(model, y_obs, θ) -> (ga, θ_natural_nt)
@@ -114,16 +135,11 @@ function linear_combinations(result::INLAResult, A::AbstractMatrix)
         ga, _ = _reconstruct_ga(model, y_obs, point.θ, ws)
         μ = mean(ga)
 
-        # Solve Q \ aₖ using the workspace's factorization (or a fresh
-        # LinearSolve cache on the cold path).
-        base_ga = ga isa ConstrainedGMRF ? ga.base_gmrf : ga
-        GaussianMarkovRandomFields.ensure_loaded!(base_ga)
-
+        # Posterior variance of each linear functional aₖᵀx via a factor solve.
         for k in 1:m
             a_k = view(A, k, :)
-            sol_u = GaussianMarkovRandomFields.workspace_solve(base_ga.workspace, collect(a_k))
             z_mean = dot(a_k, μ)
-            z_var = dot(a_k, sol_u)
+            z_var = lincomb_variance(ga, a_k)
             components[k][j] = Normal(z_mean, sqrt(max(z_var, 0.0)))
         end
     end
