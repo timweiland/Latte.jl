@@ -6,7 +6,13 @@ using Aqua
     @testset "Code quality (Aqua.jl)" begin
         # piracies=false: we intentionally extend Distributions.cdf/quantile for SkewNormal
         # (Distributions.jl v0.25 lacks these; see StatsFuns.jl#99 for upstream discussion)
-        Aqua.test_all(Latte; persistent_tasks = false, piracies = false)
+        # stale_deps ignore: BenchmarkTools is a benchmark-only dependency, used by
+        # the scripts under benchmark/ (which run in the package's own environment),
+        # not by src/. (A cleaner home is the LatteBench benchmark/Project.toml.)
+        Aqua.test_all(
+            Latte; persistent_tasks = false, piracies = false,
+            stale_deps = (ignore = [:BenchmarkTools],),
+        )
     end
 
     include("parallel/runtests.jl")

@@ -43,7 +43,7 @@ function hyperparameters(m::_FixedKwargsObservationModel)
     return Tuple(s for s in hyperparameters(m.base) if !(s in fixed))
 end
 
-latent_dimension(m::_FixedKwargsObservationModel, y) = latent_dimension(m.base, y)
+latent_dimension(m::_FixedKwargsObservationModel, y::AbstractVector) = latent_dimension(m.base, y)
 
 function Base.show(io::IO, m::_FixedKwargsObservationModel)
     print(io, "_FixedKwargsObservationModel(", m.base, ", fixed=", m.fixed_kwargs, ")")
