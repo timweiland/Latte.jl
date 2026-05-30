@@ -40,7 +40,7 @@ function _marginalize_impl(
     marginals = SplineAugmentedGaussian{Float64}[]
 
     for i in indices
-        # Create cache for this variable. _compute_conditional_column dispatches
+        # Create cache for this variable. conditional_column dispatches
         # on the GMRF type (plain vs WorkspaceGMRF vs ConstrainedGMRF) to reuse
         # whatever factorization the input already has.
         cache = LaplaceApproximationCache(ga, obs_lik, i, μ, σ, prior_gmrf)

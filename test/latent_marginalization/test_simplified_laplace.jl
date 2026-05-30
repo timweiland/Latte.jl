@@ -246,4 +246,45 @@ using HCubature
         @test all(isfinite ∘ mean, result.marginals)
         @test all(isfinite ∘ std, result.marginals)
     end
+
+    @testset "Non-diagonal AD fallback with nonzero h''' (regression: cond_col)" begin
+        # The SLA `else` branch (non-diagonal obs_lik) feeds the conditional
+        # column VECTOR into `_compute_tr`, which indexes it. A *non-quadratic*
+        # AD likelihood (Poisson-like: h(x)=y·x−eˣ, h'''=−eˣ ≠ 0) makes
+        # `loghessian_directional_derivative` carry real nonzeros, so the
+        # `_compute_tr` loop actually executes the indexing. (The quadratic
+        # `_ADTestDist` above has h'''≡0 ⇒ no nonzeros ⇒ the loop body never
+        # runs, so it does NOT exercise this path.) Guards against the
+        # `conditional_column` local→function shadow regression.
+        struct _ADPoisson{T <: Real} <: ContinuousUnivariateDistribution
+            η::T
+        end
+        Distributions.logpdf(d::_ADPoisson, y::Real) = y * d.η - exp(d.η)
+        Distributions.minimum(::_ADPoisson) = -Inf
+        Distributions.maximum(::_ADPoisson) = Inf
+        Distributions.insupport(::_ADPoisson, ::Real) = true
+
+        n = 4
+        y = [1.0, 0.0, 2.0, 1.0]
+        Q = spdiagm(0 => fill(1.0, n))
+        prior_gmrf = GMRF(zeros(n), Q)
+        loglik_func = (x; kwargs...) -> sum(logpdf(_ADPoisson(x[i]), y[i]) for i in eachindex(y))
+        pointwise_func = (x; kwargs...) -> [logpdf(_ADPoisson(x[i]), y[i]) for i in eachindex(y)]
+        obs_model = GaussianMarkovRandomFields.AutoDiffObservationModel(
+            loglik_func; n_latent = n, pointwise_loglik_func = pointwise_func,
+        )
+        obs_lik = obs_model(y)
+
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
+        result = marginalize(
+            ga, obs_lik, 0.0, SimplifiedLaplace(), collect(1:n);
+            prior_gmrf = prior_gmrf,
+        )
+        # Pre-fix this threw `MethodError: getindex(::typeof(conditional_column), …)`
+        # inside `_compute_tr`; the no-throw + finite marginals are the guard.
+        @test length(result.marginals) == n
+        @test all(m isa SkewNormal for m in result.marginals)
+        @test all(isfinite ∘ mean, result.marginals)
+        @test all(isfinite ∘ std, result.marginals)
+    end
 end
