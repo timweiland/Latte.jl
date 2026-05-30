@@ -12,6 +12,7 @@ using Aqua
     include("parallel/runtests.jl")
     include("differentiation/runtests.jl")
     include("utils/runtests.jl")
+    include("test_query_interface.jl")
     include("hyperparameters/runtests.jl")
     include("distributions/runtests.jl")
     include("test_inla_model.jl")

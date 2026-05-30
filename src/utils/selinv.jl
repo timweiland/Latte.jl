@@ -3,13 +3,34 @@ using SelectedInversion
 using SparseArrays
 using LinearAlgebra: Symmetric
 
-export selinv_mat
+export selected_covariance, selinv_mat
 
-function selinv_mat(x::GMRF)
+"""
+    selected_covariance(q) -> AbstractMatrix
+
+Selected inverse of the posterior precision — the entries of `Σ = Q⁻¹` on the
+Cholesky factor's sparsity pattern, with off-pattern entries reading as `0`.
+For a constrained `q` the constraint Woodbury correction is applied on that
+pattern. The concrete return type depends on the solver backend (e.g. a
+`Symmetric` sparse matrix, a plain `SparseMatrixCSC`, or a supernodal matrix);
+consume it through `diag` and scalar `[i, j]` indexing.
+
+This is one of the three covariance primitives of Latte's posterior-query
+interface (alongside [`conditional_column`](@ref) and [`lincomb_variance`](@ref)).
+The engine consumes the posterior `q` through these plus the
+`Distributions.AbstractMvNormal` methods (`mean`/`var`/`std`/`logpdf`/
+`logdetcov`/`rand`); a non-GMRF backend supplies a `q <: AbstractMvNormal`
+and methods for these three generics. The default methods here back the
+sparse-GMRF case via `GaussianMarkovRandomFields.selinv`.
+
+Off-pattern entries are `0` by construction — this is a faithful port of the
+historical `selinv_mat` behavior, not a new approximation.
+"""
+function selected_covariance(x::GMRF)
     return GaussianMarkovRandomFields.selinv(GaussianMarkovRandomFields.linsolve_cache(x))
 end
 
-function selinv_mat(x::GaussianMarkovRandomFields.WorkspaceGMRF)
+function selected_covariance(x::GaussianMarkovRandomFields.WorkspaceGMRF)
     GaussianMarkovRandomFields.ensure_loaded!(x)
     base_selinv = GaussianMarkovRandomFields.selinv(x.workspace)
     if x.constraints !== nothing
@@ -17,6 +38,11 @@ function selinv_mat(x::GaussianMarkovRandomFields.WorkspaceGMRF)
     end
     return base_selinv
 end
+
+# Transitional alias: `selinv_mat` was the GMRF-specific name before the
+# posterior-query interface was introduced. Kept so diagonal-only callers
+# (TMB / HMC-Laplace per-θ summaries) keep working unchanged.
+selinv_mat(x) = selected_covariance(x)
 
 # Woodbury correction for constrained selected inverse:
 #   Σ_constrained = Σ - Σ A' (A Σ A')⁻¹ A Σ
@@ -64,8 +90,8 @@ function _update_sparsely!(Σ::SupernodalMatrix, ΣA_T, AΣA_T_cho)
     return
 end
 
-function selinv_mat(x::ConstrainedGMRF)
-    base_selinv = selinv_mat(x.base_gmrf)
+function selected_covariance(x::ConstrainedGMRF)
+    base_selinv = selected_covariance(x.base_gmrf)
     _update_sparsely!(base_selinv, x.A_tilde_T, x.L_c)
     return base_selinv
 end
