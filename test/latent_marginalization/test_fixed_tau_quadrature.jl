@@ -59,7 +59,7 @@ end
     ]
     prior_gmrf_aug = GMRF(zeros(2n), Q_aug)
     y = [1, 0, 2, 3, 0, 1]
-    obs_lik = ExponentialFamily(Poisson, GaussianMarkovRandomFields.LogLink(), 1:n)(
+    obs_lik = ExponentialFamily(Poisson, GaussianMarkovRandomFields.LogLink(); indices = 1:n)(
         PoissonObservations(y),
     )
     ga = gaussian_approximation(prior_gmrf_aug, obs_lik)
@@ -109,7 +109,7 @@ end
     ]
     prior_gmrf_aug = GMRF(zeros(2n), Q_aug)
     y = [1, 0, 2, 3, 0]
-    obs_lik = ExponentialFamily(Poisson, GaussianMarkovRandomFields.LogLink(), 1:n)(
+    obs_lik = ExponentialFamily(Poisson, GaussianMarkovRandomFields.LogLink(); indices = 1:n)(
         PoissonObservations(y),
     )
     ga = gaussian_approximation(prior_gmrf_aug, obs_lik)
