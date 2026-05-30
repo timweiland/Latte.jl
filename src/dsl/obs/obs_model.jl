@@ -146,7 +146,7 @@ function (w::_LiftedSingleObsModel)(_y; kwargs...)
 end
 
 hyperparameters(w::_LiftedSingleObsModel) = w.hp_names
-latent_dimension(w::_LiftedSingleObsModel, ::Any) = w.ad_model.n_latent
+latent_dimension(w::_LiftedSingleObsModel, ::AbstractVector) = w.ad_model.n_latent
 
 function Base.show(io::IO, w::_LiftedSingleObsModel)
     print(io, "Lifted single ObservationModel(hp = ", w.hp_names, ")")

@@ -475,7 +475,7 @@ function (w::_DPPLCompositeObservationModel)(_y; kwargs...)
 end
 
 hyperparameters(w::_DPPLCompositeObservationModel) = w.hp_names
-latent_dimension(w::_DPPLCompositeObservationModel, ::Any) = w.n_latent
+latent_dimension(w::_DPPLCompositeObservationModel, ::AbstractVector) = w.n_latent
 
 function Base.show(io::IO, w::_DPPLCompositeObservationModel)
     print(
@@ -531,7 +531,7 @@ function (w::_LiftedCompositeObsModel)(_y; kwargs...)
 end
 
 hyperparameters(w::_LiftedCompositeObsModel) = w.hp_names
-latent_dimension(w::_LiftedCompositeObsModel, ::Any) = w.n_latent
+latent_dimension(w::_LiftedCompositeObsModel, ::AbstractVector) = w.n_latent
 
 function Base.show(io::IO, w::_LiftedCompositeObsModel)
     n_lifted = count(w.is_lifted)
