@@ -2,6 +2,7 @@ using GaussianMarkovRandomFields
 using SelectedInversion
 using SparseArrays
 using LinearAlgebra: Symmetric
+import Distributions
 
 export selected_covariance, selinv_mat
 
@@ -95,3 +96,9 @@ function selected_covariance(x::ConstrainedGMRF)
     _update_sparsely!(base_selinv, x.A_tilde_T, x.L_c)
     return base_selinv
 end
+
+# Dense fallback for any non-GMRF posterior that can materialise its covariance
+# (e.g. a plain `Distributions.MvNormal`, or a low-rank/dense backend `q`). GMRF
+# posteriors use the selinv methods above (more specific). A precision-free
+# backend that cannot afford a dense Σ overrides this with its own method.
+selected_covariance(q::Distributions.AbstractMvNormal) = Distributions.cov(q)
