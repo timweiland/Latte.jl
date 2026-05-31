@@ -1,4 +1,5 @@
 using LinearAlgebra: dot
+import Distributions
 
 export linear_combinations, lincomb_variance
 
@@ -18,11 +19,16 @@ posterior-query interface (see [`selected_covariance`](@ref),
     deliberately here and must not be "fixed" inline without sign-off, since
     doing so would change results for constrained models.
 """
-function lincomb_variance(q, a::AbstractVector)
+function lincomb_variance(q::AbstractGMRF, a::AbstractVector)
     base = q isa ConstrainedGMRF ? q.base_gmrf : q
     GaussianMarkovRandomFields.ensure_loaded!(base)
     return dot(a, GaussianMarkovRandomFields.workspace_solve(base.workspace, collect(a)))
 end
+
+# Dense fallback for non-GMRF posteriors (see `selected_covariance`). `AbstractGMRF`
+# is more specific, so GMRF posteriors keep the factor-solve method above.
+lincomb_variance(q::Distributions.AbstractMvNormal, a::AbstractVector) =
+    dot(a, Distributions.cov(q) * a)
 
 """
     _reconstruct_ga(model, y_obs, θ) -> (ga, θ_natural_nt)

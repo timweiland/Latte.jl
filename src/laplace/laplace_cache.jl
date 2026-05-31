@@ -251,6 +251,12 @@ function conditional_column(constrained_gmrf::ConstrainedGMRF, conditioning_inde
     return base - correction
 end
 
+# Dense fallback for non-GMRF posteriors (see `selected_covariance`): the full
+# covariance column read straight off a materialised dense covariance. GMRF
+# posteriors use the factor-solve methods above (more specific).
+conditional_column(q::Distributions.AbstractMvNormal, conditioning_index::Int) =
+    Distributions.cov(q)[:, conditioning_index]
+
 """
     setup_conditional_computation(base_gmrf, conditioning_index, μ, σ; threshold=0.001)
 
