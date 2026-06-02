@@ -4,7 +4,8 @@ using DynamicPPL: @model
 import DynamicPPL
 using GaussianMarkovRandomFields:
     AutoDiffObservationModel, CompositeObservationModel, CompositeLikelihood,
-    CompositeObservations, loglik, loggrad, loghessian
+    CompositeObservations, LinearlyTransformedObservationModel, ParameterizedOffset,
+    loglik, loggrad, loghessian
 using Distributions
 using LinearAlgebra
 using SparseArrays
@@ -538,9 +539,12 @@ end
             @test composite.components[1] isa AutoDiffObservationModel
         end
 
-        @testset "hp-dependent offset b(θ) → AD fallback" begin
-            # η = u + ω where ω is an outer hp shift. A is constant (= I)
-            # but b(θ) = ω depends on the outer hp. Same failure mode.
+        @testset "hp-dependent offset b(θ) → LTM offset (fast path, not AD)" begin
+            # η = u + ω where ω is an outer hp shift. A is constant (= I) and
+            # only the offset b(θ) = ω depends on θ. Unlike a θ-dependent A,
+            # this is captured by the LTM's ParameterizedOffset, so the
+            # component stays on the fast path — its θ-offset gradient is
+            # forward-mode-exact through the composite IFT.
             @model function _hp_in_b(y)
                 ω ~ Gamma(2, 1)
                 u ~ MvNormal(zeros(length(y)), 100.0 * I(length(y)))
@@ -556,7 +560,8 @@ end
                 obs_groups = [:all => (:y,)],
             )
             composite = Latte._underlying_composite(model.observation_model)
-            @test composite.components[1] isa AutoDiffObservationModel
+            @test composite.components[1] isa LinearlyTransformedObservationModel
+            @test composite.components[1].offset isa ParameterizedOffset
         end
 
         @testset "Latent-dependent σ → AD fallback (not misclassified as fixed)" begin

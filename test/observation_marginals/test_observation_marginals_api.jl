@@ -183,14 +183,13 @@ using Random
         end
     end
 
-    @testset "OffsetObservationModel — offset included in fitted values (R-INLA convention)" begin
-        # `observation_marginals` on a model whose obs model is wrapped in
-        # `OffsetObservationModel` must return marginals of `g⁻¹(η + offsetᵢ)`,
-        # not `g⁻¹(η)` — matching R-INLA's "fitted values include offset"
-        # convention.
+    @testset "LTM offset — offset included in fitted values (R-INLA convention)" begin
+        # An LTM offset (η = A·x + b) is absorbed into the augmented prior mean,
+        # so `linear_predictor_marginals` already hold the full ηᵢ (offset
+        # included) and the fitted value is `μᵢ = g⁻¹(ηᵢ)` directly — matching
+        # R-INLA's "fitted values include offset" convention.
         #
-        # Verified via the median identity for strictly-monotonic transforms:
-        # if y = g⁻¹(η + c), median(y) = g⁻¹(median(η) + c).
+        # Verified via the median identity for strictly-monotonic transforms.
         Random.seed!(0xbeef)
         n_base = 6
         n_obs = 15
@@ -199,13 +198,16 @@ using Random
 
         base_latent = IIDModel(n_base)
         base_obs = ExponentialFamily(Poisson)     # LogLink default
-        offset_obs = Latte.OffsetObservationModel(base_obs, offset)
-        obs_model = LinearlyTransformedObservationModel(offset_obs, A)
+        obs_model = LinearlyTransformedObservationModel(base_obs, A; offset = offset)
 
         hp_spec = @hyperparams begin
             (τ ~ Exponential(1.0), transform = log, space = natural)
         end
         model = LatentGaussianModel(hp_spec, base_latent, obs_model)
+
+        # The augmenting constructor absorbs the offset into the prior mean.
+        @test model.latent_prior isa Latte.AugmentedLatentModel
+        @test model.latent_prior.offset ≈ offset rtol = 1.0e-10
 
         # Data generated with the offset present in the linear predictor
         x_base = rand(base_latent(τ = 3.0))
@@ -215,19 +217,19 @@ using Random
         obs_marg = observation_marginals(result)
         η_marg = result.linear_predictor_marginals
 
-        # Exact identity (monotonic transform): median commutes.
+        # Exact identity (monotonic transform): η already includes the offset,
+        # so the fitted median is exp(median(η)) with no extra shift.
         for i in 1:n_obs
-            η_med = median(η_marg[i])
-            @test median(obs_marg[i]) ≈ exp(η_med + offset[i]) rtol = 1.0e-6
+            @test median(obs_marg[i]) ≈ exp(median(η_marg[i])) rtol = 1.0e-6
         end
 
-        # Sanity: `exp(η_med)` (the offset-dropped answer) must differ from
-        # the fitted value, otherwise the identity above would hold even if
-        # the offset were silently ignored.
-        mismatches = [
-            !isapprox(median(obs_marg[i]), exp(median(η_marg[i])); rtol = 1.0e-3)
-                for i in 1:n_obs
-        ]
-        @test count(mismatches) > n_obs ÷ 2
+        # The offset is genuinely honored (not silently dropped): an equivalent
+        # offset-free model yields materially different linear predictors.
+        model_no = LatentGaussianModel(
+            hp_spec, base_latent, LinearlyTransformedObservationModel(base_obs, A)
+        )
+        η_no = inla(model_no, y; progress = false).linear_predictor_marginals
+        moved = [!isapprox(median(η_marg[i]), median(η_no[i]); atol = 1.0e-2) for i in 1:n_obs]
+        @test count(moved) > n_obs ÷ 2
     end
 end

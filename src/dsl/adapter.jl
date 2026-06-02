@@ -269,8 +269,7 @@ function _build_latent_layout(
 end
 
 # Extract the design matrix A from whatever the fast path produced:
-#   LTM(ExponentialFamily, A)                 → A
-#   LTM(OffsetObservationModel(ExpFam), A)    → A
+#   LTM(ExponentialFamily, A; offset = b)     → A
 _extract_design_matrix(ltm::LinearlyTransformedObservationModel) = ltm.design_matrix
 
 # Boolean pattern of A'A — the sparsity of the likelihood Hessian w.r.t.
