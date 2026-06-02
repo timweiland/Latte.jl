@@ -8,7 +8,7 @@ using LinearAlgebra
 using SparseArrays
 using Random
 import ForwardDiff
-import GaussianMarkovRandomFields as GMRF
+import GaussianMarkovRandomFields as GMRFs
 
 # Equivalence between the cached `DAGAssemblyPlan`-based path and the
 # original `assemble_joint`. The plan caches the joint sparsity pattern
@@ -164,7 +164,7 @@ import GaussianMarkovRandomFields as GMRF
         # Pick a hp configuration and check (μ, Q) on the base latent prior.
         σ_val, τ_val = 0.7, 1.3
         μ_new = mean(base; σ = σ_val, τ = τ_val)
-        Q_new = GMRF.precision_matrix(base; σ = σ_val, τ = τ_val)
+        Q_new = GMRFs.precision_matrix(base; σ = σ_val, τ = τ_val)
 
         # Hand-compute expected Q. `MvNormal(μ, σ::Real)` treats σ as
         # standard deviation, so cov = σ² I = (1/τ)² I and precision = τ² I.
