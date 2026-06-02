@@ -125,19 +125,19 @@ end
 Detect whether the DPPL likelihood is a homogeneous single-family
 distribution with a canonical link and a linear predictor in `x`. If so,
 return a `LinearlyTransformedObservationModel` wrapping an
-`ExponentialFamily` (optionally further wrapped in
-`OffsetObservationModel` when the linear predictor has a non-zero
-constant term). Return `nothing` for anything non-conformant; caller
-falls through to the AD-based wrapping.
+`ExponentialFamily` (carrying an `offset` when the linear predictor has a
+non-zero constant term). Return `nothing` for anything non-conformant;
+caller falls through to the AD-based wrapping.
 
 Current support:
 - Family: `Poisson` + `LogLink`, `Bernoulli` + `LogitLink`, `Normal` +
   `IdentityLink`.
 - Predictor: affine in the concatenated latent vector `x = [β; u; ...]`.
   Non-zero constant term (e.g. Poisson log-exposure, Bernoulli logit
-  shift, Normal mean offset) is captured by wrapping the base obs model
-  in `OffsetObservationModel` — works uniformly for augmented and
-  non-augmented LGMs.
+  shift, Normal mean offset) is captured by the LTM's `offset` (η = A·x +
+  b). For the composite path it rides the per-component forward-mode IFT;
+  for the single-obs path the augmenting LGM constructor absorbs it into
+  the augmented prior mean.
 - Likelihood: homogeneous (all y sites use the same distribution family).
 """
 function try_exponential_family_fast_path(
@@ -278,6 +278,11 @@ function _try_exponential_family_fast_path(
     # varies, the design encodes hp dependence that would be silently
     # frozen by the LTM — reject and let the group fall back to AD.
     # (Codex: parametric A(θ) factorisation is a separate follow-up.)
+    # `b_hp_names` collects the outer hp the offset depends on. A θ-dependent
+    # offset is *kept* (parameterized at assembly), not rejected — only a
+    # θ-dependent design matrix `A` still rejects (that's the GMRFs
+    # `ParameterizedMatrix` axis, a separate follow-up).
+    b_hp_names = Symbol[]
     if !isempty(hp_names)
         for k_out in hp_names
             hp_pert = NamedTuple{hp_names}(
@@ -291,8 +296,7 @@ function _try_exponential_family_fast_path(
                 return nothing
             end
             if !isapprox(b, b_pert; atol = 1.0e-4, rtol = 1.0e-6)
-                @debug "fast-path: rejected — offset b depends on outer hp $(k_out)"
-                return nothing
+                push!(b_hp_names, k_out)
             end
         end
     end
@@ -316,11 +320,12 @@ function _try_exponential_family_fast_path(
         route, fixed_kwargs = route_result
     end
 
-    # 5) assemble. Non-zero `b = η(0)` → wrap in OffsetObservationModel
-    # (obs-layer offset, works for any LGM shape). Fold any pre-bound
-    # constant nuisance kwargs into the base before the LTM wraps it,
-    # so the composite's outer kwarg surface stays clean and downstream
-    # `obs isa LinearlyTransformedObservationModel` checks still work.
+    # 5) assemble. The linear predictor is η = A·x + b; the constant term
+    # `b = η(0)` (possibly θ-dependent) becomes the LTM's offset. The composite
+    # path rides the per-component forward-mode IFT through that offset; the
+    # single-obs path's augmenting LGM constructor absorbs the offset into the
+    # augmented prior mean. Fold any pre-bound constant nuisance kwargs into the
+    # base first, so the composite's outer kwarg surface stays clean.
     A_sp = SparseMatrixCSC(A)
     dropzeros!(A_sp)
     base = ExponentialFamily(family, link)
@@ -331,11 +336,30 @@ function _try_exponential_family_fast_path(
         trials_vec = Int[d.n for d in y_dists]
         base = BinomialTrialsObservationModel(base, trials_vec)
     end
-    obs = all(iszero, b) ? base : OffsetObservationModel(base, Vector{Float64}(b))
-    if !isempty(fixed_kwargs)
-        obs = _FixedKwargsObservationModel(obs, fixed_kwargs)
+    inner = isempty(fixed_kwargs) ? base : _FixedKwargsObservationModel(base, fixed_kwargs)
+    offset = if !isempty(b_hp_names)
+        # θ-dependent offset: recompute b = η(x=0; θ) per θ by re-probing the
+        # predictor at zero. Only the offset-affecting hp (`b_names`) move it;
+        # the rest take their probe value, so a grouped component only routes
+        # `b_names`.
+        b_names = Tuple(b_hp_names)
+        offset_builder = let η_fn = η_of_x_at, all_names = hp_names, b_names = b_names,
+                probe = probe_hp, nlat = n_latent
+            (; kw...) -> begin
+                θ = NamedTuple(kw)
+                hp_nt = NamedTuple{all_names}(map(s -> (s in b_names ? θ[s] : probe[s]), all_names))
+                η_fn(hp_nt)(zeros(nlat))
+            end
+        end
+        GaussianMarkovRandomFields.ParameterizedOffset(offset_builder; hyperparameters = b_names)
+    elseif all(iszero, b)
+        nothing
+    else
+        Vector{Float64}(b)
     end
-    model = LinearlyTransformedObservationModel(obs, A_sp)
+    model = offset === nothing ?
+        LinearlyTransformedObservationModel(inner, A_sp) :
+        LinearlyTransformedObservationModel(inner, A_sp; offset = offset)
 
     pattern = _bool_pattern_AtA_from_jac(A_sp)
     # Wrap y in the family-appropriate observation type. Whole-model fast
@@ -348,6 +372,13 @@ function _try_exponential_family_fast_path(
     y_for_component = obs_syms === nothing ?
         y_emission_order :
         _wrap_y_for_fast_component(family, y_emission_order, y_dists)
+    # Thread the offset's hyperparameters through the per-component composite
+    # route (1:1), so a grouped component receives them. The single-obs path
+    # ignores `route` (the obs is materialised with all hp directly).
+    if !isempty(b_hp_names)
+        extra = NamedTuple{Tuple(b_hp_names)}(Tuple(b_hp_names))
+        route = route === nothing ? extra : merge(route, extra)
+    end
     return _FastObsResult(model, route, pattern, y_for_component)
 end
 

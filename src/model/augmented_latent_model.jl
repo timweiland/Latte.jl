@@ -60,15 +60,17 @@ augmented = AugmentedLatentModel(base_model, A; linear_predictor_precision=1e6)
 gmrf = augmented(τ=2.0, ρ=0.9)  # Returns GMRF of size 300 = [η₁...η₂₀₀; x₁...x₁₀₀]
 ```
 """
-struct AugmentedLatentModel{M <: LatentModel, A <: AbstractMatrix, Alg} <: LatentModel
+struct AugmentedLatentModel{M <: LatentModel, A <: AbstractMatrix, O, Alg} <: LatentModel
     base_model::M
     design_matrix::A
+    offset::O
     linear_predictor_precision::Real
     alg::Alg
 
     function AugmentedLatentModel(
             base_model::M,
             design_matrix::A;
+            offset = nothing,
             linear_predictor_precision::Real = 1.0e6,
             alg = LinearSolve.CHOLMODFactorization()
         ) where {M <: LatentModel, A <: AbstractMatrix}
@@ -81,6 +83,10 @@ struct AugmentedLatentModel{M <: LatentModel, A <: AbstractMatrix, Alg} <: Laten
                 "Design matrix has $n_base columns but base_model has dimension $(length(base_model))"
             )
         )
+
+        # A fixed offset must match the linear-predictor count; a θ-dependent
+        # ParameterizedOffset's length is checked at resolution time.
+        _validate_aug_offset(offset, n_obs)
 
         linear_predictor_precision > 0 ||
             throw(
@@ -108,8 +114,24 @@ struct AugmentedLatentModel{M <: LatentModel, A <: AbstractMatrix, Alg} <: Laten
             )
         end
 
-        return new{M, A, typeof(alg)}(base_model, design_matrix, linear_predictor_precision, alg)
+        return new{M, A, typeof(offset), typeof(alg)}(base_model, design_matrix, offset, linear_predictor_precision, alg)
     end
+end
+
+# The augmented linear predictor carries an optional offset b: η ≈ A·x_base + b.
+# It enters purely as a mean shift (the precision is offset-invariant), so a
+# θ-dependent offset makes the augmented prior MEAN θ-dependent — which the
+# forward-mode IFT handles on the prior side. `nothing` ⇒ no offset (zero
+# overhead, the pre-offset behaviour).
+_validate_aug_offset(::Nothing, ::Int) = nothing
+_validate_aug_offset(::GaussianMarkovRandomFields.ParameterizedOffset, ::Int) = nothing
+function _validate_aug_offset(b::AbstractVector, n_obs::Int)
+    length(b) == n_obs || throw(
+        DimensionMismatch(
+            "offset has length $(length(b)) but the design matrix has $n_obs rows (linear predictors)"
+        )
+    )
+    return nothing
 end
 
 """
@@ -129,7 +151,14 @@ Returns the hyperparameters from the base model.
 The linear predictor precision is fixed at construction time.
 """
 function hyperparameters(model::AugmentedLatentModel)
-    return hyperparameters(model.base_model)
+    # `hyperparameters(::LatentModel)` is a NamedTuple (name => type). A
+    # θ-dependent offset adds its declared hyperparameters (consumed by the
+    # mean) to that set, typed generically as `Real`.
+    base = hyperparameters(model.base_model)
+    off = GaussianMarkovRandomFields._offset_hp_names(model.offset)
+    new_names = Tuple(s for s in off if !(s in keys(base)))
+    isempty(new_names) && return base
+    return merge(base, NamedTuple{new_names}(ntuple(_ -> Real, length(new_names))))
 end
 
 """
@@ -206,8 +235,14 @@ function Distributions.mean(model::AugmentedLatentModel; kwargs...)
     A = model.design_matrix
     μ_base = mean(model.base_model; kwargs...)
 
-    # Linear predictors have mean A * μ_base
+    # Linear predictors have mean A * μ_base (+ offset b if present). The
+    # offset enters here only — a θ-dependent b yields a θ-dependent prior
+    # mean, leaving the precision untouched.
     μ_η = A * μ_base
+    b = GaussianMarkovRandomFields._resolve_offset(model.offset, (; kwargs...))
+    if b !== nothing
+        μ_η = μ_η .+ b
+    end
 
     # Joint mean
     return vcat(μ_η, μ_base)

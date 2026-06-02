@@ -256,9 +256,14 @@ function LatentGaussianModel(
         latent_prior = FunctionLatentModel(base_latent_prior, n_base)
     end
 
+    # An LTM offset (η = A·x + b) is absorbed into the augmented prior as a
+    # mean shift on the linear-predictor block, so the base obs model sees η
+    # directly. A θ-dependent offset thus becomes a θ-dependent prior mean,
+    # which the forward-mode IFT differentiates exactly.
     augmented_latent_model = AugmentedLatentModel(
         latent_prior,
         design_matrix;
+        offset = obs_model.offset,
         linear_predictor_precision = linear_predictor_precision
     )
 

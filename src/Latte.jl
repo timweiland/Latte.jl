@@ -47,7 +47,6 @@ include("model/loghessian_derivatives.jl")
 include("model/link_to_bijector.jl")
 include("model/augmentation_info.jl")
 include("model/augmented_latent_model.jl")
-include("model/offset_observation_model.jl")
 include("model/binomial_trials_observation_model.jl")
 include("model/latent_gaussian_model.jl")
 
