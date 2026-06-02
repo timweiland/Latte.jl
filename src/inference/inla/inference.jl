@@ -109,6 +109,7 @@ function inla(
         progress_callback = mode_callback,
         diff_strategy = diff_strategy,
         mode_init = mode_init,
+        executor = executor,
     )
 
     timing[:mode_finding] = time() - mode_start_time

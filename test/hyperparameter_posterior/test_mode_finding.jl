@@ -172,4 +172,36 @@ using Random
         @test θ_init[3] ≈ 0 atol = 1.0e-6
     end
 
+    @testset "Parallel multistart matches serial" begin
+        # Multi-start mode-finding parallelized over an executor must give the
+        # *same* result as the sequential path: identical starts (same seeded
+        # RNG) → identical per-start optima and the same selected best mode,
+        # regardless of execution order or threading.
+        n = 6
+        spec = @hyperparams begin
+            (τ ~ Gamma(2, 1), transform = log, space = natural)
+        end
+        latent(; τ, kwargs...) = (zeros(n), spdiagm(0 => fill(τ, n)))
+        lgm = LatentGaussianModel(
+            spec, FunctionLatentModel(latent, n), ExponentialFamily(Poisson),
+        )
+        Random.seed!(99)
+        y = rand(0:4, n)
+
+        mk_starts() = RandomStarts(4; rng = MersenneTwister(2024))
+        θ_seq, _, _, info_seq = find_hyperparameter_mode(
+            lgm, y; mode_init = mk_starts(), executor = SequentialExecutor(),
+            diff_strategy = FiniteDiffStrategy(),
+        )
+        θ_par, _, _, info_par = find_hyperparameter_mode(
+            lgm, y; mode_init = mk_starts(), executor = ThreadedExecutor(nworkers = 2),
+            diff_strategy = FiniteDiffStrategy(),
+        )
+
+        @test collect(θ_seq) ≈ collect(θ_par) rtol = 1.0e-10
+        @test info_seq.final_logdensities ≈ info_par.final_logdensities rtol = 1.0e-10
+        @test info_seq.best_start_index == info_par.best_start_index
+        @test info_seq.runner_up_gap ≈ info_par.runner_up_gap rtol = 1.0e-10
+    end
+
 end
