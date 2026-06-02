@@ -61,13 +61,17 @@ DifferentiationInterface = "0.6, 0.7"
 Distributions = "0.25"
 DynamicPPL = "0.40"
 FastGaussQuadrature = "1"
+Ferrite = "1"
+FerriteGmsh = "1.2"
 FiniteDiff = "2"
 ForwardDiff = "0.10"
 GaussianMarkovRandomFields = "0.9, 0.10, 0.11"
+Gmsh = "0.3"
 HCubature = "1"
 JLD2 = "0.5"
 KernelDensity = "0.6"
 LDLFactorizations = "0.10"
+LibGEOS = "0.8, 0.9"
 LinearAlgebra = "<0.0.1, 1"
 LinearSolve = "3"
 LogDensityProblems = "2"
@@ -96,10 +100,14 @@ julia = "1"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+Ferrite = "c061ca5d-56c9-439f-9c0e-210fe06d3992"
+FerriteGmsh = "4f95f4f8-b27c-4ae5-9a39-ea55e634e36b"
+Gmsh = "705231aa-382f-11e9-3f0c-b7cb4346fdeb"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 LDLFactorizations = "40e66cde-538c-5869-a4ad-c39174c6795b"
+LibGEOS = "a90b1aa1-3769-5649-ba7e-abc5a9d163eb"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [targets]
-test = ["Aqua", "LDLFactorizations", "JLD2", "Turing", "Test"]
+test = ["Aqua", "Ferrite", "FerriteGmsh", "Gmsh", "JLD2", "LDLFactorizations", "LibGEOS", "Turing", "Test"]

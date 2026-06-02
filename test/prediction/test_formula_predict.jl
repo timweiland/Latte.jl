@@ -7,6 +7,9 @@ using Random
 using LinearAlgebra
 using DataFrames
 using StatsModels
+# Activate the GaussianMarkovRandomFieldsFEM extension (MaternModel & friends)
+# by loading its trigger packages — required for the Matern formula testset.
+using Ferrite, FerriteGmsh, Gmsh, LibGEOS
 
 @testset "predict(result, new_df)" begin
 

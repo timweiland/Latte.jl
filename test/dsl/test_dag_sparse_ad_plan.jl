@@ -7,7 +7,7 @@ using LinearAlgebra
 using SparseArrays
 using Random
 import ForwardDiff
-import GaussianMarkovRandomFields as GMRF
+import GaussianMarkovRandomFields as GMRFs
 
 # Phase 2 of the joint-precision caching work: pattern-cache the sparse-AD
 # fallback path (`_build_joint_sparse_ad_latent`). The path is triggered
@@ -41,7 +41,7 @@ import GaussianMarkovRandomFields as GMRF
         # ∇²logp w.r.t. (u; v) at 0 = -I(4), so Q = I(4) and μ = 0.
         σ_val = 0.8
         μ_new = mean(base; σ = σ_val)
-        Q_new = GMRF.precision_matrix(base; σ = σ_val)
+        Q_new = GMRFs.precision_matrix(base; σ = σ_val)
         @test μ_new ≈ zeros(4) atol = 1.0e-10
         @test Matrix(Q_new) ≈ Matrix(I, 4, 4) atol = 1.0e-10
     end
@@ -70,12 +70,12 @@ import GaussianMarkovRandomFields as GMRF
         @test base isa CachedSparseADLatentModel
 
         # Float64 call works.
-        Q_primal = GMRF.precision_matrix(base; τ = 2.0, σ = 0.7)
+        Q_primal = GMRFs.precision_matrix(base; τ = 2.0, σ = 0.7)
         @test eltype(Q_primal) === Float64
 
         # Dual hp throws (SCT/ForwardDiff method ambiguity). Track as
         # @test_throws so we notice if upstream ever fixes this.
         τ_dual = ForwardDiff.Dual{:tag}(2.0, 1.0)
-        @test_throws Exception GMRF.precision_matrix(base; τ = τ_dual, σ = 0.7)
+        @test_throws Exception GMRFs.precision_matrix(base; τ = τ_dual, σ = 0.7)
     end
 end

@@ -5,7 +5,7 @@ using Distributions
 using LinearAlgebra
 using Random
 using GaussianMarkovRandomFields
-import GaussianMarkovRandomFields as GMRF
+import GaussianMarkovRandomFields as GMRFs
 using Statistics: mean
 
 # End-to-end coverage of the prelude-lift path: confirms the macro emits
@@ -52,7 +52,7 @@ using Statistics: mean
         β = randn(p)
         σ_a_val, σ_b_val = 0.7, 1.3
         obs_lik = lgm.observation_model(vcat(y_a, y_b); σ_a = σ_a_val, σ_b = σ_b_val)
-        ll = GMRF.loglik(β, obs_lik)
+        ll = GMRFs.loglik(β, obs_lik)
 
         # Analytic reference (matches what the body computes).
         scale_ref = exp(-(σ_a_val^2 + σ_b_val^2) / 100)
@@ -140,7 +140,7 @@ using Statistics: mean
         β = [0.2, -0.4, 0.1]
         σ_val = 0.8
         obs_lik = lgm.observation_model(y; σ = σ_val)
-        ll = GMRF.loglik(β, obs_lik)
+        ll = GMRFs.loglik(β, obs_lik)
         scale_ref = log(1 + σ_val)
         expected = sum(
             logpdf(Normal(scale_ref * β[i], 0.1), y[i]) for i in eachindex(y)
