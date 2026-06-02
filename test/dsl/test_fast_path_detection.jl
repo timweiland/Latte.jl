@@ -134,14 +134,13 @@ using Random
         ]
 
         lgm = latte_from_dppl(poisson_with_exposure(y_obs, X, log_exposure); random = (:β,))
-        # Fast path with non-zero offset wraps the base obs model in
-        # OffsetObservationModel; LGM's auto-augmentation then stores the
-        # wrapper (itself holding the base ExponentialFamily) as the
-        # observation model.
-        @test lgm.observation_model isa Latte.OffsetObservationModel
-        @test lgm.observation_model.base isa ExponentialFamily{Poisson, LogLink}
+        # Fast path with a non-zero offset puts it on the LTM (η = A·x + b);
+        # LGM's auto-augmentation absorbs that offset into the augmented prior
+        # mean, leaving the base ExponentialFamily as the observation model.
+        @test lgm.observation_model isa ExponentialFamily{Poisson, LogLink}
+        @test lgm.latent_prior isa Latte.AugmentedLatentModel
         # Detected offset matches the log-exposure vector exactly
-        @test lgm.observation_model.offset ≈ log_exposure rtol = 1.0e-10
+        @test lgm.latent_prior.offset ≈ log_exposure rtol = 1.0e-10
     end
 
     @testset "augment=false produces a non-augmented LGM for TMB speed" begin

@@ -166,6 +166,45 @@ using Random
         @test maximum(abs.(diffs_fast .- diffs_ad)) < 1.0e-6
     end
 
+    @testset "θ-dependent offset: fast path is ForwardDiff-exact vs AD (no FiniteDiff)" begin
+        # b(θ) = c is a hyperparameter offset. The fast path captures it as the
+        # LTM's ParameterizedOffset, which the augmenting constructor absorbs
+        # into the augmented prior mean — so the hyperparameter gradient through
+        # the offset is forward-mode-exact under the DEFAULT (ForwardDiff)
+        # strategy, with no FiniteDiffStrategy fallback.
+        @model function linoffset(y, n)
+            τ ~ Gamma(2.0, 1.0)
+            c ~ Normal(0.0, 5.0)
+            σ ~ truncated(Normal(0.5, 0.2); lower = 0.05)
+            x ~ IIDModel(n)(; τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(x[i] + c, σ)
+            end
+        end
+        Random.seed!(101)
+        n = 8
+        y_obs = randn(n) .+ 1.2
+        lgm_fast = latte_from_dppl(linoffset(y_obs, n); random = (:x,))
+        lgm_ad = latte_from_dppl(linoffset(y_obs, n); random = (:x,), force_ad_obs_model = true)
+
+        # Fast path: offset folded into the augmented prior mean (not an AD
+        # observation model).
+        @test lgm_fast.observation_model isa ExponentialFamily
+        @test lgm_fast.latent_prior isa Latte.AugmentedLatentModel
+        @test lgm_fast.latent_prior.offset isa ParameterizedOffset
+
+        # DEFAULT diff strategy = ForwardDiff (no FiniteDiffStrategy). The
+        # offset-hp posterior and latent posterior must match the AD reference.
+        res_fast = inla(lgm_fast, y_obs; progress = false)
+        res_ad = inla(lgm_ad, y_obs; progress = false)
+        bi = lgm_fast.augmentation_info.base_latent_indices
+        lat_fast = [mean(d) for d in latent_marginals(res_fast)[bi]]
+        lat_ad = [mean(d) for d in latent_marginals(res_ad)]
+        @test maximum(abs.(lat_fast .- lat_ad)) < 1.0e-3
+        @test mean(res_fast.hyperparameter_marginals[:c]) ≈
+            mean(res_ad.hyperparameter_marginals[:c]) rtol = 1.0e-2
+    end
+
     @testset "Binomial + LogitLink: loglik matches AD fallback" begin
         @model function hier_binomial(y, X, group, trials)
             τ_u ~ Gamma(2, 1)
