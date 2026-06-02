@@ -224,6 +224,7 @@ function find_hyperparameter_mode(
         collect_points = true, progress_callback = nothing,
         diff_strategy::DifferentiationStrategy = ADStrategy(),
         mode_init = PriorModeStart(),
+        executor::ParallelExecutor = SequentialExecutor(),
     )
     # Normalize y (Vector{Int} → PoissonObservations, etc.) so direct
     # callers behave the same as inla() / tmb() which pre-wrap via
@@ -236,10 +237,6 @@ function find_hyperparameter_mode(
     starts = resolve_mode_starts(mode_init, spec)
     n_starts = length(starts)
 
-    # Per-start handler with per-start iteration cap. Builds its own
-    # workspace at the start's natural θ — different starts can sit in
-    # different conditioning regimes, so we don't share a workspace
-    # across them.
     if progress_callback === nothing
         progress_callback = (; kwargs...) -> nothing
     end
@@ -253,12 +250,18 @@ function find_hyperparameter_mode(
     final_logdensities = Vector{Float64}(undef, n_starts)
     any_converged = false
 
-    for (i, θ_init) in enumerate(starts)
+    # Each start is an independent optimisation from its own working-space
+    # initial point; the only cross-start coupling is selecting the best mode
+    # afterwards. Run them through the executor with a pooled workspace per
+    # task — sequential reuses one workspace, threaded checks out one per
+    # worker via `with_workspace` so concurrent factor-updates never race. The
+    # precision pattern is θ-invariant, so a pool built at the first start
+    # covers every start (each refactorises numerically at its own θ).
+    report_progress = executor isa SequentialExecutor
+
+    function _one_start((i, θ_init), ws)
         points = WorkingHyperparameters[]
         logps = Float64[]
-
-        θ_init_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_init))
-        ws = make_workspace(model.latent_prior; θ_init_nt...)
 
         objective = let _spec = spec, _model = model, _y = y, _ws = ws,
                 _points = points, _logps = logps, _collect = collect_points
@@ -281,7 +284,7 @@ function find_hyperparameter_mode(
         end
 
         optim_callback = function (state)
-            progress_callback(
+            report_progress && progress_callback(
                 start_index = i, n_starts = n_starts,
                 iteration = state.iteration,
                 objective = state.value,
@@ -305,20 +308,40 @@ function find_hyperparameter_mode(
         result = _run_optimization(
             diff_strategy, objective, model, y, spec, θ_init, ws, method, options,
         )
-        converged = Optim.converged(result)
-        any_converged |= converged
+        return (
+            idx = i,
+            θ_final = WorkingHyperparameters(Optim.minimizer(result), spec),
+            final_logp = -Optim.minimum(result),
+            converged = Optim.converged(result),
+            points = points,
+            logps = logps,
+        )
+    end
 
-        θ_final = WorkingHyperparameters(Optim.minimizer(result), spec)
-        final_logp = -Optim.minimum(result)
-        final_logdensities[i] = final_logp
+    θ0_nt = convert(NamedTuple, convert(NaturalHyperparameters, first(starts)))
+    pool = make_workspace_pool(model.latent_prior; size = _pool_size(executor), θ0_nt...)
+    on_complete = report_progress ? nothing :
+        function (done)
+            progress_callback(
+                start_index = done, n_starts = n_starts,
+                iteration = 0, objective = NaN, gradient_norm = NaN,
+            )
+            return nothing
+    end
+    results = pmap_executor(
+        _one_start, collect(enumerate(starts)), executor, pool; on_complete = on_complete,
+    )
 
-        if final_logp > best_logp
-            best_logp = final_logp
-            best_θ = θ_final
-            best_idx = i
-            best_points = points
-            best_logps = logps
-            best_converged = converged
+    for r in results
+        final_logdensities[r.idx] = r.final_logp
+        any_converged |= r.converged
+        if r.final_logp > best_logp
+            best_logp = r.final_logp
+            best_θ = r.θ_final
+            best_idx = r.idx
+            best_points = r.points
+            best_logps = r.logps
+            best_converged = r.converged
         end
     end
 
