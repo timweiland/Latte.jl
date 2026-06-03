@@ -11,6 +11,7 @@
 using DynamicPPL: @model
 import DynamicPPL
 import Distributions
+import LinearAlgebra
 
 
 # ─── The macro itself ─────────────────────────────────────────────────────────
@@ -179,12 +180,25 @@ function _recognition_expr(blocks, posargs_t::Tuple)
     for blk in random_blocks
         blk.rhs === nothing && return :(nothing)
         rec = _recognize_latent_rhs(blk.rhs)
-        rec === nothing && return :(nothing)
-        ctor_expr, route = rec
-
-        all(hp in hp_syms for (_k, hp) in route) || return :(nothing)
-        ctor_free = _free_symbols(ctor_expr, Set{Symbol}(posargs_t), Dict{Symbol, Set{Symbol}}())
-        isempty(intersect(ctor_free, union(hp_syms, random_syms))) || return :(nothing)
+        if rec !== nothing
+            # Curried `Family(args)(; k = hp)`: the route must draw only from
+            # hyperparameters, and the constructor must be free of hp / latent
+            # dependencies.
+            ctor_expr, route = rec
+            all(hp in hp_syms for (_k, hp) in route) || return :(nothing)
+            ctor_free = _free_symbols(ctor_expr, Set{Symbol}(posargs_t), Dict{Symbol, Set{Symbol}}())
+            isempty(intersect(ctor_free, union(hp_syms, random_syms))) || return :(nothing)
+        else
+            # Hyperparameter-free (fixed) prior, e.g. `β ~ MvNormal(zeros(p), c·I)`
+            # or `β ~ FixedEffectsModel(p; λ)`: the whole RHS is the constructor
+            # and the route is empty. Require it to be free of hp / latent deps
+            # so it is genuinely fixed; the runtime coerces the value to a
+            # `LatentModel` (falling back to the DAG path if it can't).
+            rhs_free = _free_symbols(blk.rhs, Set{Symbol}(posargs_t), Dict{Symbol, Set{Symbol}}())
+            isempty(intersect(rhs_free, union(hp_syms, random_syms))) || return :(nothing)
+            ctor_expr = blk.rhs
+            route = Pair{Symbol, Symbol}[]
+        end
 
         closure = Expr(:->, Expr(:tuple, posargs_t...), ctor_expr)
         route_nt = Expr(:tuple, Expr(:parameters, [Expr(:kw, k, QuoteNode(hp)) for (k, hp) in route]...))
@@ -336,7 +350,7 @@ function _build_recognized_latent(recognition, posarg_vals::Tuple)
     inners = LatentModel[]
     routes = NamedTuple[]
     for e in recognition
-        inner = e.ctor(posarg_vals...)
+        inner = _coerce_latent(e.ctor(posarg_vals...))
         inner isa LatentModel || return nothing
         push!(inners, inner)
         push!(routes, e.route)
@@ -344,6 +358,27 @@ function _build_recognized_latent(recognition, posarg_vals::Tuple)
     length(inners) == 1 && return RoutedLatentModel(inners[1], routes[1])
     combined = CombinedModel(inners)
     return RoutedLatentModel(combined, _combined_route(inners, routes))
+end
+
+# Coerce a recognized RHS value to a `LatentModel`. `LatentModel`s pass through
+# (e.g. the inner `RWModel` / `IIDModel` of a recognized curried prior); a fixed
+# multivariate-normal prior with zero mean and isotropic covariance `c·I` is
+# materialized as a `FixedEffectsModel` (precision `(1/c)·I`). Anything else
+# returns `nothing`, sending the caller to the DAG fallback.
+_coerce_latent(x::LatentModel) = x
+_coerce_latent(d::Distributions.AbstractMvNormal) = _fixed_gaussian_latent(d)
+_coerce_latent(_) = nothing
+
+function _fixed_gaussian_latent(d::Distributions.AbstractMvNormal)
+    all(iszero, Distributions.mean(d)) || return nothing
+    Σ = Distributions.cov(d)
+    n = size(Σ, 1)
+    c = Σ[1, 1]
+    # Only the isotropic `c·I` case maps to a `FixedEffectsModel` (precision
+    # `(1/c)·I`). Verify structure without materializing a dense identity:
+    # off-diagonals zero (`isdiag`) and a constant diagonal.
+    (c > 0 && LinearAlgebra.isdiag(Σ) && all(i -> isapprox(Σ[i, i], c), 1:n)) || return nothing
+    return GaussianMarkovRandomFields.FixedEffectsModel(n; λ = inv(c))
 end
 
 # Build the route for a `CombinedModel`-backed `RoutedLatentModel`. Replicates

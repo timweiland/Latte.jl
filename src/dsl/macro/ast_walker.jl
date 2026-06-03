@@ -442,22 +442,25 @@ end
     _recognize_latent_rhs(rhs) -> (ctor_expr, route) | nothing
 
 Recognize a random-block RHS of the shape `Family(args...)(; k = hp, …)`
-(or `Family(args...)(k = hp, …)`). Returns `(ctor_expr, route)` where
-`ctor_expr` is the inner `Family(args...)` call and `route` is a
-`Vector{Pair{Symbol,Symbol}}` mapping each inner call-kwarg name to the
-hyperparameter symbol it draws from. Returns `nothing` when the RHS doesn't
-match this curried shape.
+(or `Family(args...)(k = hp, …)`), or a *variable*-callee form `base(; k = hp, …)`
+where `base` is a binding to a `LatentModel` (e.g. a precomputed model passed
+as an argument). Returns `(ctor_expr, route)` where `ctor_expr` is the inner
+constructor call / variable and `route` is a `Vector{Pair{Symbol,Symbol}}`
+mapping each inner call-kwarg name to the hyperparameter symbol it draws from.
+Returns `nothing` when the RHS doesn't match this curried shape.
 
-Recognition is shape-only: any curried constructor call with symbol-valued
-kwargs matches. Whether `Family(args...)` actually produces a `LatentModel`
-is verified at runtime — non-`LatentModel` results fall back to the DAG path.
+Recognition is shape-only: any curried call with symbol-valued kwargs matches.
+Whether the callee actually produces / is a `LatentModel` is verified at
+runtime — non-`LatentModel` results fall back to the DAG path.
 """
 function _recognize_latent_rhs(rhs)
     rhs isa Expr && rhs.head === :call || return nothing
     isempty(rhs.args) && return nothing
     ctor = rhs.args[1]
-    # The outer callee must itself be a constructor call `Family(args...)`.
-    (ctor isa Expr && ctor.head === :call) || return nothing
+    # The outer callee is either a constructor call `Family(args...)` or a bare
+    # variable bound to a `LatentModel` (e.g. a precomputed model passed as an
+    # argument): `base(; k = hp, …)`.
+    (ctor isa Symbol || (ctor isa Expr && ctor.head === :call)) || return nothing
     _callee_top_sym(ctor) !== nothing || return nothing
 
     # Collect kwargs from the outer call: a `:parameters` node (`(; k=v)`)
