@@ -111,7 +111,7 @@ fig
 # the interaction signal that an additive model cannot capture.
 
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: BesagModel, RWModel, SeparableModel
 using LinearAlgebra
@@ -124,7 +124,6 @@ using LinearAlgebra
 # tuple can be safely reused across multiple fits.
 const INLA_KWARGS = (
     progress = false,
-    diff_strategy = FiniteDiffStrategy(),
     exploration_strategy = GridExplorationStrategy(
         integration_step_z = 1.0, max_log_drop = 2.0,
     ),
@@ -146,7 +145,7 @@ const INLA_KWARGS = (
 #
 # The spatial component is a Besag (ICAR) model and the temporal component is a
 # first-order random walk. In DPPL:
-@model function additive_model(y, expected, region, time, n_regions, n_time, W)
+@latte function additive_model(y, expected, region, time, n_regions, n_time, W)
     τ_besag ~ PCPrior.Precision(1.0, α = 0.01)
     τ_rw1 ~ PCPrior.Precision(1.0, α = 0.01)
     β ~ MvNormal(zeros(1), 100.0 * I(1))
@@ -160,10 +159,7 @@ const INLA_KWARGS = (
     end
 end
 
-lgm_add = latte_from_dppl(
-    additive_model(df.y, df.expected, df.region, df.time, n_regions, n_time, W);
-    random = (:β, :u, :v),
-)
+lgm_add = additive_model(df.y, df.expected, df.region, df.time, n_regions, n_time, W)
 result_additive = inla(lgm_add, df.y; INLA_KWARGS...)
 
 # Let's visualise the fitted rates:
@@ -203,7 +199,7 @@ fig
 # The Separable field has size `n_time × n_regions`, flattened in
 # row-major order (`δ[(t-1)*n_regions + r]` for region `r` at time `t`). This
 # matches the `kron(Q_time, Q_space)` convention.
-@model function interaction_only_model(y, expected, region, time, n_regions, n_time, W)
+@latte function interaction_only_model(y, expected, region, time, n_regions, n_time, W)
     τ_rw1_separable ~ PCPrior.Precision(1.0, α = 0.01)
     τ_besag_separable ~ PCPrior.Precision(1.0, α = 0.01)
     β ~ MvNormal(zeros(1), 100.0 * I(1))
@@ -219,10 +215,7 @@ fig
     end
 end
 
-lgm_int_only = latte_from_dppl(
-    interaction_only_model(df.y, df.expected, df.region, df.time, n_regions, n_time, W);
-    random = (:β, :δ),
-)
+lgm_int_only = interaction_only_model(df.y, df.expected, df.region, df.time, n_regions, n_time, W)
 result_interaction_only = inla(lgm_int_only, df.y; INLA_KWARGS...)
 
 obs_int_only = observation_marginals(result_interaction_only)
@@ -276,7 +269,7 @@ fig
 # $\delta_{t,r} \sim \text{Separable}(\text{RW1}, \text{Besag})$.
 # The main effects absorb the marginal spatial and temporal patterns, freeing
 # the interaction to capture only what changes across both dimensions:
-@model function full_model(y, expected, region, time, n_regions, n_time, W)
+@latte function full_model(y, expected, region, time, n_regions, n_time, W)
     τ_besag ~ PCPrior.Precision(1.0, α = 0.01)
     τ_rw1 ~ PCPrior.Precision(1.0, α = 0.01)
     τ_rw1_separable ~ PCPrior.Precision(1.0, α = 0.01)
@@ -297,10 +290,7 @@ fig
     end
 end
 
-lgm_full = latte_from_dppl(
-    full_model(df.y, df.expected, df.region, df.time, n_regions, n_time, W);
-    random = (:β, :u, :v, :δ),
-)
+lgm_full = full_model(df.y, df.expected, df.region, df.time, n_regions, n_time, W)
 result_full = inla(lgm_full, df.y; INLA_KWARGS...)
 
 # Let's see the fitted surface:

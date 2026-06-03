@@ -15,7 +15,7 @@
 # In this tutorial we'll fit a plain Poisson model to data that's
 # actually *overdispersed* and watch the PPC catch it.
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using Random, Statistics
@@ -33,14 +33,14 @@ y = rand.(NegativeBinomial.(2.0, 2.0 ./ (2.0 .+ μ_true)))
 println("n = $n, observed mean = $(round(mean(y), digits = 2)), var = $(round(var(y), digits = 2))")
 
 # ## Fit a Poisson model (deliberately wrong)
-@model function poisson_fit(y, n)
+@latte function poisson_fit(y, n)
     τ ~ PCPrior.Precision(1.0, α = 0.01)
     x ~ IIDModel(n)(τ = τ)
     for i in eachindex(y)
         y[i] ~ Poisson(exp(x[i]); check_args = false)
     end
 end
-lgm = latte_from_dppl(poisson_fit(y, n); random = (:x,))
+lgm = poisson_fit(y, n)
 result = inla(lgm, y; progress = false)
 
 # ## Draw posterior predictive datasets

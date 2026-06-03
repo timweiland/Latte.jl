@@ -119,12 +119,12 @@ W = contiguity_adjacency(geom_collection)
 #   identified from the spatial field.
 # - The unstructured component `u ~ IIDModel(n)(τ = τ_iid)`.
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using Distributions
 using LinearAlgebra
 n = nrow(county_data)
 
-@model function bym_model(cases, expected, n, W)
+@latte function bym_model(cases, expected, n, W)
     τ_besag ~ PCPrior.Precision(1.0, α = 0.01)
     τ_iid ~ PCPrior.Precision(1.0, α = 0.01)
     β ~ MvNormal(zeros(1), 100.0 * I(1))
@@ -149,14 +149,8 @@ end
 #
 # The `expected` exposure enters the likelihood through `expected[i] * exp(…)`,
 # which the adapter picks up as a log-exposure offset automatically.
-lgm = latte_from_dppl(
-    bym_model(county_data.cases, county_data.expected, n, W);
-    random = (:β, :spatial, :u),
-)
-inla_result = inla(
-    lgm, county_data.cases;
-    progress = false, diff_strategy = FiniteDiffStrategy(),
-)
+lgm = bym_model(county_data.cases, county_data.expected, n, W)
+inla_result = inla(lgm, county_data.cases; progress = false)
 
 # INLA has computed approximate posterior marginals for all parameters!
 #
@@ -191,8 +185,8 @@ fig
 # the base latent marginals - the raw building blocks before they're combined into
 # the linear predictor.
 #
-# Random variables in the DPPL model are laid out in the order given to
-# `random = (:β, :spatial, :u)`. So in `base_latent_marginals`, index 1 is
+# Random variables are laid out in the order they appear in the model body:
+# `β`, then `spatial`, then `u`. So in `base_latent_marginals`, index 1 is
 # `β`, indices 2:(1+n) are the `spatial` effects, and the next n are `u`.
 n_counties = nrow(county_data)
 spatial_offset = 1
@@ -385,7 +379,7 @@ println("  Log marginal likelihood: ", round(inla_result.accumulators[2].log_mar
 #
 # To appreciate the spatial component's value, let's fit a model with only
 # unstructured random effects (no spatial structure):
-@model function iid_only(cases, expected, n)
+@latte function iid_only(cases, expected, n)
     τ_iid ~ PCPrior.Precision(1.0, α = 0.01)
     β ~ MvNormal(zeros(1), 100.0 * I(1))
     u ~ IIDModel(n)(τ = τ_iid)
@@ -394,14 +388,8 @@ println("  Log marginal likelihood: ", round(inla_result.accumulators[2].log_mar
     end
 end
 
-lgm_iid = latte_from_dppl(
-    iid_only(county_data.cases, county_data.expected, n);
-    random = (:β, :u),
-)
-inla_result_iid = inla(
-    lgm_iid, county_data.cases;
-    progress = false, diff_strategy = FiniteDiffStrategy(),
-)
+lgm_iid = iid_only(county_data.cases, county_data.expected, n)
+inla_result_iid = inla(lgm_iid, county_data.cases; progress = false)
 
 # Compare model fit:
 println("\nModel comparison:")

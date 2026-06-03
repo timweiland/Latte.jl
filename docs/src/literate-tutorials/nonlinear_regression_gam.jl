@@ -105,12 +105,12 @@ draw(
 #
 # where $\beta_0$ is an intercept and $f$ is the RW2 smooth over time.
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: RWModel
 using LinearAlgebra
 
-@model function rw2_smooth(y, time_idx, H)
+@latte function rw2_smooth(y, time_idx, H)
     σ ~ PCPrior.Sigma(50.0, α = 0.01)
     τ_rw2 ~ PCPrior.Precision(1.0, α = 0.01)
     β ~ MvNormal(zeros(1), 100.0 * I(1))
@@ -128,10 +128,9 @@ end
 # - `τ_rw2` — the RW2 precision. Its PC prior penalises complexity relative to
 #   a linear baseline.
 #
-# We build the LGM and run INLA with `FiniteDiffStrategy` (robust for the
-# RW2's rank-deficient null-space constraint):
-lgm = latte_from_dppl(rw2_smooth(df.accel, df.time_idx, H); random = (:β, :f))
-result = inla(lgm, df.accel; progress = false, diff_strategy = FiniteDiffStrategy())
+# We build the LGM (calling the `@latte` function) and run INLA:
+lgm = rw2_smooth(df.accel, df.time_idx, H)
+result = inla(lgm, df.accel; progress = false)
 
 # ## Visualizing the fit
 #
@@ -194,7 +193,7 @@ println(summary_df(result.hyperparameter_marginals))
 #
 # To appreciate the value of the nonparametric smooth, let's fit a simple
 # linear model $\mu_i = \beta_0 + \beta_1 t_i$ and compare:
-@model function linear_model(y, x)
+@latte function linear_model(y, x)
     σ ~ PCPrior.Sigma(50.0, α = 0.01)
     β ~ MvNormal(zeros(2), 100.0 * I(2))
     for i in eachindex(y)
@@ -202,11 +201,8 @@ println(summary_df(result.hyperparameter_marginals))
     end
 end
 
-lgm_linear = latte_from_dppl(linear_model(df.accel, df.times); random = (:β,))
-result_linear = inla(
-    lgm_linear, df.accel;
-    progress = false, diff_strategy = FiniteDiffStrategy(),
-)
+lgm_linear = linear_model(df.accel, df.times)
+result_linear = inla(lgm_linear, df.accel; progress = false)
 
 # Let's overlay both fits:
 obs_linear = observation_marginals(result_linear)

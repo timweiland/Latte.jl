@@ -111,11 +111,11 @@ println("A_obs size: ", size(A_obs))
 # (controlling amplitude) and `range_matern` (controlling spatial correlation
 # distance). We use a PC prior for precision and an `Exponential` prior for range.
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using Distributions
 using LinearAlgebra
 
-@model function spde_model(counts, area, base_matern, A_obs)
+@latte function spde_model(counts, area, base_matern, A_obs)
     τ_matern ~ PCPrior.Precision(1.0, α = 0.01)
     range_matern ~ Exponential(5.0)
     β ~ MvNormal(zeros(1), 100.0 * I(1))
@@ -131,10 +131,7 @@ end
 # We use `SimplifiedLaplace` for the latent marginals — it adds a skewness
 # correction over the basic Gaussian approximation, which matters for count data
 # where the posterior can be asymmetric (especially at cells with zero counts).
-lgm = latte_from_dppl(
-    spde_model(df.count, df.area, base_matern, A_obs);
-    random = (:β, :field),
-)
+lgm = spde_model(df.count, df.area, base_matern, A_obs)
 result = inla(
     lgm, df.count;
     progress = false,
