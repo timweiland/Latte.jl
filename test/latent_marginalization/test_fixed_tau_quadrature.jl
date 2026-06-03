@@ -5,6 +5,7 @@ using GaussianMarkovRandomFields: PoissonObservations
 using Distributions
 using LinearAlgebra
 using SparseArrays
+using Random
 
 # Direct 1D quadrature for the conditional posterior of an IID Gaussian
 # prior + Poisson observation: p(x_i | τ, y_i) ∝ exp(y_i x - exp(x) - τ/2 x²).
@@ -28,6 +29,23 @@ function _exact_conditional_cdf(
     return grid, cdf_vals
 end
 
+# Mean / std / skewness of that same exact conditional posterior, by direct
+# quadrature on a fine grid. Used to assert SLA recovers the true skew.
+function _exact_conditional_moments(
+        y_i::Real, τ::Real;
+        x_min::Float64 = -12.0, x_max::Float64 = 12.0, n_grid::Int = 40001,
+    )
+    grid = collect(range(x_min, x_max, length = n_grid))
+    log_p = [y_i * x - exp(x) - 0.5 * τ * x^2 for x in grid]
+    log_p .-= maximum(log_p)
+    w = exp.(log_p)
+    w ./= sum(w)
+    μ = sum(w .* grid)
+    σ = sqrt(sum(w .* (grid .- μ) .^ 2))
+    sk = sum(w .* ((grid .- μ) ./ σ) .^ 3)
+    return μ, σ, sk
+end
+
 # KS distance: sup_x |F_engine(x) - F_ref(x)| evaluated on the
 # reference grid. Returns (max_abs_gap, signed_gap_at_argmax).
 function _ks_distance(engine, ref_grid::Vector{Float64}, ref_cdf::Vector{Float64})
@@ -43,11 +61,12 @@ function _ks_distance(engine, ref_grid::Vector{Float64}, ref_cdf::Vector{Float64
     return best_abs, best_signed
 end
 
-@testset "Augmented LGM: SimplifiedLaplace skew vanishes for IID base prior" begin
-    # Regression test: the augmentation precision (η ≈ A·x at λ ≈ 1e6)
-    # used to leak into SLA's γ_3 for base latents. With an IID base
-    # prior the documented behaviour is that the SLA correction
-    # vanishes — equivalently, |α| ≈ 0 in the SkewNormal output.
+@testset "Augmented LGM: SimplifiedLaplace recovers true base-latent skew" begin
+    # The augmentation penalty η ≈ A·x (λ ≈ 1e6) does NOT wash out a base
+    # latent's skew: coupled to its linear predictor, the base latent
+    # inherits the likelihood's genuine skew. With an IID base prior +
+    # Poisson obs that is exactly the 1D conditional skew, which
+    # SimplifiedLaplace must recover (not flatten to zero).
     n = 6
     τ = 1.0
     λ = 1.0e6
@@ -66,73 +85,51 @@ end
 
     base_indices = collect((n + 1):(2n))
     aug_info = Latte.AugmentationInfo(n, n)
-    sl_result = marginalize(
+    sl = marginalize(
         ga, obs_lik, 0.0, SimplifiedLaplace(), base_indices;
         prior_gmrf = prior_gmrf_aug,
         augmentation_info = aug_info,
-    )
-    g_result = marginalize(
-        ga, obs_lik, 0.0, GaussianMarginal(), base_indices;
-        prior_gmrf = prior_gmrf_aug,
-        augmentation_info = aug_info,
-    )
+    ).marginals
 
-    for (i, base_i) in enumerate(base_indices)
-        sl_m = sl_result.marginals[i]
-        g_m = g_result.marginals[i]
-        @test abs(sl_m.α) < 1.0e-3
-        @test mean(sl_m) ≈ mean(g_m) atol = 1.0e-4
-        @test std(sl_m) ≈ std(g_m) atol = 1.0e-4
+    for (i, _) in enumerate(base_indices)
+        _, _, true_sk = _exact_conditional_moments(y[i], τ)
+        @test true_sk < -0.2                          # genuinely left-skewed
+        @test skewness(sl[i]) ≈ true_sk atol = 0.05   # SLA recovers it
     end
 end
 
-@testset "Augmented LGM: surgical fix preserves cross-base SLA contributions" begin
-    # When the base prior is correlated (not IID) the conditional
-    # regression direction `dir_base` has non-zero entries at
-    # neighbouring base latents, and SLA's `γ_3` should pick up real
-    # cross-site contributions transmitted through `A`. The surgical
-    # fix subtracts only the augmentation self-shadow `σ_i · A[:, i]`
-    # from the η-block, so those legitimate contributions survive. The
-    # fallback (no `prior_gmrf`) zeroes the whole η-block and would
-    # lose them, so the two should produce different `γ_3` here.
-    n = 5
+@testset "Augmented LGM: dense design column does not inflate base-latent skew" begin
+    # A base latent that loads on many observations through a dense design
+    # column (a regression coefficient) is well-informed and ~Gaussian;
+    # SimplifiedLaplace must not manufacture skew for it. Full Laplace is
+    # the reference. Guards against the augmentation-shadow blow-up where a
+    # coefficient over 30 obs picked up |α| ≈ 40.
+    rng = MersenneTwister(20260604)
+    n = 30
     λ = 1.0e6
-    A = sparse(I, n, n)
-    Q_base = spdiagm(
-        -1 => fill(-0.8, n - 1),
-        0 => fill(2.0, n),
-        1 => fill(-0.8, n - 1),
-    )
+    x = collect(range(-1.5, 1.5, length = n))
+    A = sparse(hcat(ones(n), x))                 # intercept + slope
+    τ_β = 0.01
+    Q_base = spdiagm(0 => fill(τ_β, 2))
     Q_aug = [
         λ * sparse(I, n, n)        (-λ * A);
         (-λ * A')                  (Q_base + λ * (A' * A))
     ]
-    prior_gmrf_aug = GMRF(zeros(2n), Q_aug)
-    y = [1, 0, 2, 3, 0]
-    obs_lik = ExponentialFamily(Poisson, GaussianMarkovRandomFields.LogLink(); indices = 1:n)(
+    prior = GMRF(zeros(n + 2), Q_aug)
+    y = [rand(rng, Poisson(exp(1.0 + 0.5 * xi))) for xi in x]
+    obs = ExponentialFamily(Poisson, GaussianMarkovRandomFields.LogLink(); indices = 1:n)(
         PoissonObservations(y),
     )
-    ga = gaussian_approximation(prior_gmrf_aug, obs_lik)
+    ga = gaussian_approximation(prior, obs)
+    base_idx = [n + 1, n + 2]
+    ai = Latte.AugmentationInfo(n, 2)
+    sl = marginalize(ga, obs, 0.0, SimplifiedLaplace(), base_idx; prior_gmrf = prior, augmentation_info = ai).marginals
+    la = marginalize(ga, obs, 0.0, LaplaceMarginal(true), base_idx; prior_gmrf = prior).marginals
 
-    base_indices = collect((n + 1):(2n))
-    aug_info = Latte.AugmentationInfo(n, n)
-
-    surgical = marginalize(
-        ga, obs_lik, 0.0, SimplifiedLaplace(), base_indices;
-        prior_gmrf = prior_gmrf_aug,
-        augmentation_info = aug_info,
-    )
-    fallback = marginalize(
-        ga, obs_lik, 0.0, SimplifiedLaplace(), base_indices;
-        augmentation_info = aug_info,
-    )
-
-    # Fallback collapses to Gaussian-equivalent (η-block of dir
-    # zeroed). Surgical preserves real cross-base structure through A.
-    fallback_max_α = maximum(abs(m.α) for m in fallback.marginals)
-    surgical_max_α = maximum(abs(m.α) for m in surgical.marginals)
-    @test fallback_max_α < 1.0e-6
-    @test surgical_max_α > 0.05
+    for j in 1:2
+        @test abs(skewness(sl[j])) < 0.4                    # no spurious blow-up
+        @test skewness(sl[j]) ≈ skewness(la[j]) atol = 0.1  # tracks full Laplace
+    end
 end
 
 @testset "Fixed-τ latent marginalization vs 1D quadrature" begin
