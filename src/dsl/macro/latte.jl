@@ -115,12 +115,13 @@ macro latte(modeldef)
     return quote
         $(esc(expanded_inner))
         $(lift_emit)
-        function $(esc(fname))(args...; kwargs...)
+        function $(esc(fname))(args...; likelihood_hessian_pattern = :auto, kwargs...)
             dppl = $(esc(inner_name))(args...; kwargs...)
             return $(@__MODULE__)._build_lgm_from_latte(
                 dppl, $rand_q, $fixed_q, $obs_q, $posargs_q, args;
                 lift_spec = $lift_spec_expr,
                 recognition = $recognition_expr,
+                likelihood_hessian_pattern = likelihood_hessian_pattern,
             )
         end
         $(@__MODULE__)._LATTE_DPPL_CONSTRUCTORS[$(esc(fname))] = $(esc(inner_name))
@@ -237,6 +238,7 @@ function _build_lgm_from_latte(
         posarg_vals::Tuple = ();
         lift_spec = nothing,
         recognition = nothing,
+        likelihood_hessian_pattern = :auto,
     )
     random_syms = Tuple(unique(r[1] for r in random_records))
     hp_names = Tuple(unique(r[1] for r in fixed_records))
@@ -320,6 +322,7 @@ function _build_lgm_from_latte(
                 random = random_syms,
                 obs_groups = obs_groups,
                 force_ad_obs_model = needs_ad_fallback,
+                likelihood_hessian_pattern = likelihood_hessian_pattern,
                 lift_spec = lift_spec,
             )
         end
@@ -333,6 +336,7 @@ function _build_lgm_from_latte(
         random = random_syms,
         obs_groups = obs_groups,
         force_ad_obs_model = needs_ad_fallback,
+        likelihood_hessian_pattern = likelihood_hessian_pattern,
         lift_spec = lift_spec,
     )
 end
