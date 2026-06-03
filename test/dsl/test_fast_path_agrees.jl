@@ -205,6 +205,43 @@ using Random
             mean(res_ad.hyperparameter_marginals[:c]) rtol = 1.0e-2
     end
 
+    @testset "θ-dependent design matrix: composite fast path is ForwardDiff-exact vs AD" begin
+        # η = -κ·L·u + u: linear in u, but the design-matrix entries depend on
+        # the hyperparameter κ (its sparsity pattern does not). The composite
+        # fast path captures this as the LTM's ParameterizedMatrix, and the
+        # per-component IFT threads the κ-Dual through — so κ is informed by the
+        # data (not collapsed to its prior) and matches the AD reference under
+        # the DEFAULT (ForwardDiff) strategy.
+        @model function hp_in_A(y, L)
+            κ ~ Gamma(2, 1)
+            u ~ MvNormal(zeros(size(L, 1)), 10.0 * I(size(L, 1)))
+            for i in eachindex(y)
+                y[i] ~ Normal(-κ * dot(L[i, :], u) + u[i], 0.1)
+            end
+        end
+        Random.seed!(303)
+        n = 8
+        L = randn(n, n) ./ sqrt(n)
+        u_true = randn(n)
+        κ_true = 0.5
+        y = (-κ_true .* (L * u_true) .+ u_true) .+ 0.1 .* randn(n)
+        lgm_fast = latte_from_dppl(hp_in_A(y, L); random = (:u,), obs_groups = [:all => (:y,)])
+        lgm_ad = latte_from_dppl(hp_in_A(y, L); random = (:u,), force_ad_obs_model = true)
+
+        comp = Latte._underlying_composite(lgm_fast.observation_model)
+        @test comp.components[1] isa LinearlyTransformedObservationModel
+        @test comp.components[1].design_matrix isa ParameterizedMatrix
+
+        # DEFAULT diff strategy = ForwardDiff. κ posterior + latent must match AD.
+        res_fast = inla(lgm_fast, y; progress = false)
+        res_ad = inla(lgm_ad, y; progress = false)
+        @test mean(res_fast.hyperparameter_marginals[:κ]) ≈
+            mean(res_ad.hyperparameter_marginals[:κ]) rtol = 1.0e-2
+        lat_fast = [mean(d) for d in latent_marginals(res_fast)]
+        lat_ad = [mean(d) for d in latent_marginals(res_ad)]
+        @test maximum(abs.(lat_fast .- lat_ad)) < 1.0e-2
+    end
+
     @testset "Binomial + LogitLink: loglik matches AD fallback" begin
         @model function hier_binomial(y, X, group, trials)
             τ_u ~ Gamma(2, 1)
