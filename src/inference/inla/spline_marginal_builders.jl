@@ -1,5 +1,3 @@
-using StatsFuns: logsumexp
-
 """
 Build a `SplineMarginalDistribution` from working-space grid values and
 unnormalized log marginal density.
@@ -17,60 +15,57 @@ function _build_spline_marginal(
     tfm = hp.transform              # natural → working
     inv_tfm = Bijectors.inverse(tfm)  # working → natural
 
-    # Normalize: compute log Z via logsumexp + log(step)
-    Δη = η_grid[2] - η_grid[1]
-    log_Z = logsumexp(log_marginal_unnorm) + log(Δη)
-    log_density_norm = log_marginal_unnorm .- log_Z
+    # The pdf is a continuous cubic spline of the log-density. Normalize it and
+    # compute the CDF + moments by integrating that spline on a fine quadrature
+    # grid (build-time spline evaluations only — no extra model evaluations), so
+    # the marginal is self-consistent (∫pdf = 1) and its accuracy is decoupled
+    # from the exploration-grid density.
+    logpdf_unnorm = CubicSpline(log_marginal_unnorm, η_grid; extrapolation = ExtrapolationType.Linear)
 
-    # Build logpdf spline in working space
-    logpdf_spline = CubicSpline(log_density_norm, η_grid; extrapolation = ExtrapolationType.Linear)
+    n_fine = max(1024, 16 * n)
+    ηf = collect(range(η_grid[1], η_grid[end], length = n_fine))
+    Δf = ηf[2] - ηf[1]
+    logd_f = [logpdf_unnorm(η) for η in ηf]
+    trapz(vals) = (sum(vals) - (vals[1] + vals[end]) / 2) * Δf
 
-    # Compute CDF via cumulative trapezoid rule on normalized density
-    density_norm = exp.(log_density_norm)
-    cdf_values = zeros(T, n)
-    for i in 2:n
-        cdf_values[i] = cdf_values[i - 1] + (density_norm[i] + density_norm[i - 1]) / 2 * Δη
+    # log Z = log ∫ exp(logpdf) dη via the trapezoidal rule (max-shifted for stability)
+    mshift = maximum(logd_f)
+    log_Z = log(trapz(exp.(logd_f .- mshift))) + mshift
+
+    # Normalized log-density spline on the original grid (a constant shift of the
+    # unnormalized spline keeps logpdf queries interpolating the actual points).
+    logpdf_spline = CubicSpline(log_marginal_unnorm .- log_Z, η_grid; extrapolation = ExtrapolationType.Linear)
+
+    # Fine normalized working-space density + natural-space points.
+    densf = exp.(logd_f .- log_Z)
+    x_f = [inv_tfm(η) for η in ηf]
+
+    # CDF via cumulative trapezoid on the fine grid.
+    cdf_fine = zeros(T, n_fine)
+    for i in 2:n_fine
+        cdf_fine[i] = cdf_fine[i - 1] + (densf[i] + densf[i - 1]) / 2 * Δf
     end
-    # Force endpoints
-    cdf_values[1] = zero(T)
-    cdf_values ./= cdf_values[end]
-    cdf_values[end] = one(T)
+    cdf_fine ./= cdf_fine[end]
+    cdf_fine[end] = one(T)
+    cdf_spline = CubicSpline(cdf_fine, ηf; extrapolation = ExtrapolationType.Linear)
 
-    cdf_spline = CubicSpline(cdf_values, η_grid; extrapolation = ExtrapolationType.Linear)
-
-    # Determine transform direction
+    # Transform direction + natural-space bounds.
     x_lo = inv_tfm(η_grid[1])
     x_hi = inv_tfm(η_grid[end])
     transform_increasing = x_lo < x_hi
-
     bounds = (T(min(x_lo, x_hi)), T(max(x_lo, x_hi)))
 
-    # Convert grid to natural space for moment computation
-    x_nat = [inv_tfm(η) for η in η_grid]
-
-    # Compute moments in natural space via trapezoid rule
-    # E[X] = ∫ x * p_η(η) dη  where x = g(η)
-    mean_val = sum(
-        (x_nat[i] * density_norm[i] + x_nat[i - 1] * density_norm[i - 1]) / 2 * Δη
-            for i in 2:n
-    )
-
-    # E[X²]
-    second_moment = sum(
-        (x_nat[i]^2 * density_norm[i] + x_nat[i - 1]^2 * density_norm[i - 1]) / 2 * Δη
-            for i in 2:n
-    )
-
+    # Moments via fine trapezoid in natural space: E[Xᵏ] = ∫ g(η)ᵏ p_η(η) dη.
+    mean_val = trapz(x_f .* densf)
+    second_moment = trapz((x_f .^ 2) .* densf)
     var_val = max(zero(T), second_moment - mean_val^2)
 
-    # Mode: maximize logpdf in natural space
-    # log p_X(x) = log p_η(f(x)) + logabsdetjac(f, x)
+    # Mode: argmax of the natural-space log-density on the fine grid.
     log_density_natural = [
-        log_density_norm[i] + Bijectors.logabsdetjac(tfm, x_nat[i])
-            for i in 1:n
+        (logd_f[i] - log_Z) + Bijectors.logabsdetjac(tfm, x_f[i])
+            for i in 1:n_fine
     ]
-    mode_idx = argmax(log_density_natural)
-    mode_val = T(x_nat[mode_idx])
+    mode_val = T(x_f[argmax(log_density_natural)])
 
     return SplineMarginalDistribution{T, typeof(logpdf_spline), typeof(cdf_spline)}(
         η_grid, logpdf_spline, cdf_spline,

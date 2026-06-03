@@ -20,10 +20,15 @@ Concrete subtypes:
 abstract type ExplorationStrategy end
 
 """
-    GridExplorationStrategy(; integration_step_z=0.75, max_log_drop=6.0, interpolation_subdivisions=1)
+    GridExplorationStrategy(; integration_step_z=1.0, max_log_drop=2.5, interpolation_subdivisions=1)
 
 Cartesian grid exploration strategy. Explores the hyperparameter posterior on a
 regular grid in standardized z-space.
+
+The defaults give a coarse grid that is accurate enough for the standard run;
+the marginals are reconstructed from a continuous spline, so their accuracy does
+not depend on this grid being fine. For sharper hyperparameter marginals at
+higher cost, pass finer values such as `integration_step_z = 0.75, max_log_drop = 6.0`.
 
 # Fields
 - `integration_step_z::Float64`: Step size in z-space (1.0 = one standard deviation)
@@ -37,8 +42,8 @@ struct GridExplorationStrategy <: ExplorationStrategy
 end
 
 function GridExplorationStrategy(;
-        integration_step_z::Float64 = 0.75,
-        max_log_drop::Float64 = 6.0,
+        integration_step_z::Float64 = 1.0,
+        max_log_drop::Float64 = 2.5,
         interpolation_subdivisions::Int = 1
     )
     return GridExplorationStrategy(integration_step_z, max_log_drop, interpolation_subdivisions)
