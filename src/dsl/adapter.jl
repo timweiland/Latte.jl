@@ -202,8 +202,14 @@ function _assemble_lgm(
         )
         @debug "latent extraction path" path fast_path = use_fast_path augmented = augment
         l
-    else
+    elseif extra_pattern === nothing
         latent_override
+    else
+        # The DAG path bakes `extra_pattern` into its precision; a recognized
+        # override doesn't, so its precision pattern can be too sparse for a
+        # likelihood that couples latents (e.g. `dot(A, β)`). Wrap it to union
+        # the pattern in (structural zeros only).
+        _PatternAugmentedLatentModel(latent_override, extra_pattern)
     end
 
     obs = if use_fast_path

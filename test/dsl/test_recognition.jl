@@ -209,4 +209,140 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
         @test mean.(base_rec) ≈ mean.(base_ref) rtol = 1.0e-3
         @test std.(base_rec) ≈ std.(base_ref) rtol = 1.0e-3
     end
+
+    # Feature: hyperparameter-free (fixed) latent priors are recognized too.
+    # A plain `β ~ MvNormal(zeros(p), c·I)` fixed-effect prior is the standard
+    # INLA spelling; it carries no hyperparameter, so it has an empty route and
+    # is materialized as a `FixedEffectsModel` (precision 1/c·I). Without this,
+    # the whole body type-erased to the DAG path.
+    @testset "Fixed MvNormal fixed-effect — recognized via FixedEffectsModel" begin
+        n = 40
+        p = 2
+        X = randn(n, p)
+        β_true = randn(p) .* 0.5
+        x_true = cumsum(randn(n)) .* 0.3
+        η_true = X * β_true .+ x_true
+        y_obs = [rand(Poisson(exp(η); check_args = false)) for η in η_true]
+
+        @latte function gam_mvn(y, X)
+            τ_x ~ Gamma(2.0, 1.0)
+            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
+            x ~ RW1Model(length(y))(; τ = τ_x)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(dot(view(X, i, :), β) + x[i]); check_args = false)
+            end
+        end
+
+        lgm = gam_mvn(y_obs, X)
+        base = lgm.latent_prior isa Latte.AugmentedLatentModel ?
+            lgm.latent_prior.base_model : lgm.latent_prior
+        @test base isa Latte.RoutedLatentModel
+        @test base.inner isa CombinedModel
+        @test base.inner.components[1] isa FixedEffectsModel
+        @test base.inner.components[2] isa RWModel{1}
+        # MvNormal covariance 100·I ⇒ FixedEffectsModel precision 0.01·I.
+        @test base.inner.components[1].λ ≈ 0.01
+
+        comps = latent_components(lgm)
+        @test collect(keys(comps)) == [:β, :x]
+        @test comps[:β] isa FixedEffectsModel
+        @test comps[:x] isa RWModel{1}
+
+        @model function gam_mvn_dppl(y, X)
+            τ_x ~ Gamma(2.0, 1.0)
+            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
+            x ~ RW1Model(length(y))(; τ = τ_x)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(dot(view(X, i, :), β) + x[i]); check_args = false)
+            end
+        end
+        ref = latte_from_dppl(gam_mvn_dppl(y_obs, X); random = (:β, :x))
+        @test latent_components(ref) === nothing
+
+        inla_rec = inla(lgm, y_obs; progress = false)
+        inla_ref = inla(ref, y_obs; progress = false)
+        mode_rec = convert(NamedTuple, hyperparameter_mode(inla_rec)).τ_x
+        mode_ref = convert(NamedTuple, hyperparameter_mode(inla_ref)).τ_x
+        @test mode_rec ≈ mode_ref rtol = 1.0e-3
+
+        base_rec = latent_marginals(inla_rec)[lgm.augmentation_info.base_latent_indices]
+        base_ref = latent_marginals(inla_ref)[ref.augmentation_info.base_latent_indices]
+        @test length(base_rec) == n + p
+        @test mean.(base_rec) ≈ mean.(base_ref) rtol = 1.0e-3
+        @test std.(base_rec) ≈ std.(base_ref) rtol = 1.0e-3
+    end
+
+    # Fixed priors that `FixedEffectsModel` can't represent (non-isotropic
+    # covariance, nonzero mean) fall back gracefully to the DAG path rather
+    # than erroring.
+    @testset "Unsupported fixed prior falls back to DAG" begin
+        n = 30
+        p = 2
+        X = randn(n, p)
+        y_obs = [rand(Poisson(exp(0.2 * X[i, 1]); check_args = false)) for i in 1:n]
+
+        @latte function gam_aniso(y, X)
+            τ_x ~ Gamma(2.0, 1.0)
+            β ~ MvNormal(zeros(size(X, 2)), Diagonal([100.0, 4.0]))
+            x ~ RW1Model(length(y))(; τ = τ_x)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(dot(view(X, i, :), β) + x[i]); check_args = false)
+            end
+        end
+
+        lgm = gam_aniso(y_obs, X)
+        @test latent_components(lgm) === nothing
+        # still a usable model via the DAG path
+        @test lgm isa Latte.LatentGaussianModel
+    end
+
+    # Feature: a prior whose `LatentModel` is supplied as a *variable* (e.g. a
+    # precomputed model passed as an argument) is recognized — not only literal
+    # `Family(args)(; k = hp)` calls. Enables reuse of an expensive precomputed
+    # model (e.g. an SPDE/FEM mesh) without losing the recognized fast path.
+    @testset "Variable-callee prior — precomputed LatentModel recognized" begin
+        n = 50
+        x_true = 1.0 .+ cumsum(randn(n)) .* 0.4
+        y_obs = [rand(Poisson(exp(xi); check_args = false)) for xi in x_true]
+        base = RW1Model(n)   # precomputed, passed as an argument
+
+        @latte function rw_via_arg(y, base)
+            τ ~ Gamma(2.0, 1.0)
+            x ~ base(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(x[i]); check_args = false)
+            end
+        end
+
+        lgm = rw_via_arg(y_obs, base)
+        b = lgm.latent_prior isa Latte.AugmentedLatentModel ?
+            lgm.latent_prior.base_model : lgm.latent_prior
+        @test b isa Latte.RoutedLatentModel
+        @test b.inner isa RWModel{1}
+
+        comps = latent_components(lgm)
+        @test collect(keys(comps)) == [:x]
+        @test comps[:x] isa RWModel{1}
+
+        @model function rw_via_arg_dppl(y, base)
+            τ ~ Gamma(2.0, 1.0)
+            x ~ base(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(x[i]); check_args = false)
+            end
+        end
+        ref = latte_from_dppl(rw_via_arg_dppl(y_obs, base); random = (:x,))
+        @test latent_components(ref) === nothing
+
+        inla_rec = inla(lgm, y_obs; progress = false)
+        inla_ref = inla(ref, y_obs; progress = false)
+        mode_rec = convert(NamedTuple, hyperparameter_mode(inla_rec)).τ
+        mode_ref = convert(NamedTuple, hyperparameter_mode(inla_ref)).τ
+        @test mode_rec ≈ mode_ref rtol = 1.0e-3
+
+        base_rec = latent_marginals(inla_rec)[lgm.augmentation_info.base_latent_indices]
+        base_ref = latent_marginals(inla_ref)[ref.augmentation_info.base_latent_indices]
+        @test mean.(base_rec) ≈ mean.(base_ref) rtol = 1.0e-3
+        @test std.(base_rec) ≈ std.(base_ref) rtol = 1.0e-3
+    end
 end
