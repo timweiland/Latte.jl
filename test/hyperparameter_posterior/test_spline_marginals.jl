@@ -12,7 +12,7 @@ using HCubature
 
     # ====== Shared test fixtures ======
 
-    function setup_1d_model()
+    function setup_1d_model(; strategy = GridExplorationStrategy())
         Random.seed!(42)
         spec = @hyperparams begin
             (α ~ Gamma(2, 1), transform = log, space = natural)
@@ -29,7 +29,7 @@ using HCubature
 
         θ_star, _, _ = find_hyperparameter_mode(model, y)
         exploration, _ = explore_hyperparameter_posterior(
-            GridExplorationStrategy(), model, y, θ_star, GaussianMarginal(), 1:5
+            strategy, model, y, θ_star, GaussianMarginal(), 1:5
         )
 
         return model, y, exploration
@@ -236,6 +236,32 @@ using HCubature
 
         @test mean(marginal) ≈ true_mean rtol = 1.0e-2
         @test var(marginal) ≈ true_var rtol = 1.0e-2
+    end
+
+    # The marginal's normalization + moments must be self-consistent with its
+    # continuous spline pdf, independent of how coarse the exploration grid was.
+    # (Computing Z / moments via discrete quadrature on the exploration grid
+    # diverges from the spline integral when the grid has few points.)
+    @testset "SplineMarginalDistribution: self-consistent under a coarse grid" begin
+        model, y, exploration = setup_1d_model(
+            strategy = GridExplorationStrategy(integration_step_z = 1.0, max_log_drop = 2.5)
+        )
+        result = marginalize_hyperparameters(GridSumMarginal(), exploration, model, y)
+        marginal = first(result)
+        a, b = minimum(marginal), maximum(marginal)
+
+        # ∫ pdf over the support must be 1 by construction
+        total_mass, _ = hcubature(x -> pdf(marginal, x[1]), [a], [b], rtol = 1.0e-3, atol = 1.0e-6)
+        @test total_mass ≈ 1.0 rtol = 1.0e-2
+
+        # stored moments must match integration of the same spline pdf
+        Z, _ = hcubature(x -> pdf(marginal, x[1]), [a], [b], rtol = 1.0e-3, atol = 1.0e-6)
+        tm, _ = hcubature(x -> x[1] * pdf(marginal, x[1]), [a], [b], rtol = 1.0e-3, atol = 1.0e-6)
+        ts, _ = hcubature(x -> x[1]^2 * pdf(marginal, x[1]), [a], [b], rtol = 1.0e-3, atol = 1.0e-6)
+        tm /= Z
+        ts /= Z
+        @test mean(marginal) ≈ tm rtol = 1.0e-2
+        @test var(marginal) ≈ (ts - tm^2) rtol = 2.0e-2
     end
 
     @testset "SplineMarginalDistribution: CDF-quantile round-trip" begin
