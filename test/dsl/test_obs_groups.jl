@@ -5,7 +5,7 @@ import DynamicPPL
 using GaussianMarkovRandomFields:
     AutoDiffObservationModel, CompositeObservationModel, CompositeLikelihood,
     CompositeObservations, LinearlyTransformedObservationModel, ParameterizedOffset,
-    loglik, loggrad, loghessian
+    ParameterizedMatrix, loglik, loggrad, loghessian
 using Distributions
 using LinearAlgebra
 using SparseArrays
@@ -512,12 +512,12 @@ end
             @test loglik(x, lik) ≈ ref atol = 1.0e-9
         end
 
-        @testset "hp-dependent design matrix → AD fallback" begin
-            # PDE-inverse shape: η = -κ·L·u + u — linear in u but the
-            # design-matrix entries depend on κ. The current fast path
-            # would freeze A at probe_hp(κ=1.0); the outer κ Dual would
-            # never reach A, collapsing the κ posterior to its prior.
-            # Detector must reject this group and fall back to AD.
+        @testset "hp-dependent design matrix → LTM ParameterizedMatrix (composite path)" begin
+            # PDE-inverse shape: η = -κ·L·u + u — linear in u, but the design
+            # matrix entries depend on κ (its sparsity pattern does not). On the
+            # composite path this is captured by the LTM's ParameterizedMatrix,
+            # which threads the κ-Dual through the per-component IFT — so the κ
+            # posterior is informed, not collapsed to its prior.
             @model function _hp_in_A(y, L)
                 κ ~ Gamma(2, 0.1)
                 u ~ MvNormal(zeros(size(L, 1)), 100.0 * I(size(L, 1)))
@@ -536,7 +536,8 @@ end
                 obs_groups = [:all => (:y,)],
             )
             composite = Latte._underlying_composite(model.observation_model)
-            @test composite.components[1] isa AutoDiffObservationModel
+            @test composite.components[1] isa LinearlyTransformedObservationModel
+            @test composite.components[1].design_matrix isa ParameterizedMatrix
         end
 
         @testset "hp-dependent offset b(θ) → LTM offset (fast path, not AD)" begin

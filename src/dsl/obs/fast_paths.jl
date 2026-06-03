@@ -170,6 +170,83 @@ function try_group_exponential_family_fast_path(
     )
 end
 
+# ─── θ-dependent design-matrix builders for ParameterizedMatrix ───────────
+# A θ-dependent design A(θ) must be rebuilt per θ, including under a Dual θ
+# (outer ForwardDiff). Two strategies, fast path first:
+
+# Affine: A(θ) = A₀ + Σₖ θₖ·Aₖ. Extract the intercept A₀ and slopes Aₖ ONCE via
+# the sparse Jacobian at *primal* probe points (it only breaks under Dual θ),
+# verify affine-ness at an all-perturbed point, and return a builder that forms
+# A(θ) as a sparse linear combination — O(nnz) per θ, Dual-safe, no per-θ
+# predictor evaluations. Returns `nothing` if A is not affine in θ.
+function _affine_design_builder(compute_affine, hp_names::Tuple, A_names::Tuple, probe_hp::NamedTuple)
+    δ = 0.5
+    base = compute_affine(probe_hp)
+    base === nothing && return nothing
+    A0m = SparseMatrixCSC(base[1])
+    colptr, rowval = A0m.colptr, A0m.rowval
+    base_nz = A0m.nzval
+    slopes = Vector{Vector{Float64}}(undef, length(A_names))
+    nz0 = copy(base_nz)
+    for (i, k) in enumerate(A_names)
+        hpk = NamedTuple{hp_names}(map(s -> s === k ? probe_hp[s] + δ : probe_hp[s], hp_names))
+        r = compute_affine(hpk)
+        r === nothing && return nothing
+        m = SparseMatrixCSC(r[1])
+        (m.colptr == colptr && m.rowval == rowval) || return nothing
+        sl = (m.nzval .- base_nz) ./ δ
+        slopes[i] = sl
+        nz0 = nz0 .- probe_hp[k] .* sl
+    end
+    hp_all = NamedTuple{hp_names}(map(s -> s in A_names ? probe_hp[s] + δ : probe_hp[s], hp_names))
+    rall = compute_affine(hp_all)
+    rall === nothing && return nothing
+    mall = SparseMatrixCSC(rall[1])
+    (mall.colptr == colptr && mall.rowval == rowval) || return nothing
+    pred = copy(nz0)
+    for (i, k) in enumerate(A_names)
+        pred = pred .+ (probe_hp[k] + δ) .* slopes[i]
+    end
+    isapprox(pred, mall.nzval; atol = 1.0e-6, rtol = 1.0e-4) || return nothing
+    mrows, ncols = size(A0m)
+    return let nz0 = nz0, slopes = slopes, A_names = A_names,
+            colptr = colptr, rowval = rowval, mrows = mrows, ncols = ncols
+        (; kw...) -> begin
+            θ = NamedTuple(kw)
+            nz = nz0 .+ sum(θ[A_names[i]] .* slopes[i] for i in eachindex(A_names))
+            SparseMatrixCSC(mrows, ncols, copy(colptr), copy(rowval), nz)
+        end
+    end
+end
+
+# Fallback: rebuild A(θ) column-by-column via A[:, j] = η(eⱼ; θ) − η(0; θ).
+# Plain predictor evaluations (no inner AD), so an outer Dual θ flows through —
+# but O(nonzero-columns) evaluations per θ. Used only when A is non-affine.
+function _column_design_builder(η_of_x_at, hp_names::Tuple, A_names::Tuple, probe_hp::NamedTuple, n_latent::Int, pat::SparseMatrixCSC)
+    return let η_fn = η_of_x_at, all_names = hp_names, A_names = A_names,
+            probe = probe_hp, nlat = n_latent, pat = pat
+        (; kw...) -> begin
+            θ = NamedTuple(kw)
+            hp_nt = NamedTuple{all_names}(map(s -> (s in A_names ? θ[s] : probe[s]), all_names))
+            η = η_fn(hp_nt)
+            b0 = η(zeros(nlat))
+            nzval = Vector{eltype(b0)}(undef, length(pat.nzval))
+            e = zeros(nlat)
+            @inbounds for j in 1:nlat
+                r = nzrange(pat, j)
+                isempty(r) && continue
+                e[j] = 1.0
+                colj = η(e) .- b0
+                e[j] = 0.0
+                for kk in r
+                    nzval[kk] = colj[pat.rowval[kk]]
+                end
+            end
+            SparseMatrixCSC(pat.m, pat.n, copy(pat.colptr), copy(pat.rowval), nzval)
+        end
+    end
+end
+
 # Generalised body. `obs_syms === nothing` means "all sites" (whole-model
 # fast path); otherwise filter by sym before checking homogeneity / linearity.
 # `infer_route = true` attempts to derive a NamedTuple route mapping the
@@ -274,14 +351,11 @@ function _try_exponential_family_fast_path(
     A, b = baseline_affine
 
     # 3b) hp-invariance check: re-evaluate (A, b) under one-at-a-time
-    # perturbations of each outer hp. If any matrix entry or offset entry
-    # varies, the design encodes hp dependence that would be silently
-    # frozen by the LTM — reject and let the group fall back to AD.
-    # (Codex: parametric A(θ) factorisation is a separate follow-up.)
-    # `b_hp_names` collects the outer hp the offset depends on. A θ-dependent
-    # offset is *kept* (parameterized at assembly), not rejected — only a
-    # θ-dependent design matrix `A` still rejects (that's the GMRFs
-    # `ParameterizedMatrix` axis, a separate follow-up).
+    # perturbations of each outer hp. Both the design matrix `A` and the
+    # offset `b` may depend on outer hp — each is *kept* (parameterized at
+    # assembly) rather than frozen. `A_hp_names` / `b_hp_names` collect the
+    # outer hp the design / offset depend on.
+    A_hp_names = Symbol[]
     b_hp_names = Symbol[]
     if !isempty(hp_names)
         for k_out in hp_names
@@ -292,13 +366,22 @@ function _try_exponential_family_fast_path(
             pert_affine === nothing && return nothing
             A_pert, b_pert = pert_affine
             if !isapprox(A, A_pert; atol = 1.0e-4, rtol = 1.0e-6)
-                @debug "fast-path: rejected — A depends on outer hp $(k_out)"
-                return nothing
+                push!(A_hp_names, k_out)
             end
             if !isapprox(b, b_pert; atol = 1.0e-4, rtol = 1.0e-6)
                 push!(b_hp_names, k_out)
             end
         end
+    end
+
+    # A θ-dependent design matrix becomes a `ParameterizedMatrix`, which only
+    # the composite path can carry: the single-obs path augments the LTM, and
+    # `AugmentedLatentModel` needs a concrete design matrix (a θ-dependent A
+    # there would make the augmented precision pattern θ-dependent). So on the
+    # whole-model (augmented) path a θ-dependent A still falls back to AD.
+    if !isempty(A_hp_names) && !infer_route
+        @debug "fast-path: rejected — A depends on outer hp on the augmented path"
+        return nothing
     end
 
     # 4) Rename-only route inference. For each nuisance kwarg the family
@@ -337,6 +420,21 @@ function _try_exponential_family_fast_path(
         base = BinomialTrialsObservationModel(base, trials_vec)
     end
     inner = isempty(fixed_kwargs) ? base : _FixedKwargsObservationModel(base, fixed_kwargs)
+    # θ-dependent design matrix → ParameterizedMatrix. Prefer the affine
+    # decomposition A(θ) = A₀ + Σₖ θₖ·Aₖ (built once, O(nnz) per θ, Dual-safe);
+    # fall back to per-θ column extraction only for genuinely nonlinear A(θ).
+    # A θ-invariant A stays a plain sparse matrix (zero overhead). The composite
+    # IFT threads the resulting Dual-valued A through.
+    design = if !isempty(A_hp_names)
+        A_names = Tuple(A_hp_names)
+        A_builder = _affine_design_builder(compute_affine, hp_names, A_names, probe_hp)
+        if A_builder === nothing
+            A_builder = _column_design_builder(η_of_x_at, hp_names, A_names, probe_hp, n_latent, A_sp)
+        end
+        GaussianMarkovRandomFields.ParameterizedMatrix(A_builder; hyperparameters = A_names, n_latent = n_latent)
+    else
+        A_sp
+    end
     offset = if !isempty(b_hp_names)
         # θ-dependent offset: recompute b = η(x=0; θ) per θ by re-probing the
         # predictor at zero. Only the offset-affecting hp (`b_names`) move it;
@@ -358,8 +456,8 @@ function _try_exponential_family_fast_path(
         Vector{Float64}(b)
     end
     model = offset === nothing ?
-        LinearlyTransformedObservationModel(inner, A_sp) :
-        LinearlyTransformedObservationModel(inner, A_sp; offset = offset)
+        LinearlyTransformedObservationModel(inner, design) :
+        LinearlyTransformedObservationModel(inner, design; offset = offset)
 
     pattern = _bool_pattern_AtA_from_jac(A_sp)
     # Wrap y in the family-appropriate observation type. Whole-model fast
@@ -372,11 +470,13 @@ function _try_exponential_family_fast_path(
     y_for_component = obs_syms === nothing ?
         y_emission_order :
         _wrap_y_for_fast_component(family, y_emission_order, y_dists)
-    # Thread the offset's hyperparameters through the per-component composite
-    # route (1:1), so a grouped component receives them. The single-obs path
-    # ignores `route` (the obs is materialised with all hp directly).
-    if !isempty(b_hp_names)
-        extra = NamedTuple{Tuple(b_hp_names)}(Tuple(b_hp_names))
+    # Thread the design- and offset-hyperparameters through the per-component
+    # composite route (1:1), so a grouped component receives them. The
+    # single-obs path ignores `route` (the obs is materialised with all hp
+    # directly).
+    extra_hp = unique(vcat(A_hp_names, b_hp_names))
+    if !isempty(extra_hp)
+        extra = NamedTuple{Tuple(extra_hp)}(Tuple(extra_hp))
         route = route === nothing ? extra : merge(route, extra)
     end
     return _FastObsResult(model, route, pattern, y_for_component)
