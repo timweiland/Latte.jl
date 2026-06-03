@@ -210,4 +210,41 @@ using GaussianMarkovRandomFields
         obs_deps = collect(Set(Symbol.(meta.obs_records[1][2])))
         @test :σ_obs in obs_deps
     end
+
+    @testset "likelihood_hessian_pattern assembly kwarg" begin
+        n, p = 30, 2
+        X = [ones(n) randn(n)]
+        β_true = [0.3, -0.5]
+        y = exp.(X * β_true .+ 0.2 .* randn(n))   # positive — LogNormal support
+
+        # LogNormal is not a fast-path family ⇒ AutoDiffObservationModel, so the
+        # likelihood Hessian pattern matters. The assembly kwarg must be consumed
+        # by the @latte wrapper (not forwarded to the model) and threaded through
+        # to LGM assembly.
+        @latte function lnorm_reg(y, X)
+            σ ~ Gamma(2.0, 1.0)
+            β ~ MvNormal(zeros(size(X, 2)), 10.0 * I(size(X, 2)))
+            for i in eachindex(y)
+                y[i] ~ LogNormal(dot(view(X, i, :), β), σ)
+            end
+        end
+
+        lgm = lnorm_reg(y, X; likelihood_hessian_pattern = :dense)
+        @test lgm isa Latte.LatentGaussianModel
+
+        @model function lnorm_reg_dppl(y, X)
+            σ ~ Gamma(2.0, 1.0)
+            β ~ MvNormal(zeros(size(X, 2)), 10.0 * I(size(X, 2)))
+            for i in eachindex(y)
+                y[i] ~ LogNormal(dot(view(X, i, :), β), σ)
+            end
+        end
+        ref = latte_from_dppl(
+            lnorm_reg_dppl(y, X); random = :β, likelihood_hessian_pattern = :dense
+        )
+
+        r1 = inla(lgm, y; progress = false)
+        r2 = inla(ref, y; progress = false)
+        @test mean(r1.hyperparameter_marginals.σ) ≈ mean(r2.hyperparameter_marginals.σ) rtol = 1.0e-2
+    end
 end
