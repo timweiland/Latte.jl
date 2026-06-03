@@ -18,7 +18,7 @@ selecting sensible defaults while supporting advanced customization.
 - `y::AbstractVector`: Observed data
 
 # Keyword Arguments
-- `latent_marginalization_method::MarginalApproximation = AdaptiveMarginal()`: Method for latent marginalization
+- `latent_marginalization_method::MarginalApproximation = SimplifiedLaplace()`: Method for latent marginalization
 - `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = AutoHyperparameterMarginal()`: Method for hyperparameter marginalization (GridSum for D=1, CCD interpolant for D≥2)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
 - `exploration_strategy::ExplorationStrategy = AutoExplorationStrategy()`: Hyperparameter exploration strategy. `AutoExplorationStrategy()` uses grid for D ≤ 2, CCD for D ≥ 3. Can also pass `GridExplorationStrategy(...)` or `CCDExplorationStrategy(...)` directly.
@@ -41,9 +41,9 @@ result = inla(model, y, exploration_strategy=GridExplorationStrategy(max_log_dro
 # Disable progress tracking
 result = inla(model, y, progress=false)
 
-# Custom latent marginalization
+# Opt into the heavier adaptive latent marginalization
 result = inla(model, y,
-    latent_marginalization_method=SimplifiedLaplace(),
+    latent_marginalization_method=AdaptiveMarginal(),
     latent_indices=1:100)
 
 # Force CCD exploration on a 2D model
@@ -62,7 +62,7 @@ Each phase shows detailed real-time information about the computation.
 function inla(
         model::LatentGaussianModel,
         y::AbstractVector;
-        latent_marginalization_method = AdaptiveMarginal(),
+        latent_marginalization_method = SimplifiedLaplace(),
         hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
         exploration_strategy::ExplorationStrategy = AutoExplorationStrategy(),
