@@ -36,10 +36,10 @@ y = rand.(Poisson.(exp.(η_true)))
 # prior with an `Exponential(1)` prior on the precision. The adapter turns each
 # one into a `LatentGaussianModel` and hands it to `inla`.
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using LinearAlgebra
 
-@model function m1_dppl(y, x1)
+@latte function m1_dppl(y, x1)
     τ ~ Exponential(1.0)
     β ~ MvNormal(zeros(2), (1 / τ) * I(2))
     for i in eachindex(y)
@@ -47,7 +47,7 @@ using LinearAlgebra
     end
 end
 
-@model function m2_dppl(y, x2)
+@latte function m2_dppl(y, x2)
     τ ~ Exponential(1.0)
     β ~ MvNormal(zeros(2), (1 / τ) * I(2))
     for i in eachindex(y)
@@ -55,7 +55,7 @@ end
     end
 end
 
-@model function m3_dppl(y, x1, x2)
+@latte function m3_dppl(y, x1, x2)
     τ ~ Exponential(1.0)
     β ~ MvNormal(zeros(3), (1 / τ) * I(3))
     for i in eachindex(y)
@@ -64,15 +64,15 @@ end
 end
 
 # **Model 1**: Intercept + x1 only
-lgm1 = latte_from_dppl(m1_dppl(y, x1); random = (:β,))
+lgm1 = m1_dppl(y, x1)
 r1 = inla(lgm1, y; progress = false)
 
 # **Model 2**: Intercept + x2 only
-lgm2 = latte_from_dppl(m2_dppl(y, x2); random = (:β,))
+lgm2 = m2_dppl(y, x2)
 r2 = inla(lgm2, y; progress = false)
 
 # **Model 3**: Intercept + x1 + x2 (the true model)
-lgm3 = latte_from_dppl(m3_dppl(y, x1, x2); random = (:β,))
+lgm3 = m3_dppl(y, x1, x2)
 r3 = inla(lgm3, y; progress = false)
 
 # ## Comparing marginal likelihoods

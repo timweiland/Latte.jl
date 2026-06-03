@@ -52,10 +52,13 @@ draw(
 )
 
 # ## Modelling
-# Latte.jl models are written as `@model` functions from
-# [DynamicPPL.jl](https://github.com/TuringLang/DynamicPPL.jl) — the same
-# probabilistic programming syntax used by Turing.jl. If you know Turing,
-# this will look very familiar.
+# Latte.jl models are written as `@latte` functions, using the same
+# probabilistic programming syntax as
+# [DynamicPPL.jl](https://github.com/TuringLang/DynamicPPL.jl) / Turing.jl.
+# If you know Turing, this will look very familiar. `@latte` recognizes the
+# structured Gaussian priors in the body (here an `IIDModel`) and builds a
+# `LatentGaussianModel` that rides Latte's fast inference paths. (Already have
+# a plain Turing `@model`? The Turing handoff tutorial covers `latte_from_dppl`.)
 #
 # For the surgery data, we assume each hospital has its own (logit-scale)
 # mortality rate `β + u[h]`, where `β` is an overall intercept and `u[h]`
@@ -71,13 +74,13 @@ draw(
 # - We use `logistic` from `StatsFuns` for the inverse-logit link, mirroring
 #   the Turing idiom.
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using StatsFuns: logistic
 using LinearAlgebra
 
-@model function surg_mortality(r, n_trials, hospital_idx, H)
+@latte function surg_mortality(r, n_trials, hospital_idx, H)
     τ_u ~ Gamma(2.0, 1.0)
     β ~ MvNormal(zeros(1), 100.0 * I(1))
     u ~ IIDModel(H, constraint = :sumtozero)(τ = τ_u)
@@ -89,17 +92,13 @@ using LinearAlgebra
     end
 end
 
-# Now we turn the DPPL model into a Latte `LatentGaussianModel` via
-# `latte_from_dppl`. The `random = (:β, :u)` keyword lists the symbols
-# that make up the latent Gaussian field (the "random effects" in
-# mixed-model vocabulary); everything else — `τ_u` here — is treated as
-# a hyperparameter.
+# Calling the `@latte` function returns a `LatentGaussianModel`. Latte reads
+# off which variables form the latent Gaussian field (the "random effects" in
+# mixed-model vocabulary — here `β` and `u`) and which are hyperparameters
+# (`τ_u`) straight from the model body, so there's nothing else to specify.
 H = length(surg_data.hospital)
 hospital_idx = 1:H |> collect
-lgm = latte_from_dppl(
-    surg_mortality(surg_data.r, surg_data.n, hospital_idx, H);
-    random = (:β, :u),
-)
+lgm = surg_mortality(surg_data.r, surg_data.n, hospital_idx, H)
 
 # ## Running INLA
 # We have our data, we've specified the model, and we've chosen a prior for its hyperparameter.
