@@ -19,7 +19,9 @@ import LinearSolve
 using SparseArrays: SparseMatrixCSC
 using GaussianMarkovRandomFields:
     LatentModel, CombinedModel, GMRFWorkspace, GMRF, ConstrainedGMRF,
+    AbstractLatentWorkspace,
     hyperparameters, precision_matrix, constraints, model_name
+import GaussianMarkovRandomFields: make_workspace, make_workspace_pool
 
 struct RoutedLatentModel{M <: LatentModel, R <: NamedTuple} <: LatentModel
     inner::M
@@ -47,10 +49,27 @@ constraints(m::RoutedLatentModel; kwargs...) =
     constraints(m.inner; _route_inner_kwargs(m, kwargs)...)
 
 # Delegate both call paths to the inner model (which owns its own `alg`
-# and workspace handling) after renaming kwargs.
+# and workspace handling) after renaming kwargs. The workspace-backed call is
+# generic over `AbstractLatentWorkspace`, not just `GMRFWorkspace`, so non-GMRF
+# backends (e.g. a filter with its own workspace type) route through too.
 (m::RoutedLatentModel)(; kwargs...) = m.inner(; _route_inner_kwargs(m, kwargs)...)
+(m::RoutedLatentModel)(ws::AbstractLatentWorkspace; kwargs...) =
+    m.inner(ws; _route_inner_kwargs(m, kwargs)...)
+# Same body, but the explicit `GMRFWorkspace` method disambiguates against
+# GMRFs' generic `(::LatentModel)(::GMRFWorkspace)` at the
+# `(RoutedLatentModel, GMRFWorkspace)` intersection (neither the model nor the
+# workspace type dominates without it).
 (m::RoutedLatentModel)(ws::GMRFWorkspace; kwargs...) =
     m.inner(ws; _route_inner_kwargs(m, kwargs)...)
+
+# Forward the workspace-construction protocol to the inner model. Without this,
+# `make_workspace`/`make_workspace_pool` fall back to the GMRF default, which
+# calls `precision_matrix` — wrong (and throwing) for workspace-only backends
+# that have no single sparse precision.
+make_workspace(m::RoutedLatentModel; kwargs...) =
+    make_workspace(m.inner; _route_inner_kwargs(m, kwargs)...)
+make_workspace_pool(m::RoutedLatentModel; size::Int = Threads.nthreads(), kwargs...) =
+    make_workspace_pool(m.inner; size = size, _route_inner_kwargs(m, kwargs)...)
 
 # `_PatternAugmentedLatentModel` — wrap a latent prior so its precision pattern
 # is a superset of the likelihood Hessian's. Mirrors what the DAG path bakes
