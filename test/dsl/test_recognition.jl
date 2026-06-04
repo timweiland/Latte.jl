@@ -346,3 +346,47 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
         @test std.(base_rec) ≈ std.(base_ref) rtol = 1.0e-3
     end
 end
+
+# Fix #2: RoutedLatentModel must forward the workspace protocol
+# (make_workspace / make_workspace_pool / the (m)(ws;θ) call) to its inner
+# model, so a workspace-only backend that refuses the sparse-Q path (e.g.
+# SparseInformationFilters, which throws on precision_matrix) works through the
+# recognized @latte path. Structs must be top-level, hence outside the testset.
+
+struct _WSOnlyWS <: GaussianMarkovRandomFields.AbstractLatentWorkspace
+    τ::Float64
+end
+struct _WSOnlyLatent <: GaussianMarkovRandomFields.LatentModel
+    n::Int
+end
+Base.length(m::_WSOnlyLatent) = m.n
+GaussianMarkovRandomFields.hyperparameters(::_WSOnlyLatent) = (; τ = Real)
+GaussianMarkovRandomFields.model_name(::_WSOnlyLatent) = :wsonly
+GaussianMarkovRandomFields.precision_matrix(::_WSOnlyLatent; kwargs...) =
+    error("workspace-only backend: no precision matrix")
+GaussianMarkovRandomFields.make_workspace(::_WSOnlyLatent; τ, kwargs...) = _WSOnlyWS(τ)
+GaussianMarkovRandomFields.make_workspace_pool(::_WSOnlyLatent; size::Int = 1, τ, kwargs...) =
+    [_WSOnlyWS(τ) for _ in 1:size]
+(::_WSOnlyLatent)(ws::_WSOnlyWS; τ, kwargs...) = (ws, τ)
+
+@testset "RoutedLatentModel forwards the workspace protocol (non-GMRF backend)" begin
+    inner = _WSOnlyLatent(5)
+    routed = Latte.RoutedLatentModel(inner, (; τ = :τ_state))   # inner τ ← outer τ_state
+
+    # Sanity: the inner genuinely refuses the sparse-Q path, so the route does too.
+    @test_throws ErrorException precision_matrix(routed; τ_state = 2.0)
+
+    # The fix: the workspace protocol forwards to the inner with routing applied,
+    # never touching precision_matrix.
+    ws = make_workspace(routed; τ_state = 2.0)
+    @test ws isa _WSOnlyWS
+    @test ws.τ == 2.0
+
+    pool = make_workspace_pool(routed; size = 2, τ_state = 3.0)
+    @test length(pool) == 2
+    @test all(w -> w isa _WSOnlyWS && w.τ == 3.0, pool)
+
+    # The workspace-backed call operator forwards for any AbstractLatentWorkspace,
+    # not just GMRFWorkspace.
+    @test routed(ws; τ_state = 2.0) == (ws, 2.0)
+end
