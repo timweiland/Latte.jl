@@ -85,6 +85,15 @@ function _assemble_lgm(
         lift_spec = nothing,
     )
     random_syms = random isa Symbol ? (random,) : random
+
+    # A workspace-only latent (custom gaussian_approximation, no materialisable
+    # sparse precision — e.g. a filter backend) can't be augmented or
+    # pattern-widened; its GA handles the likelihood coupling itself. Force
+    # `augment = false` for it (augmenting a precision-free latent is
+    # nonsensical) and skip pattern augmentation below.
+    workspace_only = latent_override !== nothing && !_has_sparse_precision(latent_override)
+    augment = augment && !workspace_only
+
     priors = extract_priors(dppl_model)
     random_set = Set(random_syms)
 
@@ -188,6 +197,11 @@ function _assemble_lgm(
         end
     else
         throw(ArgumentError("likelihood_hessian_pattern must be :auto, :dense, or a SparseMatrixCSC"))
+    end
+
+    # Workspace-only latents have no precision to pattern-augment (see above).
+    if workspace_only
+        extra_pattern = nothing
     end
 
     # Latent prior: either the macro-recognized prebuilt latent, or the

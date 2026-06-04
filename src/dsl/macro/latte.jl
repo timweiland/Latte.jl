@@ -52,8 +52,12 @@ macro latte(modeldef)
     # effects). Otherwise fall back to the DAG / sparse-AD extraction path.
     recognition_expr = _recognition_expr(blocks, posargs_t)
 
-    # Build the body to forward to @model: strip markers, lower dot-tilde.
-    body_for_dppl = _transform_body(body)
+    # Build the body to forward to @model: strip markers, lower dot-tilde. When
+    # a latent was recognized, swap its `~` RHS for a cheap probing stand-in so
+    # the model-body probes (hp / dims / obs) don't materialise the real prior
+    # (which a workspace-only backend refuses); the real prior comes from the
+    # recognition spec.
+    body_for_dppl = _transform_body(_maybe_probe_rewrite(body, blocks, posargs_t, recognition_expr))
     inner_name = Symbol("__latte_dppl_", fname)
     inner_def = Expr(:function, _replace_fname(sig, inner_name), body_for_dppl)
     expanded_inner = macroexpand(__module__, :(DynamicPPL.@model $inner_def))
@@ -115,13 +119,14 @@ macro latte(modeldef)
     return quote
         $(esc(expanded_inner))
         $(lift_emit)
-        function $(esc(fname))(args...; likelihood_hessian_pattern = :auto, kwargs...)
+        function $(esc(fname))(args...; likelihood_hessian_pattern = :auto, augment = true, kwargs...)
             dppl = $(esc(inner_name))(args...; kwargs...)
             return $(@__MODULE__)._build_lgm_from_latte(
                 dppl, $rand_q, $fixed_q, $obs_q, $posargs_q, args;
                 lift_spec = $lift_spec_expr,
                 recognition = $recognition_expr,
                 likelihood_hessian_pattern = likelihood_hessian_pattern,
+                augment = augment,
             )
         end
         $(@__MODULE__)._LATTE_DPPL_CONSTRUCTORS[$(esc(fname))] = $(esc(inner_name))
@@ -219,6 +224,44 @@ function _recognition_expr(blocks, posargs_t::Tuple)
     return Expr(:vect, entries...)
 end
 
+# Rewrite a recognized curried latent RHS `Family(args)(; k = hp, …)` to the
+# probing stand-in `_recognized_latent_probe(Family(args), (; k = hp, …))`, so
+# the DPPL-model probes never materialise a workspace-only prior. Fixed / plain
+# priors (no curried shape) materialise cheaply and are returned unchanged.
+function _probe_latent_rhs(rhs)
+    rec = _recognize_latent_rhs(rhs)
+    rec === nothing && return rhs
+    ctor_expr, route = rec
+    kw_nt = Expr(:tuple, Expr(:parameters, [Expr(:kw, k, hp) for (k, hp) in route]...))
+    return Expr(:call, GlobalRef(@__MODULE__, :_recognized_latent_probe), ctor_expr, kw_nt)
+end
+
+# Replace the RHS of any `lhs ~ rhs` whose top symbol is a key of `repl`.
+function _rewrite_random_tildes(ex, repl::AbstractDict)
+    ex isa Expr || return ex
+    if ex.head === :call && length(ex.args) == 3 && ex.args[1] === :~
+        sym = _lhs_top_sym(ex.args[2])
+        if sym !== nothing && haskey(repl, sym)
+            return Expr(:call, :~, ex.args[2], repl[sym])
+        end
+    end
+    return Expr(ex.head, Any[_rewrite_random_tildes(a, repl) for a in ex.args]...)
+end
+
+# When recognition fired, swap each recognized curried random block's RHS for
+# the probing stand-in. No-op otherwise (the DAG path needs the real prior).
+function _maybe_probe_rewrite(body, blocks, posargs_t::Tuple, recognition_expr)
+    recognition_expr === nothing && return body
+    repl = Dict{Symbol, Any}()
+    for b in blocks
+        _classify_block(b, posargs_t) === :random || continue
+        new_rhs = _probe_latent_rhs(b.rhs)
+        new_rhs === b.rhs || (repl[b.lhs_sym] = new_rhs)
+    end
+    isempty(repl) && return body
+    return _rewrite_random_tildes(body, repl)
+end
+
 function _quote_records(records)
     items = Expr(:vect)
     for (lhs, free_vec, dotted, family, marker) in records
@@ -239,6 +282,7 @@ function _build_lgm_from_latte(
         lift_spec = nothing,
         recognition = nothing,
         likelihood_hessian_pattern = :auto,
+        augment::Bool = true,
     )
     random_syms = Tuple(unique(r[1] for r in random_records))
     hp_names = Tuple(unique(r[1] for r in fixed_records))
@@ -320,6 +364,7 @@ function _build_lgm_from_latte(
             return _assemble_lgm(
                 dppl_model, latent;
                 random = random_syms,
+                augment = augment,
                 obs_groups = obs_groups,
                 force_ad_obs_model = needs_ad_fallback,
                 likelihood_hessian_pattern = likelihood_hessian_pattern,
@@ -334,6 +379,7 @@ function _build_lgm_from_latte(
     return latte_from_dppl(
         dppl_model;
         random = random_syms,
+        augment = augment,
         obs_groups = obs_groups,
         force_ad_obs_model = needs_ad_fallback,
         likelihood_hessian_pattern = likelihood_hessian_pattern,

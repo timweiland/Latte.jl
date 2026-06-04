@@ -364,6 +364,11 @@ GaussianMarkovRandomFields.hyperparameters(::_WSOnlyLatent) = (; τ = Real)
 GaussianMarkovRandomFields.model_name(::_WSOnlyLatent) = :wsonly
 GaussianMarkovRandomFields.precision_matrix(::_WSOnlyLatent; kwargs...) =
     error("workspace-only backend: no precision matrix")
+# Bare materialisation throws too (mimics SIF). This is the tripwire for Fix #1:
+# if the recognized @latte path ever materialises the prior during probing,
+# the build throws here.
+(::_WSOnlyLatent)(; kwargs...) = error("workspace-only backend: not materialisable")
+Latte._has_sparse_precision(::_WSOnlyLatent) = false
 GaussianMarkovRandomFields.make_workspace(::_WSOnlyLatent; τ, kwargs...) = _WSOnlyWS(τ)
 GaussianMarkovRandomFields.make_workspace_pool(::_WSOnlyLatent; size::Int = 1, τ, kwargs...) =
     [_WSOnlyWS(τ) for _ in 1:size]
@@ -389,4 +394,31 @@ GaussianMarkovRandomFields.make_workspace_pool(::_WSOnlyLatent; size::Int = 1, �
     # The workspace-backed call operator forwards for any AbstractLatentWorkspace,
     # not just GMRFWorkspace.
     @test routed(ws; τ_state = 2.0) == (ws, 2.0)
+end
+
+# Fix #1: the recognized @latte path must build an LGM over a workspace-only
+# latent backend without materialising the prior during probing
+# (extract_priors / dims / fast-path), and must auto-infer `augment=false` so
+# the latent isn't wrapped in an augmented joint (which would need its precision).
+@testset "@latte builds a workspace-only backend without materialising it" begin
+    @latte function ws_only_model(y)
+        τ ~ Gamma(2.0, 1.0)
+        x ~ _WSOnlyLatent(length(y))(; τ = τ)
+        for i in eachindex(y)
+            y[i] ~ Normal(x[i], 1.0)
+        end
+    end
+
+    y = [0.5, -0.3, 1.2, 0.1]
+    # `augment` auto-inferred to `false` for the workspace-only latent (no
+    # explicit kwarg); the prior is the un-augmented recognized RoutedLatentModel
+    # wrapping the stub, built without tripping the `not materialisable` tripwire.
+    lgm = ws_only_model(y)
+    @test lgm isa Latte.LatentGaussianModel
+    @test lgm.latent_prior isa Latte.RoutedLatentModel
+    @test lgm.latent_prior.inner isa _WSOnlyLatent
+    @test length(lgm.latent_prior) == length(y)
+    # An explicit `augment = true` is auto-flipped (a precision-free latent
+    # can't be augmented), not errored.
+    @test ws_only_model(y; augment = true).latent_prior isa Latte.RoutedLatentModel
 end
