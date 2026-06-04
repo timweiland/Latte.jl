@@ -17,6 +17,7 @@
 import Distributions
 import LinearSolve
 using SparseArrays: SparseMatrixCSC
+using LinearAlgebra: Diagonal
 using GaussianMarkovRandomFields:
     LatentModel, CombinedModel, GMRFWorkspace, GMRF, ConstrainedGMRF,
     AbstractLatentWorkspace,
@@ -70,6 +71,24 @@ make_workspace(m::RoutedLatentModel; kwargs...) =
     make_workspace(m.inner; _route_inner_kwargs(m, kwargs)...)
 make_workspace_pool(m::RoutedLatentModel; size::Int = Threads.nthreads(), kwargs...) =
     make_workspace_pool(m.inner; size = size, _route_inner_kwargs(m, kwargs)...)
+
+# Recognised-path probing stand-in. `@latte` assembly evaluates the model body
+# to extract hyperparameters / dims / the observation likelihood; for a
+# recognized latent the real prior is supplied separately, so the body's latent
+# `~` slot only needs a cheap dimension-matched distribution — never the real
+# prior, which a workspace-only backend refuses to materialise. A
+# non-`LatentModel` callee (a curried distribution factory bound for the DAG
+# fallback) is materialised for real.
+_recognized_latent_probe(m::LatentModel, ::NamedTuple) =
+    Distributions.MvNormal(zeros(length(m)), Diagonal(ones(length(m))))
+_recognized_latent_probe(m, kw::NamedTuple) = m(; kw...)
+
+# Whether Latte can materialise a sparse precision for this latent — used to
+# decide pattern augmentation / auto-augmentation. Workspace-only backends
+# (custom `gaussian_approximation`, no single sparse precision, e.g. a filter)
+# override this to `false`; their GA handles the likelihood coupling itself.
+_has_sparse_precision(::LatentModel) = true
+_has_sparse_precision(m::RoutedLatentModel) = _has_sparse_precision(m.inner)
 
 # `_PatternAugmentedLatentModel` — wrap a latent prior so its precision pattern
 # is a superset of the likelihood Hessian's. Mirrors what the DAG path bakes
