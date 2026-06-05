@@ -2,6 +2,7 @@ using Test
 using Latte
 using Latte: SBCResult, sbc_coverage, sbc_quantile_position
 using DynamicPPL: @model
+using DynamicPPL  # @latte needs DynamicPPL in scope
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using Statistics
@@ -189,5 +190,39 @@ using Random
         @test 0.0 <= cov.cov_0_95 <= 1.0
         # Nested: wider CI always covers at least as often as narrower
         @test cov.cov_0_5 <= cov.cov_0_8 <= cov.cov_0_95
+    end
+
+    @testset "accepts a @latte LGM factory directly" begin
+        @latte function smoke_latte(y, n)
+            τ ~ PCPrior.Precision(1.0, α = 0.01)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(x[i]); check_args = false)
+            end
+        end
+        n = 5
+
+        r = sbc_run(
+            y -> smoke_latte(y, n), Vector{Missing}(missing, n);
+            n_attempted = 40, n_posterior = 200,
+            engine = :inla, base_seed = UInt64(0x05bc_abc),
+            progress = false,
+        )
+
+        @test r isa SBCResult
+        @test r.n_attempted == 40
+        @test r.n_success + r.n_failures == 40
+        @test r.status != :invalid
+        @test length(r.targets) == 1
+        @test r.targets[1].label == :τ
+
+        # τ mean quantile position should land near 0.5 for a calibrated run.
+        q = sbc_quantile_position(r, 1)
+        @test isapprox(Statistics.mean(q), 0.5; atol = 0.2)
+
+        cov = sbc_coverage(r, 1)
+        @test isfinite(cov.cov_0_5)
+        @test isfinite(cov.cov_0_8)
+        @test isfinite(cov.cov_0_95)
     end
 end
