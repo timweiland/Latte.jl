@@ -10,8 +10,9 @@ layout: false
     <h1>Tutorials</h1>
     <p class="lede">
       End-to-end examples, ordered roughly from simplest to most involved.
-      Each runs in the same DPPL <code>@model</code> style — you'll see the same
-      <code>brew</code> call across all of them.
+      Each follows the same recipe — define the model as an <code>@latte</code>
+      function (or a DPPL <code>@model</code>), then fit it with a single
+      <code>inla()</code> call.
     </p>
     <TutorialGallery />
   </div>

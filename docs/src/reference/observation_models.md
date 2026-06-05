@@ -19,7 +19,7 @@ spec = @hyperparams begin
     (σ ~ Gamma(2, 1), transform = log, space = natural)
 end
 
-model = LatentGaussianModel(spec, my_latent_function, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(my_latent_function, n), obs_model)
 
 # 3. Run inference
 result = inla(model, y_observed)
@@ -29,7 +29,7 @@ result = inla(model, y_observed)
 
 Observation models use a **factory pattern** for efficiency:
 1. **Create template**: `obs_model = ExponentialFamily(Distribution)`
-2. **Use in INLA**: Pass to `LatentGaussianModel(spec, latent_fn, obs_model)`
+2. **Use in INLA**: Pass to `LatentGaussianModel(spec, FunctionLatentModel(latent_fn, n), obs_model)`
 3. **INLA handles the rest**: Automatic materialization with data and hyperparameters
 
 The `ExponentialFamily` struct supports most common statistical distributions with their canonical link functions.
@@ -56,10 +56,10 @@ spec = @hyperparams begin
     (ρ ~ Beta(2, 2), transform = logit, space = natural)
 end
 
-# Latent field defines log-rates
-latent_fn(; ρ, kwargs...) = GMRF(zeros(100), ar1_precision(100, ρ))
+# Latent field defines log-rates — returns (mean, precision)
+latent_fn(; ρ, kwargs...) = (zeros(100), ar1_precision(100, ρ))
 
-model = LatentGaussianModel(spec, latent_fn, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_fn, 100), obs_model)
 ```
 
 #### Bernoulli Model (Binary Data)
@@ -68,7 +68,7 @@ model = LatentGaussianModel(spec, latent_fn, obs_model)
 obs_model = ExponentialFamily(Bernoulli)
 
 # Use in INLA model (no observation hyperparameters needed)
-model = LatentGaussianModel(spec, latent_fn, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_fn, 100), obs_model)
 ```
 
 #### Normal Model (Continuous Data)
@@ -83,7 +83,7 @@ spec = @hyperparams begin
 end
 
 # The σ_obs will be passed to the observation model automatically
-model = LatentGaussianModel(spec, latent_fn, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_fn, 100), obs_model)
 ```
 
 #### Binomial Model
@@ -97,7 +97,7 @@ spec = @hyperparams begin
     n = 10.0  # Fixed number of trials
 end
 
-model = LatentGaussianModel(spec, latent_fn, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_fn, 100), obs_model)
 ```
 
 ### Non-Canonical Links
@@ -138,7 +138,7 @@ spec = @hyperparams begin
     (σ ~ Gamma(2, 1), transform = log, space = natural)  # For Normal component
 end
 
-model = LatentGaussianModel(spec, latent_fn, composite_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_fn, 6), composite_model)
 result = inla(model, y_composite)
 ```
 

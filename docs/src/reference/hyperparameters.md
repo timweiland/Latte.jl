@@ -114,14 +114,14 @@ function spatial_gmrf(; σ, ρ, kwargs...)
     n = 50
     # Simple AR(1) precision matrix scaled by σ
     Q = spdiagm(-1 => -ρ*ones(n-1), 0 => (1+ρ^2)*ones(n), 1 => -ρ*ones(n-1))
-    return GMRF(zeros(n), Q / σ^2)
+    return (zeros(n), Q / σ^2)  # FunctionLatentModel expects (mean, precision)
 end
 
 # Observation model
 obs_model = ExponentialFamily(Normal)
 
 # Create INLA model
-model = LatentGaussianModel(spec, spatial_gmrf, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(spatial_gmrf, 50), obs_model)
 
 # Sample from model to generate synthetic data
 θ, x, y = rand(model)  # Sample hyperparameters, latent field, and observations
@@ -171,18 +171,18 @@ function ar1_gmrf(; σ, ρ, kwargs...)
          0 => (1 + ρ^2)*ones(k),
          1 => -ρ*ones(k-1)
     )
-    return GMRF(zeros(k), Q / σ^2)
+    return (zeros(k), Q / σ^2)  # FunctionLatentModel expects (mean, precision)
 end
 
 # Observation model (Normal with unknown σ parameter)
 obs_model = ExponentialFamily(Normal)
 
 # Create INLA model
-model = LatentGaussianModel(spec, ar1_gmrf, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(ar1_gmrf, 100), obs_model)
 
 # Generate synthetic data
 θ_true = (σ = 2.0, ρ = 0.8)  # Natural space
-x_true = rand(ar1_gmrf(; σ = θ_true.σ, ρ = θ_true.ρ))
+x_true = rand(GMRF(ar1_gmrf(; σ = θ_true.σ, ρ = θ_true.ρ)...))
 y_obs = rand(conditional_distribution(obs_model, x_true; σ = 0.1))
 
 # Run INLA inference

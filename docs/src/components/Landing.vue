@@ -83,7 +83,7 @@ onMounted(() => {
               Probabilistic programming for latent Gaussian models in Julia.
             </p>
             <div class="cta-row">
-              <a class="btn btn-primary" href="/main_interface">] add Latte</a>
+              <a class="btn btn-primary" href="/tutorials/getting_started">Get started →</a>
               <a class="btn btn-ghost" href="/main_interface">Read the docs →</a>
               <span class="install">Julia ≥ 1.10</span>
             </div>
@@ -98,7 +98,7 @@ onMounted(() => {
                 <div class="fn">disease_map.jl</div>
               </div>
 <pre class="code"><span class="c-comment"># Disease mapping with a Besag ICAR prior</span>
-<span class="c-sym">@model</span> <span class="c-kw">function</span> <span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>)
+<span class="c-sym">@latte</span> <span class="c-kw">function</span> <span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>)
   <span class="c-kw">β</span> ~ <span class="c-fn">MvNormal</span>(<span class="c-fn">zeros</span>(<span class="c-str">2</span>), <span class="c-str">100.0</span> * <span class="c-var">I</span>)
   <span class="c-kw">τ</span> ~ <span class="c-fn">PCPrior</span>.<span class="c-fn">Precision</span>(<span class="c-str">1.0</span>, α = <span class="c-str">0.01</span>)
   <span class="c-kw">u</span> ~ <span class="c-fn">BesagModel</span>(<span class="c-var">W</span>)(τ = <span class="c-kw">τ</span>)
@@ -107,7 +107,7 @@ onMounted(() => {
   <span class="c-kw">end</span>
 <span class="c-kw">end</span>
 
-<span class="c-var">fit</span> = <span class="c-fn">brew</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>), <span class="c-var">y</span>; random = (<span class="c-sym">:β</span>, <span class="c-sym">:u</span>))
+<span class="c-var">fit</span> = <span class="c-fn">inla</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
 </pre>
             </div>
           </div>

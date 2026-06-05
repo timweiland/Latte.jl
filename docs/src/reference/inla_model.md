@@ -2,6 +2,12 @@
 
 The `LatentGaussianModel` provides a complete specification for INLA inference, combining hyperparameter priors, latent field structure, and observation models into a single coherent framework.
 
+!!! tip "Prefer `@latte` for most models"
+    Most models are written with the `@latte` macro, which builds a
+    `LatentGaussianModel` for you (see [Main Interface](@ref main-interface) and
+    the tutorials). Construct one directly, as shown below, when you need full
+    control over the latent prior.
+
 ## Overview
 
 An INLA model consists of three key components:
@@ -13,14 +19,15 @@ An INLA model consists of three key components:
 ## Basic Usage
 
 ```julia
-using Latte, GaussianMarkovRandomFields, Distributions
+using Latte, GaussianMarkovRandomFields, Distributions, SparseArrays
 
-# Define hyperparameter prior
-hp_prior = HyperparameterPrior((σ = InverseGamma(2, 1),))
+# Hyperparameter spec — free parameters via `~`, in a transformed working space
+spec = @hyperparams begin
+    (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+end
 
-# Define latent field structure as function of hyperparameters
-function ar1_latent(θ_named)
-    σ = θ_named.σ
+# Latent field as a function of the (keyword) hyperparameters
+function ar1_latent(; σ, kwargs...)
     n = 50
     ϕ = 0.8  # AR(1) coefficient
     
@@ -29,14 +36,14 @@ function ar1_latent(θ_named)
     diag_off = fill(-ϕ, n-1) ./ σ^2
     Q = spdiagm(0 => diag_main, -1 => diag_off, 1 => diag_off)
     
-    return GMRF(zeros(n), Q)
+    return (zeros(n), Q)  # FunctionLatentModel expects (mean, precision)
 end
 
 # Define observation model
 obs_model = ExponentialFamily(Binomial)
 
-# Create complete INLA model
-model = LatentGaussianModel(hp_prior, ar1_latent, obs_model)
+# Complete INLA model — wrap the latent function with its dimension
+model = LatentGaussianModel(spec, FunctionLatentModel(ar1_latent, 50), obs_model)
 ```
 
 ## Key Functions
@@ -60,21 +67,21 @@ Models can have multiple hyperparameters affecting both the latent field and obs
 
 ```julia
 # Multiple hyperparameters
-hp_prior = HyperparameterPrior((
-    σ_spatial = InverseGamma(2, 1),     # Spatial variance
-    σ = InverseGamma(2, 0.5),           # Observation noise  
-    ρ = Beta(2, 2)                      # Spatial correlation
-))
+spec = @hyperparams begin
+    (σ_spatial ~ InverseGamma(2, 1), transform = log, space = natural)   # Spatial SD
+    (σ ~ InverseGamma(2, 0.5), transform = log, space = natural)         # Observation noise
+    (ρ ~ Beta(2, 2), transform = logit, space = natural)                 # Spatial correlation
+end
 
-function spatial_latent(θ_named)
-    σ_spatial = θ_named.σ_spatial
-    ρ = θ_named.ρ
-    # ... build spatial GMRF using σ_spatial and ρ
+function spatial_latent(; σ_spatial, ρ, kwargs...)
+    n = 100
+    # ... build the spatial precision Q from σ_spatial and ρ
+    return (zeros(n), Q)
 end
 
 obs_model = ExponentialFamily(Normal)  # Uses σ
 
-model = LatentGaussianModel(hp_prior, spatial_latent, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(spatial_latent, 100), obs_model)
 ```
 
 ## Fixed and Free Parameters
@@ -82,15 +89,16 @@ model = LatentGaussianModel(hp_prior, spatial_latent, obs_model)
 The hyperparameter system supports both free parameters (to be estimated) and fixed parameters (held constant):
 
 ```julia
-hp_prior = HyperparameterPrior(
-    (σ = InverseGamma(2, 1),);           # Free parameter
-    fixed = (df = 3.0,)                  # Fixed parameter
-)
+spec = @hyperparams begin
+    (σ ~ InverseGamma(2, 1), transform = log, space = natural)  # Free parameter
+    df = 3.0                                                     # Fixed parameter
+end
 
-function robust_latent(θ_named)
-    σ = θ_named.σ
-    df = θ_named.df  # Access fixed parameter
-    # ... build GMRF with both parameters
+function robust_latent(; σ, df, kwargs...)
+    # Both the free (σ) and fixed (df) parameters arrive as keyword arguments
+    n = 50
+    # ... build the precision Q from σ and df
+    return (zeros(n), Q)
 end
 ```
 
@@ -99,10 +107,12 @@ end
 The `LatentGaussianModel` constructor validates that all required hyperparameters for the observation model are provided. Missing required parameters will raise an error:
 
 ```julia
-# This will error: Normal requires σ hyperparameter
-hp_prior = HyperparameterPrior((μ = Normal(0, 1),))  # Missing σ
+# This will error: Normal requires a σ hyperparameter
+spec = @hyperparams begin
+    (τ ~ Gamma(2, 1), transform = log, space = natural)  # no σ provided
+end
 obs_model = ExponentialFamily(Normal)
-model = LatentGaussianModel(hp_prior, latent_fn, obs_model)  # ERROR!
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_fn, 50), obs_model)  # ERROR: missing σ
 ```
 
 Additional hyperparameters beyond those required by the observation model are allowed, as they may be used by the latent field prior function.
