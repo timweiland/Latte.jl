@@ -6,6 +6,8 @@ using Distributions
 using LinearAlgebra
 using SparseArrays
 using Random
+using StatsModels
+using DataFrames
 
 @testset "LatentGaussianModel" begin
 
@@ -318,4 +320,40 @@ using Random
         @test length(sample_fixed.x) == length(sample_fixed.y) == 3
     end
 
+end
+
+@testset "Formula interface: hyperparameter name validation" begin
+    # The formula interface renames a component's hyperparameters (e.g. a walk
+    # term `rw2(t)` exposes its precision as `τ_rw2`). A spec written against the
+    # bare name must fail fast with an actionable error before optimization,
+    # rather than deep inside the mode finder.
+    df = DataFrame(t = 1:10, y = [1, 2, 1, 3, 2, 4, 2, 3, 1, 2])
+    rw2 = RandomWalk(2)
+    _, _, obs_model, latent_model = GaussianMarkovRandomFields.build_formula_components(
+        @formula(y ~ 1 + rw2(t)), df; family = Poisson
+    )
+
+    hp_ok = @hyperparams begin
+        (τ_rw2 ~ Exponential(1.0), transform = log)
+    end
+    @test Latte._validate_formula_hyperparameters(latent_model, obs_model, hp_ok) === nothing
+
+    hp_bad = @hyperparams begin
+        (τ ~ Exponential(1.0), transform = log)
+    end
+    err = try
+        Latte._validate_formula_hyperparameters(latent_model, obs_model, hp_bad)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    msg = sprint(showerror, err)
+    @test occursin("τ_rw2", msg)          # surfaces the correct required name
+    @test occursin("Did you mean", msg)   # and suggests it from the bare `τ`
+
+    # It also fires through the formula `inla` entry (early, before optimization).
+    @test_throws ArgumentError inla(
+        @formula(y ~ 1 + rw2(t)), hp_bad, df; family = Poisson, progress = false
+    )
 end
