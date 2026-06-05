@@ -13,14 +13,20 @@ abstract type MarginalApproximation end
 """
     AdaptiveMarginal <: MarginalApproximation
 
-Adaptive marginalization strategy following Rue et al. (2009) Section 4.2.
+Adaptive marginalization: run SimplifiedLaplace for all variables, then escalate
+to full LaplaceMarginal only where the skew-normal is inadequate. The escalation
+gate is the magnitude of the leading term SimplifiedLaplace neglects — the
+standardized 4th-order log-density coefficient `|a₄|` — so a variable is upgraded
+only when the 3rd-order (skew-normal) approximation genuinely misses curvature,
+not merely when its marginal is skewed.
 
-Starts with SimplifiedLaplace for all variables, computes SKLD against the Gaussian
-baseline, and escalates to full LaplaceMarginal for variables where SKLD exceeds the
-threshold.
+The default `tol = 0.15` is calibrated so escalation fires roughly when the
+simplified marginal's central-interval error exceeds ≈0.1: it upgrades
+low-information Poisson-type latents while leaving the (already accurate)
+Binomial / Bernoulli / Normal latents alone.
 
 # Fields
-- `kld_threshold::Float64`: SKLD threshold for escalation (default: 0.1)
+- `tol::Float64`: escalation threshold on `|a₄|` (default: 0.15)
 
 # Example
 ```julia
@@ -29,16 +35,16 @@ result = inla(model, y; latent_marginalization_method=AdaptiveMarginal(0.05))
 ```
 """
 struct AdaptiveMarginal <: MarginalApproximation
-    kld_threshold::Float64
+    tol::Float64
 
-    function AdaptiveMarginal(kld_threshold::Float64)
-        kld_threshold >= 0 || throw(ArgumentError("kld_threshold must be non-negative, got $kld_threshold"))
-        isfinite(kld_threshold) || throw(ArgumentError("kld_threshold must be finite, got $kld_threshold"))
-        return new(kld_threshold)
+    function AdaptiveMarginal(tol::Float64)
+        tol >= 0 || throw(ArgumentError("tol must be non-negative, got $tol"))
+        isfinite(tol) || throw(ArgumentError("tol must be finite, got $tol"))
+        return new(tol)
     end
 end
 
-AdaptiveMarginal() = AdaptiveMarginal(0.1)
+AdaptiveMarginal() = AdaptiveMarginal(0.15)
 
 """
     MarginalResult

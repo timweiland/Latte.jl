@@ -15,12 +15,12 @@ end
     adaptive_upgrade_score(adaptive::AdaptiveMarginal, candidate::MarginalApproximation,
                            gaussian_baseline::Normal, marginal) -> Float64
 
-Per-index non-Gaussianity score that drives `AdaptiveMarginal`'s upgrade
-decision: indices with `score > adaptive.kld_threshold` get re-fit with
-the heavier Laplace approximation. Logically distinct from
-[`diagnostic_kld`](@ref) (which is a moment-based diagnostic for
-display); the upgrade gate must actually distinguish methods that
-moment-match their Gaussian baseline.
+Fallback non-Gaussianity score (used only when no diagonal exp-family fast
+path exists, so `_fourth_order_scores` returns `nothing`): indices with
+`score > adaptive.tol` get re-fit with the heavier Laplace approximation.
+Logically distinct from [`diagnostic_kld`](@ref) (which is a moment-based
+diagnostic for display); the upgrade gate must actually distinguish methods
+that moment-match their Gaussian baseline.
 
 Default falls back to [`diagnostic_kld`](@ref). Specialised below for
 `(SimplifiedLaplace, SkewNormal)` to use `abs(skewness(marginal))`,
@@ -37,6 +37,39 @@ adaptive_upgrade_score(::AdaptiveMarginal, candidate::MarginalApproximation, bas
 # |skewness(·)|, which is closed-form for SkewNormal and dimensionless.
 adaptive_upgrade_score(::AdaptiveMarginal, ::SimplifiedLaplace, ::Normal, marginal::SkewNormal) =
     abs(skewness(marginal))
+
+# Magnitude of the leading term SimplifiedLaplace neglects, per marginalized
+# index: the standardized 4th-order log-density coefficient
+# `a₄_i = Σ_k h⁗(η_k)·(Σ[k,i]/σ_i)⁴`, with the i-th term dropped to match the
+# SLA's γ_3 construction. This gates escalation on whether the 3rd-order
+# (skew-normal) form misses curvature — not on how skewed the marginal is.
+# Diagonal exp-fam fast path only; returns `nothing` (caller falls back to the
+# skew-based score) when the observation Hessian isn't diagonal.
+function _fourth_order_scores(ga, obs_lik, indices::AbstractVector{<:Integer})
+    μ = mean(ga)
+    diag_h4 = fourth_derivative_diagonal(obs_lik, μ)
+    diag_h4 === nothing && return nothing
+    Σ = selected_covariance(ga)
+    σ = sqrt.(max.(diag(Σ), 0.0))
+    scores = Vector{Float64}(undef, length(indices))
+    for (j, i) in enumerate(indices)
+        σ_i = σ[i]
+        if σ_i < 1.0e-10
+            scores[j] = 0.0
+            continue
+        end
+        cond_col = conditional_column(ga, i)
+        s = 0.0
+        @inbounds for m in eachindex(diag_h4.indices)
+            k = diag_h4.indices[m]
+            k == i && continue
+            d = cond_col[k] / σ_i
+            s += diag_h4.values[m] * d^4
+        end
+        scores[j] = abs(s)
+    end
+    return scores
+end
 
 # When the observation model is Gaussian, the Gaussian approximation is exact —
 # no SimplifiedLaplace or Laplace correction is needed.
@@ -85,20 +118,22 @@ function _marginalize_impl(
         augmentation_info = augmentation_info,
     )
 
-    # Step 2: Compute the per-index adaptive upgrade score. For
-    # SimplifiedLaplace's SkewNormal output this is `|skewness|`; for
-    # other candidate methods it falls back to the moment-based
-    # diagnostic KLD. See `adaptive_upgrade_score` docs.
-    μ_ga = mean(ga)
-    σ_ga = std(ga)
-    sl_scores = Vector{Float64}(undef, length(indices_vec))
-    @inbounds for (j, i) in enumerate(indices_vec)
-        baseline = Normal(μ_ga[i], σ_ga[i])
-        sl_scores[j] = adaptive_upgrade_score(method, SimplifiedLaplace(), baseline, sl_marginals[j])
+    # Step 2: score each index by the magnitude of the leading term SLA
+    # neglects (the 4th-order coefficient |a₄|). With no diagonal exp-fam
+    # fast path, fall back to the skew-based score against the Gaussian.
+    sl_scores = _fourth_order_scores(ga, obs_lik, indices_vec)
+    if sl_scores === nothing
+        μ_ga = mean(ga)
+        σ_ga = std(ga)
+        sl_scores = Vector{Float64}(undef, length(indices_vec))
+        @inbounds for (j, i) in enumerate(indices_vec)
+            baseline = Normal(μ_ga[i], σ_ga[i])
+            sl_scores[j] = adaptive_upgrade_score(method, SimplifiedLaplace(), baseline, sl_marginals[j])
+        end
     end
 
     # Step 3: Check which variables need upgrading
-    upgrade_mask = sl_scores .> method.kld_threshold
+    upgrade_mask = sl_scores .> method.tol
 
     if !any(upgrade_mask)
         return sl_marginals
@@ -109,7 +144,7 @@ function _marginalize_impl(
     upgrade_indices = indices_vec[upgrade_positions]
 
     idx_str = length(upgrade_indices) <= 10 ? " at indices $upgrade_indices" : ""
-    @info "AdaptiveMarginal: upgrading $(length(upgrade_indices))/$(length(indices_vec)) variables to LaplaceMarginal (score > $(method.kld_threshold))$idx_str"
+    @info "AdaptiveMarginal: upgrading $(length(upgrade_indices))/$(length(indices_vec)) variables to full Laplace (|a₄| > $(method.tol))$idx_str"
 
     la_marginals = try
         _marginalize_impl(
@@ -121,35 +156,7 @@ function _marginalize_impl(
         return sl_marginals
     end
 
-    # Step 5: Quadrature-based SKLD(SimplifiedLaplace, Laplace) on the
-    # upgraded subset only. We use the integration-based SKLD here (not
-    # the moment-only diagnostic) because we genuinely care about shape
-    # disagreement between the SLA and full Laplace on the indices that
-    # already triggered an upgrade. Cost is bounded by the number of
-    # upgraded indices (typically small).
-    sl_la_klds = Vector{Float64}(undef, length(upgrade_positions))
-    try
-        for (j, pos) in enumerate(upgrade_positions)
-            sl_la_klds[j] = quadrature_symmetric_kld(sl_marginals[pos], la_marginals[j])
-        end
-
-        max_sl_la = maximum(sl_la_klds)
-        mean_sl_la = sum(sl_la_klds) / length(sl_la_klds)
-
-        if max_sl_la > method.kld_threshold
-            @warn "AdaptiveMarginal: SKLD(SimplifiedLaplace, Laplace) exceeds threshold for upgraded variables" *
-                " (max=$(round(max_sl_la, digits = 4)), mean=$(round(mean_sl_la, digits = 4)))"
-        else
-            @info "AdaptiveMarginal: SKLD(SimplifiedLaplace, Laplace) for upgraded variables:" *
-                " max=$(round(max_sl_la, digits = 4)), mean=$(round(mean_sl_la, digits = 4))"
-        end
-    catch e
-        _is_adaptive_marginal_numerical_failure(e) || rethrow(e)
-        @warn "AdaptiveMarginal: SKLD check failed numerically after Laplace upgrade; keeping SimplifiedLaplace marginals for this grid point" exception_type = typeof(e) exception = sprint(showerror, e)
-        return sl_marginals
-    end
-
-    # Step 6: Merge results — start with SL, overwrite upgraded positions
+    # Step 5: Merge results — start with SL, overwrite upgraded positions
     result = convert(Vector{ContinuousUnivariateDistribution}, copy(sl_marginals))
     for (j, pos) in enumerate(upgrade_positions)
         result[pos] = la_marginals[j]
