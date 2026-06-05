@@ -116,17 +116,18 @@ using Distributions
 using GaussianMarkovRandomFields: BesagModel, RWModel, SeparableModel
 using LinearAlgebra
 
-# For the three multi-hyperparameter models below we use a common set of
-# robust `inla` keyword arguments — a Grid exploration with a tight
-# log-density drop, a Gaussian latent marginalisation, and explicit
-# accumulator strategies. Strategies are immutable configs; `inla()`
-# materialises them into fresh accumulator state on each call, so this
-# tuple can be safely reused across multiple fits.
+# For the three multi-hyperparameter models below we share a set of `inla`
+# keyword arguments: automatic exploration-strategy selection, a Gaussian
+# latent marginalisation, and explicit accumulator strategies.
+# `AutoExplorationStrategy` is the important one here — a Cartesian grid scales
+# as (points-per-dim)^(n_hp), which is fine for the 2-hyperparameter models but
+# explodes to hundreds of points for the 4-hyperparameter `full_model` below.
+# Auto keeps a grid in 2-D and switches to a Central Composite Design (~25
+# points) in 4-D. Strategies are immutable configs; `inla()` materialises them
+# into fresh accumulator state on each call, so this tuple is safely reused.
 const INLA_KWARGS = (
     progress = false,
-    exploration_strategy = GridExplorationStrategy(
-        integration_step_z = 1.0, max_log_drop = 2.0,
-    ),
+    exploration_strategy = AutoExplorationStrategy(),
     latent_marginalization_method = GaussianMarginal(),
     accumulators = (
         DICStrategy(),
