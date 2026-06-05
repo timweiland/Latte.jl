@@ -11,6 +11,19 @@ function _build_spline_marginal(
     T = Float64
     n = length(η_grid)
 
+    # A cubic spline needs at least 3 knots. Too few grid points means the
+    # exploration failed to characterize the posterior (e.g. a degenerate or
+    # near-flat hyperparameter posterior, or a failed mode/curvature estimate);
+    # surface that directly instead of a cryptic interpolation error downstream.
+    n >= 3 || throw(
+        ArgumentError(
+            "Building a hyperparameter marginal needs at least 3 exploration grid " *
+                "points, found $n. The hyperparameter posterior may be degenerate, or " *
+                "mode-finding / curvature estimation may have failed for this model — " *
+                "try a different `mode_init` or `exploration_strategy`."
+        )
+    )
+
     hp = spec.free[dim]
     tfm = hp.transform              # natural → working
     inv_tfm = Bijectors.inverse(tfm)  # working → natural
