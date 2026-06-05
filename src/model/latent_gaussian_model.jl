@@ -73,37 +73,36 @@ The alias `LGM` is available for brevity.
 
 # Type Parameters
 - `HP`: Type of the hyperparameter specification (HyperparameterSpec)
-- `F`: Type of the latent prior function (θ -> GMRF)
+- `F <: LatentModel`: Type of the latent prior (wrap a function with `FunctionLatentModel`)
 - `O <: ObservationModel`: Type of the observation model
 
 # Fields
 - `hyperparameter_spec::HP`: Hyperparameter specification with transformations
-- `latent_prior::F`: Function mapping θ_named::NamedTuple -> GMRF for the latent field prior (receives natural-space parameters)
+- `latent_prior::F`: The latent field prior as a `LatentModel`, receiving natural-space hyperparameters as keyword arguments
 - `observation_model::O`: Observation model linking observations to latent field
 
 # Example
 ```julia
-using Bijectors
+using SparseArrays
 
-# Define hyperparameter specification
-hp_spec = HyperparameterSpec(
-    free = [Hyperparameter(:σ, Exponential(1.0), transform=elementwise(log), prior_space=:natural)],
-    fixed = NamedTuple()
-)
-
-# Define latent field prior (function of named hyperparameters in natural space)
-function latent_gmrf(; σ, kwargs...)
-    n = 100
-    Q = spdiagm(0 => fill(1/σ^2, n))  # Simple white noise
-    μ = zeros(n)
-    return GMRF(μ, Q)
+# Hyperparameter specification (free parameters via `~`)
+hp_spec = @hyperparams begin
+    (σ ~ Exponential(1.0), transform = log, space = natural)
 end
 
-# Define observation model
+# Latent field prior: a function of the (keyword) hyperparameters returning (mean, precision)
+function latent_gmrf(; σ, kwargs...)
+    n = 100
+    Q = spdiagm(0 => fill(1 / σ^2, n))  # Simple white noise
+    μ = zeros(n)
+    return (μ, Q)
+end
+
+# Observation model
 obs_model = ExponentialFamily(Normal)
 
-# Create latent Gaussian model
-model = LatentGaussianModel(hp_spec, latent_gmrf, obs_model)
+# Create the latent Gaussian model — wrap the latent function with its dimension
+model = LatentGaussianModel(hp_spec, FunctionLatentModel(latent_gmrf, 100), obs_model)
 ```
 """
 struct LatentGaussianModel{HP, F <: LatentModel, O <: ObservationModel}

@@ -26,11 +26,11 @@ spec = @hyperparams begin
 end
 
 function latent_gmrf(; σ, kwargs...)
-    GMRF(zeros(5), spdiagm(0 => fill(1/σ^2, 5)))
+    return (zeros(5), spdiagm(0 => fill(1/σ^2, 5)))  # (mean, precision)
 end
 
 obs_model = ExponentialFamily(Normal)
-model = LatentGaussianModel(spec, latent_gmrf, obs_model)
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, 5), obs_model)
 
 # Observed data
 y = [0.5, -0.2, 0.8, -0.1, 0.3]
