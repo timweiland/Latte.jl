@@ -10,21 +10,24 @@ export sbc_run, sbc_coverage, sbc_quantile_position
             engine = :inla,
             engine_kwargs = (;),
             targets = Hyperparameters(),
-            random,
+            random = nothing,
             base_seed = UInt64(0xbadc0de),
             failure_policy = SBCFailurePolicy(),
             obs_name = :y,
             progress = true) -> SBCResult
 
-Run Simulation-Based Calibration on a DPPL model.
+Run Simulation-Based Calibration on a model.
 
-`build_model(y)` is a user-provided zero- (or one-) argument closure
-returning a `DynamicPPL.Model`. SBC calls it first with `y_prototype`
+`build_model(y)` is a user-provided closure returning either a
+`DynamicPPL.Model` or a `LatentGaussianModel` (e.g. an `@latte` model
+factory `y -> my_model(y, …)`). SBC calls it first with `y_prototype`
 (a `Vector{Missing}` sized to the observations) to draw a prior
 replicate, and then with the simulated `y` to run inference.
 
 `random` is the tuple of syms Latte should treat as random effects —
-the same kwarg you'd pass to `latte_from_dppl(model; random = …)`.
+the same kwarg you'd pass to `latte_from_dppl(model; random = …)`. It is
+**required** for the DPPL path and **ignored** for the LGM path (the
+latent is already specified in a `LatentGaussianModel`).
 
 `n_attempted` fixes the number of replicate attempts. `n_success` is
 derived and reported separately on the result.
@@ -39,7 +42,7 @@ function sbc_run(
         engine::Symbol = :inla,
         engine_kwargs::NamedTuple = (;),
         targets::SBCTarget = Hyperparameters(),
-        random,
+        random = nothing,
         base_seed::Unsigned = UInt64(0x0badc0de),
         failure_policy::SBCFailurePolicy = SBCFailurePolicy(),
         obs_name::Symbol = :y,
@@ -48,12 +51,31 @@ function sbc_run(
     )
     engine_fn = _engine_fn(engine)
 
-    # Resolve target descriptors up-front against a probe LGM. The
-    # probe model uses a concrete y (zeros of the right eltype) so
-    # latte_from_dppl succeeds; we only use it to read the
-    # hyperparameter ordering.
-    probe_y = _probe_y_from_prototype(build_model, y_prototype, base_seed, obs_name)
-    probe_lgm = latte_from_dppl(build_model(probe_y); random = random)
+    # Detect the build mode once: does `build_model` return a ready-made
+    # `LatentGaussianModel`, or a `DynamicPPL.Model` that needs
+    # `latte_from_dppl`? A concrete dummy y (right shape, zero-valued)
+    # lets either constructor stand up — an `@latte` factory needs
+    # concrete observations to assemble its observation model, while the
+    # prototype is `Vector{Missing}`. The per-replicate path branches on
+    # the same `is_lgm` predicate.
+    dummy_y = _concrete_dummy_y(y_prototype)
+    is_lgm = build_model(dummy_y) isa LatentGaussianModel
+    is_lgm || random !== nothing || throw(
+        ArgumentError(
+            "sbc_run: `random` is required when `build_model` returns a " *
+                "DynamicPPL.Model (pass the same tuple you'd give latte_from_dppl)."
+        )
+    )
+
+    # Resolve target descriptors up-front against a probe LGM, reading
+    # only the hyperparameter ordering. The LGM-path probe is built from
+    # the dummy y (its latent/hyperparameter structure is y-independent).
+    probe_lgm = if is_lgm
+        build_model(dummy_y)
+    else
+        probe_y = _probe_y_from_prototype(build_model, y_prototype, base_seed, obs_name)
+        latte_from_dppl(build_model(probe_y); random = random)
+    end
     descriptors = resolve_targets(targets, probe_lgm)
     isempty(descriptors) && throw(
         ArgumentError("SBC: no targets resolved from $(typeof(targets)).")
@@ -70,7 +92,7 @@ function sbc_run(
         return _run_one_replicate(
             build_model, y_prototype, rng_i, i,
             engine_fn, engine_kwargs, random,
-            descriptors, n_posterior, obs_name,
+            descriptors, n_posterior, obs_name, is_lgm, dummy_y,
         )
     end
     elapsed = time() - t_start
@@ -127,13 +149,19 @@ function _engine_fn(engine::Symbol)
 end
 
 # Build a probe `y` of the right shape + eltype so we can stand up a
-# probe LGM for target resolution. We just draw one prior replicate and
-# use its simulated `y`.
+# probe LGM for target resolution (DPPL path). We just draw one prior
+# replicate and use its simulated `y`.
 function _probe_y_from_prototype(build_model, y_prototype, base_seed, obs_name)
     rng = StableRNG(hash((base_seed, 0x0070_72_6f_62_65)))  # "probe"
     rep = _prior_simulate(build_model, y_prototype, rng; obs_name = obs_name)
     return rep.y
 end
+
+# Concrete dummy observations matching the prototype's shape, used to
+# stand up an `@latte` LGM (which needs concrete y to assemble its
+# observation model) for build-mode detection and the LGM-path probe.
+_concrete_dummy_y(y_prototype::AbstractVector) =
+    zeros(Float64, length(y_prototype))
 
 # ── Per-replicate execution ─────────────────────────────────────────
 # Returns a NamedTuple with either `kind = :success` and the per-rep
@@ -142,12 +170,21 @@ end
 function _run_one_replicate(
         build_model, y_prototype, rng, replicate_id,
         engine_fn, engine_kwargs, random,
-        descriptors, n_posterior, obs_name,
+        descriptors, n_posterior, obs_name, is_lgm, dummy_y,
     )
-    # Stage 1: prior simulate
-    local rep
+    # Stage 1: prior simulate. Dispatch on the built model type. The LGM
+    # path builds from a concrete dummy y (an `@latte` factory needs
+    # concrete observations to assemble); the y-independent latent then
+    # makes that LGM the inference object too. The DPPL path samples
+    # straight from the `Vector{Missing}` prototype.
+    local rep, lgm_from_build
     try
-        rep = _prior_simulate(build_model, y_prototype, rng; replicate_id = replicate_id, obs_name = obs_name)
+        built = is_lgm ? build_model(dummy_y) : build_model(y_prototype)
+        rep = _prior_simulate(
+            built, build_model, y_prototype, rng;
+            replicate_id = replicate_id, obs_name = obs_name,
+        )
+        lgm_from_build = is_lgm ? built : nothing
     catch e
         return (;
             kind = :failure, failure = SBCFailure(
@@ -158,11 +195,11 @@ function _run_one_replicate(
     end
     truth_nt = rep.truth
 
-    # Stage 2: build LGM
+    # Stage 2: build LGM. DPPL path: re-adapt under the simulated y.
+    # LGM path: the latent doesn't depend on y, so reuse the build above.
     local lgm
     try
-        inf_model = build_model(rep.y)
-        lgm = latte_from_dppl(inf_model; random = random)
+        lgm = is_lgm ? lgm_from_build : latte_from_dppl(build_model(rep.y); random = random)
     catch e
         return (;
             kind = :failure, failure = SBCFailure(
