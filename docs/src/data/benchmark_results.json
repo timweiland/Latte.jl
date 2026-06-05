@@ -6,15 +6,15 @@
             "rows": [
                 {
                     "label": "fixed (α, β1, β2, β12) KS (max / median)",
-                    "value": "0.019 / 0.019"
+                    "value": "0.016 / 0.016"
                 },
                 {
                     "label": "plate b_i KS (max / median)",
-                    "value": "0.044 / 0.035"
+                    "value": "0.033 / 0.024"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "18 ms"
+                    "value": "9 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -23,17 +23,17 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "161.8x",
+                    "value": "312.9x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "13.5 s",
+                    "value": "6.20 s",
                     "muted": true
                 }
             ],
             "id": "seeds",
-            "notes": "fixed-effects max KS 0.019; plate REs max 0.044 / median 0.035",
+            "notes": "fixed-effects max KS 0.016; plate REs max 0.033 / median 0.024",
             "title": "Crowder seeds"
         },
         {
@@ -42,15 +42,15 @@
             "rows": [
                 {
                     "label": "fixed (α, β) KS (max / median)",
-                    "value": "0.046 / 0.046"
+                    "value": "0.007 / 0.007"
                 },
                 {
                     "label": "district u_i KS (max / median)",
-                    "value": "0.036 / 0.021"
+                    "value": "0.049 / 0.027"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "69 ms"
+                    "value": "61 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -59,17 +59,17 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "21.5x",
+                    "value": "24.3x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "14.7 s",
+                    "value": "9.52 s",
                     "muted": true
                 }
             ],
             "id": "scotland",
-            "notes": "fixed-effects max KS 0.046; spatial RE max 0.036 / median 0.021",
+            "notes": "fixed-effects max KS 0.007; spatial RE max 0.049 / median 0.027",
             "title": "Scottish lip cancer"
         },
         {
@@ -82,11 +82,11 @@
                 },
                 {
                     "label": "x_t (RW2) KS (max / median)",
-                    "value": "0.131 / 0.053"
+                    "value": "0.123 / 0.049"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "220 ms"
+                    "value": "144 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -95,17 +95,17 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "7.2x",
+                    "value": "11.0x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "17.3 s",
+                    "value": "9.91 s",
                     "muted": true
                 }
             ],
             "id": "nhtemp",
-            "notes": "α KS 0.029; RW2 max 0.131 / median 0.053",
+            "notes": "α KS 0.029; RW2 max 0.123 / median 0.049",
             "title": "New Haven temperature"
         },
         {
@@ -114,11 +114,11 @@
             "rows": [
                 {
                     "label": "x_t (366-day RW2) KS (max / median)",
-                    "value": "0.062 / 0.035"
+                    "value": "0.069 / 0.038"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "997 ms"
+                    "value": "507 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -127,17 +127,17 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "1.5x",
+                    "value": "3.0x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "16.1 s",
+                    "value": "9.01 s",
                     "muted": true
                 }
             ],
             "id": "tokyo_rainfall",
-            "notes": "x_t max KS 0.062 / median 0.035",
+            "notes": "x_t max KS 0.069 / median 0.038",
             "title": "Tokyo rainfall"
         },
         {
@@ -146,15 +146,15 @@
             "rows": [
                 {
                     "label": "fixed (6 effects) KS (max / median)",
-                    "value": "0.081 / 0.079"
+                    "value": "0.005 / 0.004"
                 },
                 {
                     "label": "subject b_i KS (max / median)",
-                    "value": "0.075 / 0.041"
+                    "value": "0.046 / 0.020"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "3.14 s"
+                    "value": "989 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -163,19 +163,19 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "0.6x",
+                    "value": "1.9x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "16.7 s",
+                    "value": "7.39 s",
                     "muted": true
                 }
             ],
             "id": "epil",
-            "notes": "fixed max 0.081; subject RE max 0.075 / median 0.041",
+            "notes": "fixed max 0.005; subject RE max 0.046 / median 0.020",
             "title": "Epil (BUGS)"
         }
     ],
-    "generated_at": "2026-05-01T14:16:31.741"
+    "generated_at": "2026-06-05T16:40:01.017"
 }
