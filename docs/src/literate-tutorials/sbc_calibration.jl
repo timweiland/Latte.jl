@@ -28,14 +28,17 @@
 #
 # ## Setup
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using Random
 
 # A simple latent-Gaussian model: IID Normal-ish effects under a
-# PC prior on precision, Poisson likelihood.
-@model function smoke_model(y, n)
+# PC prior on precision, Poisson likelihood. Written as an `@latte`
+# model — `sbc_run` accepts the resulting `LatentGaussianModel` factory
+# directly (it draws priors via `rand` and infers on the LGM), so no
+# `random` kwarg is needed.
+@latte function smoke_model(y, n)
     τ ~ PCPrior.Precision(1.0, α = 0.01)
     x ~ IIDModel(n)(τ = τ)
     for i in eachindex(y)
@@ -57,7 +60,6 @@ r = sbc_run(
     n_attempted = 40,
     n_posterior = 200,
     engine = :inla,
-    random = (:x,),
     base_seed = UInt64(0x05bc_abc),
     progress = false,
 )
@@ -121,7 +123,6 @@ r_tmb = sbc_run(
     n_attempted = 40,
     n_posterior = 200,
     engine = :tmb,
-    random = (:x,),
     base_seed = UInt64(0x05bc_abc),      # same seed → same prior draws
     progress = false,
 )
