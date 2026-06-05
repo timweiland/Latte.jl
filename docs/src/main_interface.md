@@ -38,12 +38,13 @@ function latent_gmrf(; τ, ρ, kwargs...)
     Q = ar1_precision(ρ, k) .* τ
     μ₀ = log(1000.0)             # Log-scale for Poisson rates
     μ = μ₀ .* [ρ^i for i in 1:k] # Exponential decay
-    return GMRF(μ, Q)
+    return (μ, Q)                # FunctionLatentModel expects (mean, precision)
 end
 
 # Observation model: Poisson with log-link
 obs_model = ExponentialFamily(Poisson)
-model = LatentGaussianModel(spec, latent_gmrf, obs_model)
+# Wrap the latent function with its output dimension
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model)
 
 # Run INLA on your data
 result = inla(model, y_observed)
@@ -58,6 +59,32 @@ posterior_mode = result.hyperparameter_mode
 
 ```@docs
 inla
+```
+
+## Defining models
+
+Models are written with the `@latte` macro, or — for a full DynamicPPL model —
+converted with `latte_from_dppl`. Both produce the `LatentGaussianModel` that
+`inla` consumes.
+
+```@docs
+@latte
+latte_from_dppl
+```
+
+## Alternative inference engines
+
+The same model can be run through other engines for comparison and validation:
+
+```@docs
+tmb
+hmc_laplace
+```
+
+## Diagnostics
+
+```@docs
+diagnose
 ```
 
 ## Understanding the Results
@@ -147,18 +174,18 @@ function latent_gmrf(; τ, ρ, kwargs...)
     μ₀ = log(1000.0)             # Base log-rate
     μ = μ₀ .* [ρ^i for i in 1:k] # Exponential decay
 
-    return GMRF(μ, Q)
+    return (μ, Q)                # FunctionLatentModel expects (mean, precision)
 end
 
 # Poisson observations with log-link (canonical)
 obs_model = ExponentialFamily(Poisson)
 
-# Complete model specification
-model = LatentGaussianModel(spec, latent_gmrf, obs_model)
+# Complete model specification — wrap the latent function with its dimension
+model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf, k), obs_model)
 
 # Generate synthetic data for demonstration
 true_params = (τ = 10.0, ρ = 0.98)
-x_true = rand(latent_gmrf(; true_params...))
+x_true = rand(GMRF(latent_gmrf(; true_params...)...))
 y_observed = rand.(Poisson.(exp.(x_true)))
 
 println("Generated $(length(y_observed)) observations")
@@ -286,7 +313,7 @@ if !result.convergence.mode_converged
         (τ ~ Exponential(0.1), transform = log, space = natural)  # Wider prior
         (ρ ~ Beta(2, 2), transform = logit, space = natural)      # Less informative
     end
-    result = inla(LatentGaussianModel(spec_relaxed, latent_gmrf, obs_model), y_observed)
+    result = inla(LatentGaussianModel(spec_relaxed, FunctionLatentModel(latent_gmrf, k), obs_model), y_observed)
 end
 ```
 
