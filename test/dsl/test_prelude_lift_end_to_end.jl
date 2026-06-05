@@ -89,10 +89,10 @@ using Statistics: mean
         lgm = lift_e2e_inla(y_a, y_b, A_a, A_b)
         @test lgm.observation_model isa Latte._LiftedCompositeObsModel
 
-        # FiniteDiff sidesteps an unrelated outer-AD-over-hp issue that
-        # affects FunctionalGPs models — irrelevant here but matches the
-        # canonical user-flow for non-Dual-clean kernel libraries.
-        result = inla(lgm, vcat(y_a, y_b); diff_strategy = Latte.FiniteDiffStrategy())
+        # ForwardDiff (the default) differentiates cleanly through the lifted
+        # hp-transform: the obs payload carrying the prelude state is now
+        # prepared element-type-generically, so outer-AD Duals flow through.
+        result = inla(lgm, vcat(y_a, y_b))
         @test result isa Latte.INLAResult
         @test isfinite(mean(result.hyperparameter_marginals[:σ_a]))
         @test isfinite(mean(result.hyperparameter_marginals[:σ_b]))
