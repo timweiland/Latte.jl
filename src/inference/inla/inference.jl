@@ -214,6 +214,36 @@ function inla(
     )
 end
 
+# Validate, before any optimization, that the spec supplies every hyperparameter
+# the formula-built model requires. The formula interface renames a component's
+# hyperparameters to avoid collisions (e.g. a walk term `rw2(year)` exposes its
+# precision as `τ_rw2`), so a spec written against the bare name would otherwise
+# fail deep inside the mode finder with an opaque "missing parameter" error.
+function _validate_formula_hyperparameters(latent_model, observation_model, spec::HyperparameterSpec)
+    _names(x::NamedTuple) = collect(keys(x))
+    _names(x) = collect(x)
+    required = Set{Symbol}(_names(hyperparameters(latent_model)))
+    union!(required, _names(hyperparameters(observation_model)))
+    provided = Set{Symbol}(keys(spec.free)) ∪ Set{Symbol}(keys(spec.fixed))
+
+    missing_hp = setdiff(required, provided)
+    isempty(missing_hp) && return nothing
+
+    unused = collect(setdiff(provided, required))
+    hints = String[]
+    for m in sort!(collect(missing_hp))
+        cand = filter(u -> startswith(String(m), String(u) * "_"), unused)
+        isempty(cand) || push!(hints, "`$(first(cand))` → `$m`")
+    end
+    msg = "Hyperparameter spec is missing required parameter(s) " *
+        "$(sort!(collect(missing_hp))); provided $(sort!(collect(provided)))."
+    isempty(hints) || (
+        msg *= " Did you mean " * join(hints, ", ") *
+            "? The formula interface renames component hyperparameters to avoid collisions."
+    )
+    throw(ArgumentError(msg))
+end
+
 function inla(
         formula::FormulaTerm,
         hyperparam_spec::HyperparameterSpec,
@@ -232,6 +262,7 @@ function inla(
     fixed_terms = Tuple(t for t in rhs_terms if _is_fixed_effect_term(t))
 
     _, y, obs_model, latent_model = build_formula_components(formula, df; family, trials, exposure)
+    _validate_formula_hyperparameters(latent_model, obs_model, hyperparam_spec)
     model = LatentGaussianModel(hyperparam_spec, latent_model, obs_model)
     result = inla(model, y; kwargs...)
 
