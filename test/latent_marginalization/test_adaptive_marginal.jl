@@ -2,8 +2,10 @@ using Test
 using Latte
 using Latte: SplineAugmentedGaussian
 using GaussianMarkovRandomFields
+using GaussianMarkovRandomFields: PoissonObservations
 using Distributions
 using SparseArrays
+using LinearAlgebra
 using Random
 
 @testset "AdaptiveMarginal" begin
@@ -23,9 +25,9 @@ using Random
 
     @testset "Default constructor" begin
         am = AdaptiveMarginal()
-        @test am.kld_threshold == 0.1
+        @test am.tol == 0.15
         am2 = AdaptiveMarginal(0.05)
-        @test am2.kld_threshold == 0.05
+        @test am2.tol == 0.05
     end
 
     @testset "Invalid threshold rejected" begin
@@ -120,5 +122,33 @@ using Random
         )
         @test length(result.kld_values) == n
         @test all(isfinite.(result.kld_values))
+    end
+
+    @testset "4th-order gate: escalate low-info, skip well-determined" begin
+        # Augmented Poisson (η ≈ x via a high-precision penalty), default tol.
+        # The gate is |a₄| (leading neglected term), not skewness.
+        function augmented_poisson(τ, y)
+            m = length(y)
+            λ = 1.0e6
+            A = sparse(I, m, m)
+            Qb = spdiagm(0 => fill(float(τ), m))
+            Qaug = [λ * sparse(I, m, m) (-λ * A); (-λ * A') (Qb + λ * (A' * A))]
+            prior = GMRF(zeros(2m), Qaug)
+            obs = ExponentialFamily(Poisson, GaussianMarkovRandomFields.LogLink(); indices = 1:m)(
+                PoissonObservations(y),
+            )
+            return prior, obs, gaussian_approximation(prior, obs), collect((m + 1):(2m))
+        end
+        marg(τ, y) = (out = augmented_poisson(τ, y); marginalize(out[3], out[2], 0.0, AdaptiveMarginal(), out[4]; prior_gmrf = out[1]).marginals)
+
+        # Weak prior + low counts → large neglected 4th-order term → escalate.
+        @test any(m -> m isa SplineAugmentedGaussian, marg(0.5, [1, 0, 1]))
+        # Strong prior → ~Gaussian → nothing to escalate.
+        @test all(m -> m isa SkewNormal, marg(50.0, [1, 0, 1]))
+        # Well-determined but genuinely skewed: |a₄| below tol, so NOT escalated
+        # (a skewness-only gate would over-fire here) — yet SL keeps the skew.
+        hi = marg(1.0, [30, 30, 30])
+        @test all(m -> m isa SkewNormal, hi)
+        @test maximum(abs(skewness(m)) for m in hi) > 0.05
     end
 end

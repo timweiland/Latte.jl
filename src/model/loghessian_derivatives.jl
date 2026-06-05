@@ -115,6 +115,57 @@ function third_derivative_diagonal(::NormalLikelihood{IdentityLink}, x0::Abstrac
     return (; values = zeros(0), indices = Int[])
 end
 
+"""
+    fourth_derivative_diagonal(obs_lik, x0) -> Union{Nothing, NamedTuple}
+
+Per-observation fourth derivative `h⁗(x0_k)` of `log p(y_k|x_k)` for diagonal-
+Hessian exponential families, in the same `(; values, indices)` form as
+[`third_derivative_diagonal`] (or `nothing` when no diagonal fast path applies).
+
+`AdaptiveMarginal` uses it to size the leading term `SimplifiedLaplace`
+neglects (the 4th-order log-density coefficient).
+"""
+fourth_derivative_diagonal(::ObservationLikelihood, x0) = nothing
+
+function fourth_derivative_diagonal(obs_lik::PoissonLikelihood{LogLink}, x0::AbstractVector)
+    obs_indices = obs_lik.indices === nothing ? eachindex(x0) : obs_lik.indices
+    # h(x) = y·x − exp(x);  h⁗(x) = −exp(x)
+    values = [-exp(x0[i]) for i in obs_indices]
+    return (; values = values, indices = collect(Int, obs_indices))
+end
+
+function fourth_derivative_diagonal(obs_lik::BernoulliLikelihood{LogitLink}, x0::AbstractVector)
+    obs_indices = obs_lik.indices === nothing ? eachindex(x0) : obs_lik.indices
+    # h⁗(x) = −p(1−p)(1 − 6p(1−p)),  p = σ(x)
+    values = Float64[]
+    sizehint!(values, length(obs_indices))
+    for i in obs_indices
+        x = x0[i]
+        p = x >= 0 ? 1 / (1 + exp(-x)) : (e = exp(x); e / (1 + e))
+        q = p * (1 - p)
+        push!(values, -q * (1 - 6q))
+    end
+    return (; values = values, indices = collect(Int, obs_indices))
+end
+
+function fourth_derivative_diagonal(obs_lik::BinomialLikelihood{LogitLink}, x0::AbstractVector)
+    indices = obs_lik.indices === nothing ? eachindex(x0) : obs_lik.indices
+    values = Float64[]
+    sizehint!(values, length(indices))
+    for (j, i) in enumerate(indices)
+        x = x0[i]
+        p = x >= 0 ? 1 / (1 + exp(-x)) : (e = exp(x); e / (1 + e))
+        q = p * (1 - p)
+        push!(values, -obs_lik.n[j] * q * (1 - 6q))
+    end
+    return (; values = values, indices = collect(Int, indices))
+end
+
+function fourth_derivative_diagonal(::NormalLikelihood{IdentityLink}, x0::AbstractVector)
+    # Gaussian likelihood: all derivatives above 2nd vanish.
+    return (; values = zeros(0), indices = Int[])
+end
+
 # ============================================================================
 # Specialized implementations for exponential family likelihoods
 # ============================================================================
