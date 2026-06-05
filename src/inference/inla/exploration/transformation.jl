@@ -84,7 +84,21 @@ function compute_reparameterization(
     H = _compute_negative_hessian(diff_strategy, logpdf_fn, θ_star.θ; executor = executor)
     eigen_result = eigen(H)
 
-    # Clamp non-positive eigenvalues as a fallback
+    # A non-PD curvature at the mode usually means the differentiated objective
+    # is unreliable, not that the posterior is flat: second-order AD through the
+    # inner Gaussian-approximation solve is fragile, while finite differences of
+    # the same objective stay robust. Retry with FD before regularizing —
+    # clamping to ~0 implies a near-infinite working-space step that collapses
+    # the exploration grid to a single point.
+    if any(eigen_result.values .<= 0) && !(diff_strategy isa FiniteDiffStrategy)
+        H_fd = _compute_negative_hessian(FiniteDiffStrategy(), logpdf_fn, θ_star.θ; executor = executor)
+        eigen_fd = eigen(H_fd)
+        if all(eigen_fd.values .> 0)
+            H, eigen_result = H_fd, eigen_fd
+        end
+    end
+
+    # Clamp any remaining non-positive eigenvalues as a last-resort fallback.
     if any(eigen_result.values .<= 0)
         @warn "Hessian at the mode is not positive definite. Regularizing eigenvalues."
         Λ = max.(eigen_result.values, 1.0e-6)
