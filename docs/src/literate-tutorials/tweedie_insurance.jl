@@ -17,7 +17,7 @@
 #
 # Along the way you will learn:
 # - How to wrap a hand-coded log-density as a `Distribution` subtype that
-#   slots into a DPPL `@model`.
+#   slots into an `@latte` model.
 # - How Latte's adapter routes any custom `~` distribution through the
 #   `AutoDiffObservationModel` AD path, with no changes to the
 #   `inla()` call.
@@ -101,9 +101,9 @@ function tweedie_logpdf(y, μ, φ, p)
     end
 end
 
-# To use this inside a DPPL `@model`, we wrap it as a tiny
-# `Distribution` subtype. Latte will recognise the resulting `~`
-# statements and route them through the AD-based observation model
+# To use this inside an `@latte` model, we wrap it as a tiny
+# `Distribution` subtype. Latte recognises the resulting `~`
+# statements and routes them through the AD-based observation model
 # automatically — no further wiring needed.
 struct Tweedie{T <: Real} <: ContinuousUnivariateDistribution
     μ::T
@@ -186,7 +186,7 @@ fig
 #
 # ## The model
 #
-# The DPPL model is the same shape as any other Latte regression: a
+# The `@latte` model is the same shape as any other Latte regression: a
 # hyperparameter prior, a Gaussian prior on the regression coefficients,
 # and a `~` statement per observation. The only thing that's "custom"
 # about it is the `Tweedie(...)` distribution — Latte handles the rest.
@@ -198,9 +198,9 @@ fig
 # you'd add it as another `~` line and Latte would happily integrate
 # over it too.
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 
-@model function tweedie_glm(y, X, p_fixed)
+@latte function tweedie_glm(y, X, p_fixed)
     log_φ ~ Normal(0.0, 2.0)
     φ = exp(log_φ)
     β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
@@ -211,6 +211,8 @@ using DynamicPPL: @model
 end
 
 # Two notes worth calling out for the curious:
+#
+# A few notes worth calling out for the curious:
 #
 # - The custom Tweedie likelihood is **not** in Latte's fast-path table
 #   (Poisson, Bernoulli, Binomial, Normal, NegativeBinomial, Gamma), so
@@ -223,17 +225,22 @@ end
 #   `for` loop over series terms breaks tracer propagation). For a
 #   `n = 200` dataset a dense Hessian is tiny; for very large `n` you
 #   might want to provide a known sparse pattern explicitly.
-lgm = latte_from_dppl(
-    tweedie_glm(y, X, true_p);
-    random = :β, likelihood_hessian_pattern = :dense,
-)
+# - Calling the `@latte` function returns the `LatentGaussianModel`
+#   directly: `@latte` reads `log_φ` as a hyperparameter (note the
+#   `φ = exp(log_φ)` transform) and `β` as the latent field.
+lgm = tweedie_glm(y, X, true_p; likelihood_hessian_pattern = :dense)
 
 # ## Running INLA
 #
-# The custom likelihood doesn't change anything about the call:
+# One wrinkle specific to this model: we run with
+# `diff_strategy = FiniteDiffStrategy()`. `@latte` hoists the `φ = exp(log_φ)`
+# transform into the observation payload, and nested forward-mode AD through
+# that *plus* the Tweedie series isn't Dual-clean for the outer hyperparameter
+# gradient. With a single hyperparameter, finite differences are cheap and
+# robust; everything else about the call is unchanged:
 result = inla(
     lgm, y;
-    latent_marginalization_method = SimplifiedLaplace(),
+    diff_strategy = FiniteDiffStrategy(),
     progress = false,
 )
 
@@ -295,11 +302,11 @@ fig2
 #   or `similar(x, T)` so eltype propagates from the inputs.
 # - If your `logpdf` involves an iterative computation (series, root
 #   solver, ODE solver) that's opaque to sparsity tracing, pass
-#   `likelihood_hessian_pattern = :dense` to `latte_from_dppl` to
+#   `likelihood_hessian_pattern = :dense` on your `@latte` model to
 #   short-circuit pattern detection.
 # - For genuinely conditionally-independent likelihoods — which is most
 #   of them — supplying `pointwise_loglik_func` lets Latte use a fast
-#   diagonal-Hessian path. The DPPL adapter handles this automatically;
+#   diagonal-Hessian path. Latte's adapter handles this automatically;
 #   if you build your `LatentGaussianModel` by hand, pass it explicitly
 #   to `AutoDiffObservationModel`.
 #
