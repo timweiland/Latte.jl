@@ -24,7 +24,7 @@ function _md_up_to_date(program, out_dir)
     return isfile(out_md) && mtime(out_md) >= mtime(program)
 end
 
-counts = Dict(:built => 0, :skipped => 0)
+counts = Dict(:built => 0, :skipped => 0, :failed => 0)
 
 for (IN, OUT) in [(TUTORIALS_IN, TUTORIALS_OUT)]
     ## First pass: process .jl files and copy known assets
@@ -42,16 +42,26 @@ for (IN, OUT) in [(TUTORIALS_IN, TUTORIALS_OUT)]
                 continue
             end
             @info "[literate] build $name"
-            Literate.script(program, OUT)
             # `execute = true, documenter = false` runs each cell during
             # Literate's pass and bakes the outputs straight into plain
             # markdown code blocks. The alternative — Literate emitting
             # @example blocks for Documenter to execute — re-runs every
             # tutorial cell on every docs build, so the LATTE_SKIP_TUTORIALS
             # short-circuit doesn't actually skip anything.
-            Literate.markdown(program, OUT; execute = true, documenter = false)
-            Literate.notebook(program, OUT)
-            counts[:built] += 1
+            #
+            # Each tutorial is isolated: one failing to build (e.g. a missing
+            # optional extension in the build env) should not abort the whole
+            # docs build. Failures are reported loudly and the existing .md, if
+            # any, is left in place.
+            try
+                Literate.script(program, OUT)
+                Literate.markdown(program, OUT; execute = true, documenter = false)
+                Literate.notebook(program, OUT)
+                counts[:built] += 1
+            catch e
+                @error "[literate] FAILED to build $name — skipping (keeping any existing .md)" exception = (e, catch_backtrace())
+                counts[:failed] += 1
+            end
         elseif any(endswith.(name, [".png", ".jpg", ".gif"]))
             cp(program, joinpath(OUT, name); force = true)
         elseif !isdir(program)
@@ -67,8 +77,9 @@ for (IN, OUT) in [(TUTORIALS_IN, TUTORIALS_OUT)]
     end
 end
 
-@info "[literate] tutorials built: $(counts[:built]), cached/skipped: $(counts[:skipped])" *
+@info "[literate] tutorials built: $(counts[:built]), cached/skipped: $(counts[:skipped]), failed: $(counts[:failed])" *
     (
     counts[:skipped] > 0 && !REBUILD_ALL && !SKIP_ALL ?
         " — pass LATTE_REBUILD_TUTORIALS=1 to force rebuild" : ""
 )
+counts[:failed] > 0 && @warn "[literate] $(counts[:failed]) tutorial(s) FAILED to build — their pages are stale; see the errors above."
