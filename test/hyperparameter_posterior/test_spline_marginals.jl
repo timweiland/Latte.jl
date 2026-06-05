@@ -334,4 +334,14 @@ using HCubature
         @test all(v isa SplineMarginalDistribution for v in values(result_2d))
     end
 
+    @testset "Degenerate grid raises a clear error" begin
+        # Too few grid points to build a cubic spline → actionable error, not a
+        # cryptic Tridiagonal/interpolation failure.
+        spec = @hyperparams begin
+            (α ~ Gamma(2, 1), transform = log, space = natural)
+        end
+        @test_throws ArgumentError Latte._build_spline_marginal([0.0], [0.0], spec, 1)
+        @test_throws ArgumentError Latte._build_spline_marginal([0.0, 0.1], [0.0, -0.5], spec, 1)
+    end
+
 end
