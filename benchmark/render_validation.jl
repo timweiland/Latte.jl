@@ -19,6 +19,8 @@ Pkg.activate(@__DIR__)
 using JSON3
 using Printf
 using Dates
+using Distributions: Binomial, quantile
+using StableRNGs: StableRNG
 
 const REPO_ROOT = abspath(joinpath(@__DIR__, ".."))
 const SBC_DIR = joinpath(REPO_ROOT, "benchmark", "results", "sbc")
@@ -29,12 +31,66 @@ const REGIME_ORDER = ["well-identified", "stress (weak-id)", "custom"]
 
 _band(n_attempted) = 1.36 / sqrt(n_attempted)
 
-# Verdict vs the 95% KS null band (small slack absorbs multiple testing).
-function _verdict(ks, band)
+# Fallback KS verdict (used only if a JSON predates the rank histogram).
+function _ks_verdict(ks, band)
     ks === nothing && return "n/a"
     ks <= band * 1.1 && return "pass"
     ks <= band * 1.6 && return "border"
     return "fail"
+end
+
+# ── Säilynoja, Bürkner & Vehtari (2022): simultaneous-band ECDF test ──
+# The principled SBC verdict. `adjust_gamma` finds the pointwise level γ such that
+# an M-sample uniform rank ECDF stays inside the pointwise-γ binomial band at ALL
+# B-1 bin edges *simultaneously* with probability 1-α (γ ≪ α, controlling family-
+# wise error over the curve). A cell PASSES iff its observed ECDF never exits that
+# γ-band. Seeded ⇒ deterministic; this is a critical-value calibration, not MCMC.
+function adjust_gamma(M::Int; B::Int = 100, α::Float64 = 0.05, S::Int = 4000, seed::UInt64 = UInt64(0x5a17))
+    rng = StableRNG(seed)
+    zs = [k / B for k in 1:(B - 1)]
+    sim = Matrix{Float64}(undef, S, B - 1)
+    for s in 1:S
+        u = sort(rand(rng, M))
+        for k in 1:(B - 1)
+            sim[s, k] = searchsortedlast(u, zs[k]) / M
+        end
+    end
+    function coverage(γ)
+        lo = [quantile(Binomial(M, z), γ / 2) / M for z in zs]
+        hi = [quantile(Binomial(M, z), 1 - γ / 2) / M for z in zs]
+        c = 0
+        @inbounds for s in 1:S
+            ok = true
+            for k in 1:(B - 1)
+                if sim[s, k] < lo[k] - 1.0e-9 || sim[s, k] > hi[k] + 1.0e-9
+                    ok = false; break
+                end
+            end
+            c += ok
+        end
+        return c / S
+    end
+    loγ, hiγ = 1.0e-4, α          # coverage decreases as γ grows
+    for _ in 1:40
+        mid = (loγ + hiγ) / 2
+        coverage(mid) < 1 - α ? (hiγ = mid) : (loγ = mid)
+    end
+    return (loγ + hiγ) / 2
+end
+
+# PASS iff the observed rank ECDF (from the cumulative histogram) stays inside the
+# γ-adjusted simultaneous band at every bin edge.
+function _sailynoja_verdict(hist::Vector{Int}, M::Int, γ::Float64)
+    B = length(hist)
+    cum = cumsum(hist)
+    for k in 1:(B - 1)
+        z = k / B
+        e = cum[k] / M
+        lo = quantile(Binomial(M, z), γ / 2) / M
+        hi = quantile(Binomial(M, z), 1 - γ / 2) / M
+        (e < lo - 1.0e-9 || e > hi + 1.0e-9) && return "fail"
+    end
+    return "pass"
 end
 
 # Identification regime, keyed on how much data informs the variance component.
@@ -52,6 +108,10 @@ function main()
     isdir(SBC_DIR) || error("No SBC results dir at $(relpath(SBC_DIR, REPO_ROOT)); run benchmark/sbc/sbc_matrix.jl first.")
     files = sort(filter(f -> endswith(f, ".json"), readdir(SBC_DIR; join = true)))
 
+    # γ is calibrated per replicate count M (a few distinct values); cache it.
+    γcache = Dict{Int, Float64}()
+    γfor(M) = get!(() -> adjust_gamma(M), γcache, M)
+
     # Flatten every (file → record → target) into one tidy row list.
     flat = NamedTuple[]
     for f in files
@@ -67,12 +127,31 @@ function main()
             for t in rec.targets
                 ks = t.ks_uniform === nothing ? nothing : Float64(t.ks_uniform)
                 cell = String(rec.cell)
+                hist = get(t, :rank_hist, nothing)
+                M = Int(get(t, :n_rank, n_attempted))
+                # Tiered verdict: the Säilynoja 95% simultaneous-band test defines
+                # "within band" (indistinguishable from calibrated). Cells that fail
+                # it are tiered by EFFECT SIZE (KS) — because at n≈10³ the test
+                # detects even tiny approximation error, so significance alone would
+                # flag a perfectly-usable approximation. KS ≤ 0.10 (≤10% max-CDF
+                # deviation) = "minor"; larger = "substantial".
+                verdict = if hist !== nothing && M > 0
+                    if _sailynoja_verdict(Int.(collect(hist)), M, γfor(M)) == "pass"
+                        "pass"
+                    elseif ks !== nothing && ks <= 0.1
+                        "minor"
+                    else
+                        "substantial"
+                    end
+                else
+                    _ks_verdict(ks, band)
+                end
                 push!(
                     flat, (;
                         engine = eng, regime = regime, n_attempted = n_attempted,
                         n_nodes = n_nodes, pc_u = pc_u, band = band,
                         cell = cell, target = String(t.target),
-                        ks = ks, verdict = _verdict(ks, band),
+                        ks = ks, verdict = verdict,
                         non_identified = cell == "normal_iid",
                     )
                 )
@@ -88,14 +167,16 @@ function main()
         regimes = Dict{String, Any}[]
         for reg in sort(unique(getfield.(eng_rows, :regime)); by = r -> _order(r, REGIME_ORDER))
             rr = filter(x -> x.regime == reg, eng_rows)
-            npass = count(x -> x.verdict == "pass", rr)
             push!(
                 regimes, Dict(
                     "regime" => reg,
                     "n_attempted" => first(rr).n_attempted,
                     "n_nodes" => first(rr).n_nodes, "pc_u" => first(rr).pc_u,
                     "band95" => first(rr).band,
-                    "n" => length(rr), "n_pass" => npass,
+                    "n" => length(rr),
+                    "n_pass" => count(x -> x.verdict == "pass", rr),
+                    "n_minor" => count(x -> x.verdict == "minor", rr),
+                    "n_substantial" => count(x -> x.verdict == "substantial", rr),
                     "rows" => [
                         Dict(
                                 "cell" => x.cell, "target" => x.target, "ks" => x.ks,
@@ -112,11 +193,12 @@ function main()
     payload = Dict(
         "generated_at" => string(now()),
         "rank_method" => "pit",
+        "verdict_test" => "sailynoja_ecdf_simultaneous",
         "engines" => engines,
         "notes" => [
             "SBC ranked by PIT (cdf(marginal, truth)) for INLA/TMB; required because INLA's posterior θ is grid-quantized.",
-            "Verdict vs the 95% KS null band 1.36/√n: pass ≤ band, ≈band ≤ 1.6× band, fail otherwise.",
-            "hmc_laplace runs a leaner NUTS chain per replicate (offline cost), so its band is looser than INLA/TMB; the well-identified regime (n=100 nodes) is prohibitively slow for per-replicate NUTS and is omitted.",
+            "Verdict is effect-size tiered. ‘within band’ = passes the Säilynoja, Bürkner & Vehtari (2022) ECDF test with 95% SIMULTANEOUS confidence bands (rank ECDF inside the band at every point at once). At n≈10³ replicates that test detects even tiny error, so a cell failing it is tiered by KS effect size: ‘minor’ = KS ≤ 0.10 (≤10% max-CDF deviation — approximation-level, practically fine), ‘substantial’ = KS > 0.10. This separates an approximate-but-usable method from a genuinely-off one; a pure significance verdict would flag every approximation at this n.",
+            "hmc_laplace runs a leaner NUTS chain per replicate (offline cost); the well-identified regime (n=100 nodes) is prohibitively slow for per-replicate NUTS and is omitted.",
             "Gaussian-IID (tagged ‘non-identified’) is a deliberate stress case: y~N(x,σ), x~N(0,1/τ) ⇒ only σ²+1/τ is identified. SBC against the EXACT posterior here is uniform (reference + harness validated), and a faithful sampler (hmc_laplace) recovers it (KS ~0.06); INLA's grid integration of the degenerate ridge does not (a finer grid barely helps), an inherent limit of grid-based hp exploration, not an implementation error. RW1 structure breaks the degeneracy and all engines recover.",
         ],
     )
@@ -128,7 +210,10 @@ function main()
 
     println("Wrote $(length(engines)) engine tab(s) → $(relpath(DATA_OUT, REPO_ROOT))")
     for e in engines
-        regs = join(["$(r["regime"]) $(r["n_pass"])/$(r["n"])" for r in e["regimes"]], "  ·  ")
+        regs = join(
+            ["$(r["regime"]): $(r["n_pass"]) within / $(r["n_minor"]) minor / $(r["n_substantial"]) subst." for r in e["regimes"]],
+            "  ·  ",
+        )
         println("  - $(e["engine"]):  ", regs)
     end
     return DATA_OUT
