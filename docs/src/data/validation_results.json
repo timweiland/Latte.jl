@@ -1,0 +1,463 @@
+{
+    "sbc": [
+        {
+            "is_calibration_claim": false,
+            "regime": "well-identified",
+            "id": "sbc_wellidentified",
+            "pc_u": 1,
+            "engines": [
+                "inla",
+                "tmb"
+            ],
+            "n_nodes": 100,
+            "rollup": [
+                {
+                    "n": 14,
+                    "n_pass": 10,
+                    "pass_frac": 0.714,
+                    "engine": "inla"
+                },
+                {
+                    "n": 14,
+                    "n_pass": 3,
+                    "pass_frac": 0.214,
+                    "engine": "tmb"
+                }
+            ],
+            "n_attempted": 500,
+            "n_posterior": 500,
+            "band95": 0.0608,
+            "rows": [
+                {
+                    "ks": 0.0758,
+                    "verdict": "border",
+                    "target": "τ",
+                    "cell": "poisson_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0578,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "poisson_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.3074,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "poisson_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.2757,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "poisson_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.0536,
+                    "verdict": "pass",
+                    "target": "τ",
+                    "cell": "poisson_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0281,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "poisson_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.1243,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "poisson_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.062,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "poisson_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.057,
+                    "verdict": "pass",
+                    "target": "τ",
+                    "cell": "bernoulli_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0578,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "bernoulli_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.1935,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "bernoulli_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.1819,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "bernoulli_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.0651,
+                    "verdict": "pass",
+                    "target": "τ",
+                    "cell": "bernoulli_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0335,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "bernoulli_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.1337,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "bernoulli_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.108,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "bernoulli_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.401,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "normal_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.3331,
+                    "verdict": "fail",
+                    "target": "σ",
+                    "cell": "normal_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.305,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "normal_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.1312,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "normal_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.1731,
+                    "verdict": "fail",
+                    "target": "σ",
+                    "cell": "normal_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.365,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "normal_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.063,
+                    "verdict": "pass",
+                    "target": "τ",
+                    "cell": "normal_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0575,
+                    "verdict": "pass",
+                    "target": "σ",
+                    "cell": "normal_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0472,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "normal_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0534,
+                    "verdict": "pass",
+                    "target": "τ",
+                    "cell": "normal_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.0501,
+                    "verdict": "pass",
+                    "target": "σ",
+                    "cell": "normal_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.2231,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "normal_rw1",
+                    "engine": "tmb"
+                }
+            ]
+        },
+        {
+            "is_calibration_claim": true,
+            "regime": "stress (weak-id)",
+            "id": "sbc_stressweakid",
+            "pc_u": 1,
+            "engines": [
+                "inla",
+                "tmb"
+            ],
+            "n_nodes": 30,
+            "rollup": [
+                {
+                    "n": 14,
+                    "n_pass": 5,
+                    "pass_frac": 0.357,
+                    "engine": "inla"
+                },
+                {
+                    "n": 14,
+                    "n_pass": 1,
+                    "pass_frac": 0.071,
+                    "engine": "tmb"
+                }
+            ],
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "band95": 0.043,
+            "rows": [
+                {
+                    "ks": 0.0701,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "poisson_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0379,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "poisson_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.2416,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "poisson_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.1989,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "poisson_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.0731,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "poisson_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.026,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "poisson_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.1545,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "poisson_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.099,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "poisson_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.069,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "bernoulli_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0273,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "bernoulli_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.1705,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "bernoulli_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.1341,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "bernoulli_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.072,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "bernoulli_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0293,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "bernoulli_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.1974,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "bernoulli_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.1112,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "bernoulli_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.3021,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "normal_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.2671,
+                    "verdict": "fail",
+                    "target": "σ",
+                    "cell": "normal_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.22,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "normal_iid",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.1152,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "normal_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.166,
+                    "verdict": "fail",
+                    "target": "σ",
+                    "cell": "normal_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.309,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "normal_iid",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.0753,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "normal_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0671,
+                    "verdict": "border",
+                    "target": "σ",
+                    "cell": "normal_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0461,
+                    "verdict": "pass",
+                    "target": "loglik",
+                    "cell": "normal_rw1",
+                    "engine": "inla"
+                },
+                {
+                    "ks": 0.0702,
+                    "verdict": "fail",
+                    "target": "τ",
+                    "cell": "normal_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.0331,
+                    "verdict": "pass",
+                    "target": "σ",
+                    "cell": "normal_rw1",
+                    "engine": "tmb"
+                },
+                {
+                    "ks": 0.1831,
+                    "verdict": "fail",
+                    "target": "loglik",
+                    "cell": "normal_rw1",
+                    "engine": "tmb"
+                }
+            ]
+        }
+    ],
+    "rank_method": "pit",
+    "notes": [
+        "SBC ranked by PIT (cdf(marginal, truth)) for INLA/TMB; required because INLA's posterior θ is grid-quantized.",
+        "Verdict vs the 95% KS null band 1.36/√n_success: pass ≤ band, border ≤ 1.6× band, fail otherwise.",
+        "Gaussian-IID is structurally non-identified (only σ²+1/τ is identified) and is expected to fail."
+    ],
+    "generated_at": "2026-06-06T21:33:50.900"
+}
