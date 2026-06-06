@@ -193,3 +193,43 @@ using Random
         @test length(samples[1].x) == n
     end
 end
+
+# A fixed hyperparameter must NOT leak into the posterior θ matrix: it has
+# one column per FREE hyperparameter. Previously every engine assigned the
+# full natural NamedTuple (free + fixed), tripping a DimensionMismatch.
+@testset "rand with a fixed hyperparameter (θ matrix is free-only)" begin
+    function make_fixed_sigma_model(n; σ = 0.5)
+        spec = @hyperparams begin
+            (τ ~ Gamma(2, 1), transform = log, space = natural)
+            σ = σ
+        end
+        function latent_func(; τ, kwargs...)
+            Q = spdiagm(0 => fill(τ, n))
+            return (zeros(n), Q)
+        end
+        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), ExponentialFamily(Normal))
+    end
+
+    n = 8
+    nfree = 1                       # τ free; σ fixed
+    model = make_fixed_sigma_model(n)
+    Random.seed!(7)
+    y = randn(n)
+
+    @testset "INLA" begin
+        s = rand(MersenneTwister(1), inla(model, y; progress = false), 20)
+        @test size(s.θ) == (20, nfree)
+        @test size(s.x) == (20, n)
+    end
+    @testset "TMB" begin
+        s = rand(MersenneTwister(1), tmb(model, y), 20)
+        @test size(s.θ) == (20, nfree)
+        @test size(s.x) == (20, n)
+    end
+    @testset "HMC-Laplace" begin
+        r = hmc_laplace(model, y; rng = MersenneTwister(1), n_samples = 200, n_warmup = 100, progress = false)
+        s = rand(MersenneTwister(1), r, 20)
+        @test size(s.θ) == (20, nfree)
+        @test size(s.x) == (20, n)
+    end
+end

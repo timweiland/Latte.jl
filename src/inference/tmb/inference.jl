@@ -103,8 +103,8 @@ function Random.rand(rng::AbstractRNG, r::TMBResult, n::Int; include_y::Bool = f
     θ_mat = Matrix{Float64}(undef, n, n_hp)
     for i in 1:n
         wh_i = WorkingHyperparameters(θ_wh_mat[:, i], spec)
-        nt_i = convert(NamedTuple, convert(NaturalHyperparameters, wh_i))
-        θ_mat[i, :] = collect(values(nt_i))
+        # Free hyperparameters only — the θ matrix has one column per free hp.
+        θ_mat[i, :] = collect(convert(NaturalHyperparameters, wh_i))
     end
 
     # x samples from the inner Laplace at the MAP. Per-θ reconstruction would
