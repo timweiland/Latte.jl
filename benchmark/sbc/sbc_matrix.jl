@@ -125,6 +125,19 @@ end
 _safe(x) = (x isa Real && !isfinite(x)) ? nothing : x
 _r4(x) = _safe(x isa Real && isfinite(x) ? round(x, digits = 4) : x)
 
+# Compact histogram of the PIT quantiles over `nbins` equal bins of [0,1]. The
+# cumulative counts reconstruct the rank ECDF at the bin edges — enough for the
+# downstream Säilynoja simultaneous-band test without storing every replicate.
+const RANK_HIST_BINS = 100
+function _rank_hist(q)
+    h = zeros(Int, RANK_HIST_BINS)
+    for v in q
+        b = clamp(floor(Int, v * RANK_HIST_BINS) + 1, 1, RANK_HIST_BINS)
+        h[b] += 1
+    end
+    return h
+end
+
 # Per-target record from one SBCResult, indexed by descriptor column.
 function _target_records(r)
     L = r.n_posterior
@@ -141,6 +154,8 @@ function _target_records(r)
                 cov50 = _r4(cov.cov_0_5),
                 cov80 = _r4(cov.cov_0_8),
                 cov95 = _r4(cov.cov_0_95),
+                n_rank = length(q),
+                rank_hist = _rank_hist(q),
             )
         )
     end
