@@ -96,9 +96,10 @@ target descriptors index.
 The observations are drawn in *observation space*: the latent linear
 predictor is sliced through `_x_for_obs_model` before sampling `y`, so
 an LGM with an augmented latent yields a `y` aligned with the original
-observations (matching what `inla(lgm, y)` expects). The latent draw is
-deliberately omitted from `truth` — it is unused for hyperparameter SBC
-targets and would be the augmented vector for an augmented LGM.
+observations (matching what `inla(lgm, y)` expects). The joint latent
+draw is kept out of `truth` (which holds only hyperparameters, what the
+scalar targets index) but recorded in `SBCReplicate.latent_truth` for
+[`DataDependentQuantity`](@ref) to rank against.
 """
 function _prior_simulate(
         lgm::LatentGaussianModel, build_model, y_prototype, rng::AbstractRNG;
@@ -114,7 +115,7 @@ function _prior_simulate(
     y = rand(rng, GaussianMarkovRandomFields.conditional_distribution(lgm.observation_model, η; θ_nt...))
 
     truth_nt = convert(NamedTuple, θ_natural)
-    return SBCReplicate(replicate_id, truth_nt, y)
+    return SBCReplicate(replicate_id, truth_nt, x, y)
 end
 
 """Reconstruct a `y`-typed container from varinfo entries, preserving
