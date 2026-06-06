@@ -108,4 +108,35 @@ using LinearAlgebra
         @test all(s -> 0 < s < 1, samples)
         @test abs(mean(samples .> 0.5) - 0.05) < 0.02
     end
+
+    @testset "cdf / quantile / median / mode" begin
+        d = PCPrior.BYMProportion(Q_scaled, 0.5; α = 0.05)
+
+        @test cdf(d, 0.0) == 0.0
+        @test cdf(d, 1.0) == 1.0
+        cvals = cdf.(Ref(d), range(0.0, 1.0; length = 50))
+        @test all(diff(cvals) .>= -1.0e-12)        # nondecreasing
+        @test all(0 .<= cvals .<= 1)
+
+        for p in (0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99)
+            @test cdf(d, quantile(d, p)) ≈ p atol = 1.0e-8
+        end
+
+        @test median(d) == quantile(d, 0.5)
+        @test insupport(d, median(d))
+        @test mode(d) == 0.0
+
+        # cdf consistent with logpdf via numerical integration of the density
+        for φ in (0.05, 0.2, 0.5, 0.8)
+            num, _ = hquadrature(t -> exp(logpdf(d, t)), 1.0e-12, φ; rtol = 1.0e-9)
+            @test cdf(d, φ) ≈ num atol = 1.0e-7
+        end
+
+        @test quantile(d, 0.0) == 0.0
+        @test quantile(d, 1.0) == 1.0
+        @test_throws DomainError quantile(d, 1.5)
+
+        # density monotone decreasing ⇒ mode at boundary 0
+        @test logpdf(d, 1.0e-3) > logpdf(d, 0.5) > logpdf(d, 0.9)
+    end
 end

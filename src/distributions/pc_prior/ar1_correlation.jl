@@ -73,3 +73,46 @@ function Base.rand(rng::AbstractRNG, d::AR1Correlation)
     end
     return ρ
 end
+
+# --- CDF / quantile / median --------------------------------------------------
+# d(ρ) = √(-log(1-ρ²)) is the distance; d ~ Exponential(rate λ), so the cdf /
+# quantile compose the Exponential cdf/quantile with the distance transform.
+# mean/var/std are intentionally undefined — no closed form for positive_only;
+# two-sided mean is 0 by symmetry but var/std remain non-elementary.
+_ar1_distance(ρ) = sqrt(-log1p(-ρ^2))
+_ar1_rho_from_distance(dist) = sqrt(-expm1(-dist^2))
+
+function Distributions.cdf(d::AR1Correlation, ρ::Real)
+    if d.positive_only
+        ρ <= 0 && return 0.0
+        ρ >= 1 && return 1.0
+        return -expm1(-d.λ * _ar1_distance(ρ))            # 1 - exp(-λ·d(ρ))
+    else
+        ρ <= -1 && return 0.0
+        ρ >= 1 && return 1.0
+        ρ == 0 && return 0.5
+        half_tail = 0.5 * exp(-d.λ * _ar1_distance(abs(ρ)))
+        return ρ > 0 ? 1.0 - half_tail : half_tail
+    end
+end
+
+function Distributions.quantile(d::AR1Correlation, p::Real)
+    0 <= p <= 1 || throw(DomainError(p, "quantile probability must be in [0, 1]"))
+    p == 0 && return Distributions.minimum(d)
+    p == 1 && return 1.0
+    if d.positive_only
+        dist = -log1p(-p) / d.λ                            # Exponential quantile, rate λ
+        return _ar1_rho_from_distance(dist)
+    else
+        p == 0.5 && return 0.0
+        if p > 0.5
+            dist = -log(2 * (1 - p)) / d.λ
+            return _ar1_rho_from_distance(dist)
+        else
+            dist = -log(2 * p) / d.λ
+            return -_ar1_rho_from_distance(dist)
+        end
+    end
+end
+
+Distributions.median(d::AR1Correlation) = quantile(d, 0.5)

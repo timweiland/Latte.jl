@@ -109,3 +109,40 @@ function Base.rand(rng::AbstractRNG, bym::BYMProportion)
     )
     return φ
 end
+
+# --- CDF / quantile / median / mode -------------------------------------------
+# D = d(φ) ~ Exponential(rate λ), d increasing, so F(φ) = 1 - exp(-λ·d(φ)). The
+# mass exp(-λ·d_max) piled at φ=1 (d is bounded as φ→1) is captured by F(φ≥1)=1.
+function Distributions.cdf(bym::BYMProportion, φ::Real)
+    φ <= 0 && return 0.0
+    φ >= 1 && return 1.0
+    d_φ = _bym_distance(φ, bym.gamma_inv_m1, bym.sum_gamma_inv_m1)
+    return -expm1(-bym.λ * d_φ)
+end
+
+# Invert F. Target distance is the Exponential(rate λ) quantile -log(1-p)/λ; if it
+# exceeds the bounded d_max the mass lands in the atom at φ=1. Otherwise solve
+# d(φ) = target with the same bracketed bisection `rand` uses.
+function Distributions.quantile(bym::BYMProportion, p::Real)
+    (0 <= p <= 1) || throw(DomainError(p, "quantile requires p ∈ [0, 1]"))
+    p == 0 && return 0.0
+    p == 1 && return 1.0
+    target = -log1p(-p) / bym.λ
+    upper = 1.0 - 1.0e-15
+    d_max = _bym_distance(upper, bym.gamma_inv_m1, bym.sum_gamma_inv_m1)
+    target >= d_max && return 1.0
+    return find_zero(
+        φ -> _bym_distance(φ, bym.gamma_inv_m1, bym.sum_gamma_inv_m1) - target,
+        (0.0, upper),
+        Bisection();
+        atol = 1.0e-12,
+    )
+end
+
+Distributions.median(bym::BYMProportion) = quantile(bym, 0.5)
+
+# The PC prior shrinks toward the base BYM2 model (φ=0); the density is monotone
+# decreasing in φ, so the mode is at the boundary 0. (Prefer `median` as an
+# interior optimiser seed.) mean/var/std have no closed form — the φ=1 atom plus
+# a non-elementary integral — and are intentionally left undefined.
+Distributions.mode(::BYMProportion) = 0.0
