@@ -219,3 +219,7 @@
 mjx-container > svg { display: block; margin: auto; }
 mjx-container { padding: 0.5rem 0; display: inline; margin: auto 2px -2px; }
 mjx-container > svg { margin: auto; display: inline-block; }
+
+/* ─── PaperCite grid (used on engine / content pages) ─────────────── */
+.ref-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 12px 0; }
+@media (max-width: 760px) { .ref-grid-2 { grid-template-columns: 1fr; } }

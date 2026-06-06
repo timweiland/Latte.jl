@@ -34,6 +34,9 @@ makedocs(;
         ],
         "Benchmarks" => "benchmarks/index.md",
         "Validation" => "validation/index.md",
+        "Inference engines" => [
+            "INLA" => "engines/inla.md",
+        ],
         "Main Interface" => "main_interface.md",
         "Reference" => [
             "Observation Models" => "reference/observation_models.md",
