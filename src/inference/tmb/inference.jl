@@ -51,8 +51,11 @@ function tmb(
     # `_compute_negative_hessian` gives -Hessian(objective); we negate
     # once more to get the positive-definite Hessian, then invert.
     names = collect(keys(spec.free))
-    sentinel_hp = NamedTuple{Tuple(names)}(Tuple(1.0 for _ in names))
-    ws = make_workspace(model.latent_prior; sentinel_hp...)
+    # Build the workspace at the MAP, where the objective is evaluated. A
+    # blanket sentinel of 1.0 is out of domain for bounded hyperparameters
+    # (e.g. an AR(1) ρ needs |ρ|<1), so seed the workspace from θ̂ instead.
+    θ̂_natural_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ̂_wh))
+    ws = make_workspace(model.latent_prior; θ̂_natural_nt...)
     objective(θ_vec) = -hyperparameter_logpdf(
         model, WorkingHyperparameters(θ_vec, spec), y_obs; ws = ws
     )
@@ -65,9 +68,6 @@ function tmb(
     logL = -objective(θ̂)
 
     # ─── Step 4: inner Laplace — latent posterior at the MAP ────────────
-    θ̂_natural_nt = convert(
-        NamedTuple, convert(NaturalHyperparameters, θ̂_wh)
-    )
     prior_gmrf = model.latent_prior(; θ̂_natural_nt...)
     obs_lik = model.observation_model(y_obs; θ̂_natural_nt...)
     x_post = gaussian_approximation(prior_gmrf, obs_lik)
