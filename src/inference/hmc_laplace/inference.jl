@@ -82,9 +82,11 @@ Pipeline:
 - `rng`: seedable RNG for reproducibility.
 - `progress`: pass through to AdvancedHMC.
 - `diff_strategy`: forwarded to the TMB warm-start (mode + Σ_θ). Default
-  `ADStrategy()` is noise-robust on augmented LGMs; pass
-  `FiniteDiffStrategy()` for DPPL-adapter-built LGMs until the closure
-  Dual-degradation bug is fixed.
+  `ADStrategy()` is noise-robust on augmented LGMs and works for `@latte`
+  models with recognized GMRF latents (IID / RW / AR1 / Besag); pass
+  `FiniteDiffStrategy()` only for a lifted custom likelihood whose
+  sparse-Hessian AD degrades `Dual`s (e.g. Tweedie; tracked in
+  `tasks/dppl-adapter-outer-ad-closure.org`).
 
 # Diagnostics
 

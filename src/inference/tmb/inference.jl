@@ -22,10 +22,12 @@ Laplace estimate of `log p(y)`.
   + central differences of those gradients for the Hessian — noise-robust and
   correct on augmented LGMs (where finite-differencing the objective directly
   can catch catastrophic cancellation from the η-coupling penalty).
-  `FiniteDiffStrategy()` falls back to `FiniteDiff.finite_difference_hessian`
-  — **required for DPPL-adapter-built LGMs** whose latent-prior closure
-  currently degrades `Dual` types (tracked separately in
-  `tasks/dppl-adapter-outer-ad-closure.org`).
+  `FiniteDiffStrategy()` falls back to `FiniteDiff.finite_difference_hessian`.
+  The default `ADStrategy()` works for `@latte` models with recognized GMRF
+  latents (verified to agree with FiniteDiff on IID / RW1 / RW2 / AR1 / Besag).
+  `FiniteDiffStrategy()` is only needed for a *lifted custom likelihood* whose
+  sparse-Hessian AD path degrades `Dual` types (e.g. the Tweedie tutorial;
+  tracked in `tasks/dppl-adapter-outer-ad-closure.org`).
 """
 function tmb(
         model::LatentGaussianModel, y;
