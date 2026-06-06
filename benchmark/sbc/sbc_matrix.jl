@@ -148,11 +148,14 @@ function _target_records(r)
 end
 
 # Run both target passes for one (cell, engine) at a shared seed.
-function run_cell_engine(cell, engine; n_attempted, n_posterior, base_seed, executor)
+function run_cell_engine(cell, engine; n_attempted, n_posterior, base_seed, executor, hmc_nsamples, hmc_nwarmup)
     y_proto = Vector{Missing}(missing, cell.n)
+    # hmc_laplace runs a NUTS chain per replicate; a leaner chain keeps the
+    # offline SBC tractable (the default chain is GC-bound under many threads).
+    ekw = engine === :hmc_laplace ? (; n_samples = hmc_nsamples, n_warmup = hmc_nwarmup) : (;)
     common = (;
-        n_attempted = n_attempted, n_posterior = n_posterior,
-        engine = engine, base_seed = base_seed, progress = false, executor = executor,
+        n_attempted = n_attempted, n_posterior = n_posterior, engine = engine,
+        engine_kwargs = ekw, base_seed = base_seed, progress = false, executor = executor,
     )
     r_hp = sbc_run(cell.build, y_proto; targets = Hyperparameters(), common...)
     r_dd = sbc_run(cell.build, y_proto; targets = DataDependentQuantity(), common...)
@@ -166,7 +169,7 @@ function run_cell_engine(cell, engine; n_attempted, n_posterior, base_seed, exec
     )
 end
 
-function run_sbc_matrix(; n_attempted, n_posterior, engines, cell_ids, executor, n_nodes, pc_u, base_seed = UInt64(0x5bc3a710))
+function run_sbc_matrix(; n_attempted, n_posterior, engines, cell_ids, executor, n_nodes, pc_u, hmc_nsamples, hmc_nwarmup, base_seed = UInt64(0x5bc3a710))
     allcells = _cells(; n_nodes = n_nodes, pc_u = pc_u)
     cells = filter(c -> c.id in cell_ids, allcells)
     isempty(cells) && error("No cells matched $(cell_ids); available: $([c.id for c in allcells])")
@@ -174,7 +177,7 @@ function run_sbc_matrix(; n_attempted, n_posterior, engines, cell_ids, executor,
     for cell in cells
         for engine in engines
             t0 = time()
-            rec = run_cell_engine(cell, engine; n_attempted, n_posterior, base_seed, executor)
+            rec = run_cell_engine(cell, engine; n_attempted, n_posterior, base_seed, executor, hmc_nsamples, hmc_nwarmup)
             elapsed = round(time() - t0, digits = 1)
             @printf(
                 "%-14s %-12s  n=%4d  ok=%4d fail=%3d  %-22s  %.1fs\n",
@@ -198,6 +201,8 @@ function main()
     out = get(ENV, "SBC_OUT", joinpath(@__DIR__, "..", "results", "sbc", "sbc_matrix.json"))
     nthreads = parse(Int, get(ENV, "SBC_THREADS", "1"))
     executor = nthreads > 1 ? ThreadedExecutor(nworkers = nthreads) : SequentialExecutor()
+    hmc_nsamples = parse(Int, get(ENV, "SBC_HMC_NSAMPLES", "400"))
+    hmc_nwarmup = parse(Int, get(ENV, "SBC_HMC_NWARMUP", "200"))
 
     is_smoke = n_attempted < 1000
     regime = (n_nodes >= 200 && pc_u >= 3.0) ? "well-identified" :
@@ -205,7 +210,7 @@ function main()
     @info "SBC matrix" n_attempted n_posterior engines cells = cell_ids threads = nthreads n_nodes pc_u regime smoke = is_smoke
     is_smoke && @warn "n_attempted < 1000 — this is a SMOKE run, NOT a calibration claim. Use SBC_N≥1000 for claims."
 
-    records = run_sbc_matrix(; n_attempted, n_posterior, engines, cell_ids, executor, n_nodes, pc_u)
+    records = run_sbc_matrix(; n_attempted, n_posterior, engines, cell_ids, executor, n_nodes, pc_u, hmc_nsamples, hmc_nwarmup)
 
     payload = (;
         kind = "sbc_matrix",
