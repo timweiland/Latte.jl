@@ -65,6 +65,15 @@ _robust_initial_value(dist::Distribution) = mode(dist)
 # Specializations for distributions with boundary modes
 _robust_initial_value(dist::Exponential) = mean(dist)  # mode=0, use mean instead
 
+# AR1Correlation's PC prior shrinks toward the base model (ρ=0), so its mode is
+# on the boundary (like Exponential). Seed at the median of the |ρ| distribution
+# instead: the distance d(ρ)=√(-log(1-ρ²)) is Exponential(rate λ), whose median
+# is log(2)/λ.
+function _robust_initial_value(dist::PCPrior.AR1Correlation)
+    d_med = log(2) / dist.λ
+    return sqrt(1 - exp(-d_med^2))
+end
+
 # For a TransformedDistribution we want the *working-space* mode, not the
 # natural-space mode mapped through the bijector. They differ by a Jacobian
 # term: π_w(u) = π_n(t⁻¹(u)) * |dt⁻¹/du|. Skipping the Jacobian (the old

@@ -51,6 +51,15 @@ using HCubature
         @test logpdf(d_pos, 0.5) ≈ logpdf(d, 0.5) + log(2)
     end
 
+    @testset "mode is the base model ρ=0" begin
+        # The PC prior shrinks toward the base AR(1) model (ρ=0), so its mode
+        # sits at 0. Without an explicit `mode`, the mode-finder's initial
+        # guess falls through to the generic `mode`, which tries to iterate
+        # the distribution and throws.
+        @test mode(PCPrior.AR1Correlation(0.9; α = 0.05, positive_only = true)) == 0.0
+        @test mode(PCPrior.AR1Correlation(0.9; α = 0.05)) == 0.0
+    end
+
     @testset "Calibration (positive_only): P(ρ > U) ≈ α" begin
         U = 0.9
         α = 0.05
