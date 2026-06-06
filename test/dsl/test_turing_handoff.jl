@@ -1,6 +1,6 @@
 using Test
 using Latte
-using DynamicPPL: @model
+using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using Turing
@@ -51,5 +51,46 @@ using Statistics
         τ_nuts_med = median(chain[:τ])
         τ_inla_med = median(result.hyperparameter_marginals[1])
         @test 1 / 3 < τ_nuts_med / τ_inla_med < 3
+    end
+
+    @testset "@latte dppl_model couples hyperparameters to the latent" begin
+        # `Latte.dppl_model` of an @latte model with a *recognized* latent
+        # (IIDModel/AR1Model/…) must be a faithful generative model. A regression
+        # guard: the recognized-latent probe used to drop the latent's
+        # hyperparameters (replacing it with a θ-independent MvNormal(0,I)), so
+        # Turing's NUTS saw no coupling and the hyperparameter collapsed onto its
+        # prior.
+
+        ## Unit: the probe must carry the hyperparameters into the prior.
+        m = IIDModel(8)
+        x_probe = randn(8)
+        @test logpdf(Latte._recognized_latent_probe(m, (τ = 0.5,)), x_probe) !=
+            logpdf(Latte._recognized_latent_probe(m, (τ = 50.0,)), x_probe)
+
+        ## Behavioural: Turing on the @latte handoff agrees with INLA, and the
+        ## hyperparameter is updated away from its prior.
+        Random.seed!(20260424)
+        @latte function iid_poisson_latte(y, n)
+            τ ~ PCPrior.Precision(1.0, α = 0.01)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(x[i]); check_args = false)
+            end
+        end
+
+        n = 20
+        true_x = randn(n) .* 0.6 .+ 0.8
+        y = rand.(Poisson.(exp.(true_x)))
+
+        dppl = Latte.dppl_model(iid_poisson_latte)(y, n)
+        chain = sample(dppl, NUTS(), 1500; progress = false)
+        τ_nuts_med = median(chain[:τ])
+
+        result = inla(iid_poisson_latte(y, n), y; progress = false)
+        τ_inla_med = median(hyperparameter_marginals(result, :τ)[1])
+        τ_prior_med = median(rand(PCPrior.Precision(1.0, α = 0.01), 50_000))
+
+        @test 1 / 3 < τ_nuts_med / τ_inla_med < 3                  # agrees with INLA
+        @test abs(log(τ_nuts_med) - log(τ_prior_med)) > log(2)     # not the prior
     end
 end

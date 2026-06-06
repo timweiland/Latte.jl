@@ -72,16 +72,32 @@ make_workspace(m::RoutedLatentModel; kwargs...) =
 make_workspace_pool(m::RoutedLatentModel; size::Int = Threads.nthreads(), kwargs...) =
     make_workspace_pool(m.inner; size = size, _route_inner_kwargs(m, kwargs)...)
 
-# Recognised-path probing stand-in. `@latte` assembly evaluates the model body
-# to extract hyperparameters / dims / the observation likelihood; for a
-# recognized latent the real prior is supplied separately, so the body's latent
-# `~` slot only needs a cheap dimension-matched distribution — never the real
-# prior, which a workspace-only backend refuses to materialise. A
-# non-`LatentModel` callee (a curried distribution factory bound for the DAG
+# Probing stand-in for the `~` slot of a recognized latent in the DPPL model
+# behind `@latte` — serves both `@latte` assembly and the `Latte.dppl_model`
+# Turing handoff.
+#
+# For a latent with a sparse precision (AR1, IID, Besag, Matérn, …) we
+# materialise the *real* prior `m(; kw...)` so the DPPL model is a faithful
+# generative model and the Turing handoff couples the hyperparameters to the
+# latent. Two cases keep the cheap dimension-matched stand-in: workspace-only
+# backends (no single sparse precision, e.g. a filter — their real prior is
+# supplied separately during recognition), and `@latte` *assembly*, which
+# probes the body at a sentinel θ (all 1.0) that is out of domain for bounded
+# hyperparameters (an AR(1) ρ = 1.0) — there only the slot's *shape* matters,
+# so a domain error from the sentinel falls back rather than aborting assembly.
+# A non-`LatentModel` callee (a curried distribution factory for the DAG
 # fallback) is materialised for real.
-_recognized_latent_probe(m::LatentModel, ::NamedTuple) =
-    Distributions.MvNormal(zeros(length(m)), Diagonal(ones(length(m))))
+function _recognized_latent_probe(m::LatentModel, kw::NamedTuple)
+    _has_sparse_precision(m) || return _probe_standin(m)
+    try
+        return m(; kw...)
+    catch e
+        (e isa ArgumentError || e isa DomainError) || rethrow(e)
+        return _probe_standin(m)
+    end
+end
 _recognized_latent_probe(m, kw::NamedTuple) = m(; kw...)
+_probe_standin(m) = Distributions.MvNormal(zeros(length(m)), Diagonal(ones(length(m))))
 
 # Whether Latte can materialise a sparse precision for this latent — used to
 # decide pattern augmentation / auto-augmentation. Workspace-only backends
