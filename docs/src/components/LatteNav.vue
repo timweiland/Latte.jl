@@ -86,6 +86,7 @@ onUnmounted(() => {
           </div>
           <a class="nav-link" href="/tutorials/">Tutorials</a>
           <a class="nav-link" href="/benchmarks/">Benchmarks</a>
+          <a class="nav-link" href="/validation/">Validation</a>
           <a class="nav-link" href="https://github.com/timweiland/Latte.jl">GitHub</a>
           <span class="ver">v0.1-dev</span>
         </div>
