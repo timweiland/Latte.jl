@@ -6,6 +6,18 @@ per cell, with **PIT** ranking (`sbc_run(...; rank_method=:auto)` — required f
 grid/Laplace engines, whose posterior θ is quantized to a few integration-grid
 points).
 
+**Verdict** (in `benchmark/render_validation.jl`): the Säilynoja, Bürkner &
+Vehtari (2022) ECDF test with 95% *simultaneous* confidence bands defines
+*within band*. Because at n≈10³ that test detects even tiny error, cells failing
+it are tiered by KS effect size — *minor* (≤0.10 max-CDF deviation,
+approximation-level) vs *substantial* (>0.10) — so an approximate-but-usable
+engine isn't conflated with a genuinely-off one. The harness stores a 100-bin
+rank histogram per cell to drive this offline.
+
+**Sanity-checked**: on the Gaussian-IID model an SBC run against the *exact*
+posterior is uniform (τ KS 0.059, σ KS 0.041 at the 0.068 band), confirming the
+reference + harness + PIT machinery are correct independently of any engine.
+
 | file | regime | n_nodes | pc_u | n_attempted | engines | 95% KS band |
 |------|--------|--------:|-----:|------------:|---------|------------:|
 | `stress_n1000_inla_tmb.json` | weak-id stress | 30 | 1.0 | 1000 | inla, tmb | 0.043 |

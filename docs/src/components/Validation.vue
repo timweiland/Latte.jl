@@ -2,7 +2,8 @@
 import { ref, computed } from 'vue'
 import validationData from '../data/validation_results.json'
 
-type Row = { cell: string; target: string; ks: number | null; verdict: 'pass' | 'border' | 'fail' | 'n/a'; non_identified?: boolean }
+type Verdict = 'pass' | 'minor' | 'substantial' | 'border' | 'fail' | 'n/a'
+type Row = { cell: string; target: string; ks: number | null; verdict: Verdict; non_identified?: boolean }
 type Regime = {
   regime: string
   n_attempted: number
@@ -11,6 +12,8 @@ type Regime = {
   band95: number
   n: number
   n_pass: number
+  n_minor: number
+  n_substantial: number
   rows: Row[]
 }
 type Engine = { engine: string; regimes: Regime[] }
@@ -30,7 +33,10 @@ const engineBlurb: Record<string, string> = {
 const active = ref(engines[0]?.engine ?? '')
 const activeEngine = computed(() => engines.find(e => e.engine === active.value) ?? engines[0])
 
-const verdictLabel: Record<Row['verdict'], string> = { pass: 'pass', border: '≈ band', fail: 'fail', 'n/a': '—' }
+const verdictLabel: Record<Verdict, string> = {
+  pass: 'within band', minor: 'minor', substantial: 'substantial',
+  border: '≈ band', fail: 'fail', 'n/a': '—',
+}
 const cls = (v: string) => v.replace('/', '')
 const ksText = (ks: number | null) => (ks === null ? '—' : ks.toFixed(3))
 const regimeTitle = (r: string) =>
@@ -59,8 +65,8 @@ const regimeTitle = (r: string) =>
             <p>Scalar hyperparameters ranked by their PIT, <code>cdf(marginal, truth)</code>. Required for grid/Laplace engines — INLA draws θ from a few integration-grid points, so naive sample ranks pick up a spurious staircase.</p>
           </div>
           <div>
-            <div class="how-tag">NULL BAND</div>
-            <p>95% band is <code>1.36/√n</code>. <span class="v-pass">pass</span> ≤ band, <span class="v-border">≈ band</span> ≤ 1.6× band, <span class="v-fail">fail</span> beyond. Many cells ⇒ expect a few over by chance.</p>
+            <div class="how-tag">VERDICT (effect-size tiered)</div>
+            <p><span class="v-pass">within band</span> = passes the Säilynoja et al. (2022) 95% <em>simultaneous</em>-band ECDF test. At ~10³ replicates that test detects even tiny error, so a fail is tiered by KS: <span class="v-border">minor</span> ≤ 0.10 (approximation-level, fine), <span class="v-fail">substantial</span> &gt; 0.10. A pure significance verdict would flag every approximation at this n.</p>
           </div>
           <div>
             <div class="how-tag">REGIMES</div>
@@ -88,9 +94,11 @@ const regimeTitle = (r: string) =>
             <h2>{{ regimeTitle(reg.regime) }}</h2>
             <p>
               n_nodes {{ reg.n_nodes }} · PC u {{ reg.pc_u }} ·
-              {{ reg.n_attempted }} replicates · band {{ reg.band95.toFixed(3) }}
-              <span class="rollup-inline" :class="{ good: reg.n_pass / reg.n >= 0.7, weak: reg.n_pass / reg.n < 0.4 }">
-                · {{ reg.n_pass }}/{{ reg.n }} within band
+              {{ reg.n_attempted }} replicates
+              <span class="rollup-inline" :class="{ weak: reg.n_substantial > 0 }">
+                · <span class="v-pass">{{ reg.n_pass }} within band</span> ·
+                <span class="v-border">{{ reg.n_minor }} minor</span> ·
+                <span class="v-fail">{{ reg.n_substantial }} substantial</span>
               </span>
             </p>
           </header>
@@ -202,10 +210,10 @@ const regimeTitle = (r: string) =>
   font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 9px; border-radius: 999px; letter-spacing: 0.5px;
 }
 .b-pass { background: rgba(79,122,74,0.15); color: var(--good); }
-.b-border { background: rgba(201,152,106,0.2); color: var(--mocha); }
-.b-fail { background: rgba(192,74,42,0.14); color: var(--berry); }
+.b-minor, .b-border { background: rgba(201,152,106,0.22); color: #8a5a1e; }
+.b-substantial, .b-fail { background: rgba(192,74,42,0.14); color: var(--berry); }
 .b-na { background: #EFE7DA; color: var(--mocha); }
-.vr-fail td { background: rgba(192,74,42,0.04); }
+.vr-substantial td, .vr-fail td { background: rgba(192,74,42,0.04); }
 .nonid-tag { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.5px; color: var(--mocha); background: rgba(139,111,71,0.12); border-radius: 4px; padding: 1px 5px; margin-left: 8px; vertical-align: middle; }
 
 .v-pass { color: var(--good); font-weight: 600; }
