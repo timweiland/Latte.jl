@@ -106,7 +106,6 @@ function hmc_laplace(
     # Normalize y (Vector{Int} → PoissonObservations, etc.)
     y_obs, model, _ = _prepare_for_prediction(model, y)
     spec = model.hyperparameter_spec
-    names = collect(keys(spec.free))
 
     # ── Step 1: TMB warm-start ───────────────────────────────────────────
     tmb_r = tmb(model, y_obs; diff_strategy = diff_strategy)
@@ -114,8 +113,10 @@ function hmc_laplace(
     Σ_θ = tmb_r.θ_cov
 
     # ── Step 2: build LogDensityProblems target ──────────────────────────
-    sentinel_hp = NamedTuple{Tuple(names)}(Tuple(1.0 for _ in names))
-    ws = make_workspace(model.latent_prior; sentinel_hp...)
+    # Seed the workspace from the in-domain MAP, not a blanket 1.0 (which is
+    # out of domain for bounded hyperparameters such as an AR(1) ρ).
+    θ̂_natural_nt = convert(NamedTuple, convert(NaturalHyperparameters, WorkingHyperparameters(θ̂, spec)))
+    ws = make_workspace(model.latent_prior; θ̂_natural_nt...)
     target = HMCTarget(model, y_obs, ws, spec, length(θ̂))
 
     # ── Step 3: NUTS with Laplace-at-MAP preconditioner ──────────────────
@@ -183,9 +184,10 @@ function Random.rand(rng::AbstractRNG, r::HMCLaplaceResult, n::Int; include_y::B
     # this gives a proper joint x-draw (capturing correlations), matching the
     # convention used in INLA's rand. Batch by unique index to amortize the
     # Laplace reconstruction cost.
-    names = collect(keys(spec.free))
-    sentinel_hp = NamedTuple{Tuple(names)}(Tuple(1.0 for _ in names))
-    ws = make_workspace(r.model.latent_prior; sentinel_hp...)
+    # Seed the workspace from an in-domain posterior draw, not a blanket 1.0
+    # (out of domain for bounded hyperparameters such as an AR(1) ρ).
+    seed_nt = convert(NamedTuple, convert(NaturalHyperparameters, WorkingHyperparameters(r.θ_samples[1, :], spec)))
+    ws = make_workspace(r.model.latent_prior; seed_nt...)
 
     for k in unique(idxs)
         θ_wh = WorkingHyperparameters(r.θ_samples[k, :], spec)

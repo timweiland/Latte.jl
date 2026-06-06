@@ -40,6 +40,9 @@ end
 Distributions.minimum(d::AR1Correlation) = d.positive_only ? 0.0 : -1.0
 Distributions.maximum(::AR1Correlation) = 1.0
 
+# The PC prior shrinks toward the base AR(1) model (ρ=0), so the mode is at 0.
+Distributions.mode(::AR1Correlation) = 0.0
+
 function Distributions.logpdf(d::AR1Correlation, ρ::Real)
     # Support check — strict inequalities exclude ρ=0 in both branches
     if d.positive_only
