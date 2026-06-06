@@ -103,7 +103,9 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
 
         # Reconstruct Gaussian approximation at this θ
         ga, θ_natural_nt = _reconstruct_ga(m, y_obs, point.θ, ws)
-        θ_natural_vec = collect(values(θ_natural_nt))
+        # Free hyperparameters only — the θ matrix has one column per free hp
+        # (θ_natural_nt also carries any fixed values, used below for y).
+        θ_natural_vec = collect(convert(NaturalHyperparameters, point.θ))
 
         for i in findall(==(idx), point_indices)
             θ_mat[i, :] = θ_natural_vec
