@@ -194,7 +194,9 @@ function Random.rand(rng::AbstractRNG, r::HMCLaplaceResult, n::Int; include_y::B
     for k in unique(idxs)
         θ_wh = WorkingHyperparameters(r.θ_samples[k, :], spec)
         θ_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_wh))
-        θ_nat_vec = collect(values(θ_nt))
+        # Free hyperparameters only — the θ matrix has one column per free hp
+        # (θ_nt also carries any fixed values, used below for the densities).
+        θ_nat_vec = collect(convert(NaturalHyperparameters, θ_wh))
         prior = r.model.latent_prior(ws; θ_nt...)
         obs_lik = r.model.observation_model(r.observations; θ_nt...)
         x_post = gaussian_approximation(prior, obs_lik)
