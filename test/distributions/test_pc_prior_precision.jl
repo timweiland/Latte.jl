@@ -85,4 +85,60 @@ using HCubature
 
         @test abs(empirical_cdf - cdf_integral) < 0.02
     end
+
+    @testset "cdf basic properties" begin
+        d = PCPrior.Precision(1.0; α = 0.05)
+        λ = d.λ
+        @test cdf(d, 0.0) == 0.0
+        @test cdf(d, -1.0) == 0.0
+        @test cdf(d, Inf) == 1.0
+        @test cdf(d, 1.0) ≈ exp(-λ)
+        @test cdf(d, 1.0) ≈ 0.05 atol = 1.0e-12   # P(τ < 1/U²) = α at U=1
+        ts = [0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 20.0]
+        @test issorted(cdf.(Ref(d), ts))
+        @test all(0 .<= cdf.(Ref(d), ts) .<= 1)
+    end
+
+    @testset "cdf consistent with logpdf (numerical integration)" begin
+        d = PCPrior.Precision(1.0; α = 0.05)
+        for t in (0.3, 1.0, 3.0, 10.0)
+            num, _ = hcubature([-40.0], [log(t)]) do s
+                τ = exp(s[1])
+                exp(logpdf(d, τ) + s[1])   # Jacobian dτ = τ ds
+            end
+            @test cdf(d, t) ≈ num atol = 1.0e-6
+        end
+    end
+
+    @testset "quantile is the cdf inverse" begin
+        d = PCPrior.Precision(2.0)
+        for p in (0.01, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99)
+            q = quantile(d, p)
+            @test q > 0
+            @test cdf(d, q) ≈ p atol = 1.0e-10
+        end
+        @test quantile(d, 0.0) == 0.0
+        @test quantile(d, 1.0) == Inf
+        @test_throws DomainError quantile(d, -0.1)
+        @test_throws DomainError quantile(d, 1.5)
+    end
+
+    @testset "median == quantile(0.5), in support, above mode" begin
+        d = PCPrior.Precision(1.0; α = 0.05)
+        m = median(d)
+        @test m == quantile(d, 0.5)
+        @test m ≈ (d.λ / log(0.5))^2
+        @test insupport(d, m)
+        @test cdf(d, m) ≈ 0.5 atol = 1.0e-12
+        @test m > mode(d)                  # right-skewed
+    end
+
+    @testset "introspection does not crash (regression)" begin
+        d = PCPrior.Precision(1.0; α = 0.05)
+        @test isfinite(cdf(d, mode(d)))
+        @test isfinite(quantile(d, 0.5))
+        @test isfinite(median(d))
+        @test insupport(d, mode(d))
+        @test insupport(d, median(d))
+    end
 end
