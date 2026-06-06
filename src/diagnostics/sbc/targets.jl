@@ -1,4 +1,4 @@
-using Distributions: VariateForm, Univariate, Multivariate
+using Distributions: VariateForm, Univariate, Multivariate, logpdf
 
 export resolve_targets
 
@@ -108,3 +108,60 @@ _as_scalar(x::AbstractVector{<:Real}) =
         "SBC target extraction: sym expects a scalar but produced a length-$(length(x)) vector. " *
         "Did you pass a multivariate sym via `NamedScalars`? That is handled via vector-valued descriptors."
     )
+
+# ─── Data-dependent (derived) quantities ──────────────────────────────
+
+"""Observation log-likelihood `log p(y | x, θ)`: the exact density the
+prior-predictive `y` was drawn from. `θ_nt` carries free hyperparameters
+in natural space plus any fixed ones."""
+function _sbc_loglik(lgm, θ_nt::NamedTuple, x::AbstractVector, y)
+    η = _x_for_obs_model(lgm, x)
+    dist = GaussianMarkovRandomFields.conditional_distribution(lgm.observation_model, η; θ_nt...)
+    return logpdf(dist, y)
+end
+
+"""Complete-data log-likelihood `log p(y, x | θ) = log p(y | x, θ) +
+log p(x | θ)`, adding the latent GMRF log-prior at the natural-space θ."""
+function _sbc_complete(lgm, θ_nt::NamedTuple, x::AbstractVector, y)
+    return _sbc_loglik(lgm, θ_nt, x, y) + logpdf(latent_gmrf(lgm, θ_nt), x)
+end
+
+"""
+    resolve_targets(t::DataDependentQuantity, lgm) -> [DerivedTargetDescriptor]
+
+Resolve a derived-quantity target. The descriptor evaluates `t.f` at the
+true `(θ, x)` and at every posterior draw, ranking the truth among them.
+Both the true and posterior hyperparameters are reconstructed to the full
+natural-space NamedTuple (free draws + fixed values) so `t.f` sees a
+consistent representation.
+"""
+function resolve_targets(t::DataDependentQuantity, lgm)
+    spec = lgm.hyperparameter_spec
+
+    extract_truth = ctx -> begin
+        ctx.latent_truth === nothing && throw(
+            ArgumentError(
+                "DataDependentQuantity requires the prior-drawn latent truth, which is recorded " *
+                    "only on the LGM SBC path (build_model returning a LatentGaussianModel). " *
+                    "DPPL-path latent assembly is future work."
+            )
+        )
+        # truth_nt is already the full natural-space NamedTuple (free + fixed).
+        return Float64(t.f(ctx.lgm, ctx.truth_nt, ctx.latent_truth, ctx.y))
+    end
+
+    extract_posterior = ctx -> begin
+        ctx.x_mat === nothing && throw(
+            ArgumentError("DataDependentQuantity requires posterior latent draws (samples.x).")
+        )
+        npost = size(ctx.θ_mat, 1)
+        out = Vector{Float64}(undef, npost)
+        for l in 1:npost
+            θ_nt = convert(NamedTuple, NaturalHyperparameters(collect(view(ctx.θ_mat, l, :)), spec))
+            out[l] = Float64(t.f(ctx.lgm, θ_nt, view(ctx.x_mat, l, :), ctx.y))
+        end
+        return out
+    end
+
+    return DerivedTargetDescriptor[DerivedTargetDescriptor(t.label, extract_truth, extract_posterior)]
+end

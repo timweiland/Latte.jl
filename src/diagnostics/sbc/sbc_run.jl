@@ -226,10 +226,11 @@ function _run_one_replicate(
     end
 
     # Stage 4: posterior sample
-    local θ_mat
+    local θ_mat, x_mat
     try
         samples = rand(rng, inf_result, n_posterior)
         θ_mat = samples.θ
+        x_mat = samples.x
     catch e
         return (;
             kind = :failure, failure = SBCFailure(
@@ -239,14 +240,18 @@ function _run_one_replicate(
         )
     end
 
-    # Stage 5: rank
+    # Stage 5: rank. Targets see either the truth NamedTuple + θ matrix
+    # (scalar targets) or the full per-replicate context (derived targets).
     local ranks_row, truths_row
     try
+        ctx = (;
+            truth_nt = truth_nt, latent_truth = rep.latent_truth,
+            θ_mat = θ_mat, x_mat = x_mat, y = rep.y, lgm = lgm,
+        )
         ranks_row = Vector{Int}(undef, length(descriptors))
         truths_row = Vector{Float64}(undef, length(descriptors))
         for (j, d) in enumerate(descriptors)
-            truth_val = d.extract_truth(truth_nt)
-            post = d.extract_posterior(θ_mat)
+            truth_val, post = _extract_target(d, ctx)
             ranks_row[j] = _rank(post, truth_val, rng)
             truths_row[j] = truth_val
         end
@@ -272,6 +277,14 @@ function _run_one_replicate(
         diagnostics = diag,
     )
 end
+
+# Dispatch a descriptor against the per-replicate context, returning
+# `(truth_val, posterior_draws)`. Scalar targets read the truth NamedTuple
+# and θ matrix directly; derived targets consume the whole context.
+_extract_target(d::TargetDescriptor, ctx) =
+    (d.extract_truth(ctx.truth_nt), d.extract_posterior(ctx.θ_mat))
+_extract_target(d::DerivedTargetDescriptor, ctx) =
+    (d.extract_truth(ctx), d.extract_posterior(ctx))
 
 """Rank of `truth` in `posterior_draws`. Talts et al. style:
 `r = #{ l : draws[l] < truth } + tie_break` where ties are broken
