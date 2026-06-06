@@ -1,0 +1,409 @@
+{
+    "kind": "sbc_matrix",
+    "n_attempted": 1000,
+    "n_posterior": 500,
+    "engines": [
+        "inla",
+        "tmb"
+    ],
+    "is_calibration_claim": true,
+    "note": "Calibration run (n_attempted≥1000).",
+    "records": [
+        {
+            "cell": "poisson_iid",
+            "engine": "inla",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.5183,
+                    "var_q": 0.1,
+                    "ks_uniform": 0.0701,
+                    "cov50": 0.453,
+                    "cov80": 0.714,
+                    "cov95": 0.854
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.4861,
+                    "var_q": 0.08,
+                    "ks_uniform": 0.0379,
+                    "cov50": 0.524,
+                    "cov80": 0.804,
+                    "cov95": 0.957
+                }
+            ]
+        },
+        {
+            "cell": "poisson_iid",
+            "engine": "tmb",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.6812,
+                    "var_q": 0.0767,
+                    "ks_uniform": 0.2416,
+                    "cov50": 0.423,
+                    "cov80": 0.668,
+                    "cov95": 0.799
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.4066,
+                    "var_q": 0.0808,
+                    "ks_uniform": 0.1989,
+                    "cov50": 0.502,
+                    "cov80": 0.758,
+                    "cov95": 0.91
+                }
+            ]
+        },
+        {
+            "cell": "poisson_rw1",
+            "engine": "inla",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.5127,
+                    "var_q": 0.1007,
+                    "ks_uniform": 0.0731,
+                    "cov50": 0.468,
+                    "cov80": 0.702,
+                    "cov95": 0.841
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.4913,
+                    "var_q": 0.0859,
+                    "ks_uniform": 0.026,
+                    "cov50": 0.4715,
+                    "cov80": 0.7878,
+                    "cov95": 0.9389
+                }
+            ]
+        },
+        {
+            "cell": "poisson_rw1",
+            "engine": "tmb",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.62,
+                    "var_q": 0.0845,
+                    "ks_uniform": 0.1545,
+                    "cov50": 0.465,
+                    "cov80": 0.721,
+                    "cov95": 0.846
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.4458,
+                    "var_q": 0.089,
+                    "ks_uniform": 0.099,
+                    "cov50": 0.472,
+                    "cov80": 0.748,
+                    "cov95": 0.918
+                }
+            ]
+        },
+        {
+            "cell": "bernoulli_iid",
+            "engine": "inla",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.4945,
+                    "var_q": 0.1043,
+                    "ks_uniform": 0.069,
+                    "cov50": 0.429,
+                    "cov80": 0.7,
+                    "cov95": 0.841
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.4952,
+                    "var_q": 0.0809,
+                    "ks_uniform": 0.0273,
+                    "cov50": 0.522,
+                    "cov80": 0.809,
+                    "cov95": 0.956
+                }
+            ]
+        },
+        {
+            "cell": "bernoulli_iid",
+            "engine": "tmb",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.6297,
+                    "var_q": 0.0823,
+                    "ks_uniform": 0.1705,
+                    "cov50": 0.442,
+                    "cov80": 0.729,
+                    "cov95": 0.862
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.4912,
+                    "var_q": 0.0725,
+                    "ks_uniform": 0.1341,
+                    "cov50": 0.635,
+                    "cov80": 0.805,
+                    "cov95": 0.891
+                }
+            ]
+        },
+        {
+            "cell": "bernoulli_rw1",
+            "engine": "inla",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.4982,
+                    "var_q": 0.1062,
+                    "ks_uniform": 0.072,
+                    "cov50": 0.439,
+                    "cov80": 0.688,
+                    "cov95": 0.826
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.5086,
+                    "var_q": 0.0848,
+                    "ks_uniform": 0.0293,
+                    "cov50": 0.517,
+                    "cov80": 0.771,
+                    "cov95": 0.93
+                }
+            ]
+        },
+        {
+            "cell": "bernoulli_rw1",
+            "engine": "tmb",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.6356,
+                    "var_q": 0.0877,
+                    "ks_uniform": 0.1974,
+                    "cov50": 0.421,
+                    "cov80": 0.693,
+                    "cov95": 0.834
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.4609,
+                    "var_q": 0.0854,
+                    "ks_uniform": 0.1112,
+                    "cov50": 0.511,
+                    "cov80": 0.761,
+                    "cov95": 0.893
+                }
+            ]
+        },
+        {
+            "cell": "normal_iid",
+            "engine": "inla",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.437,
+                    "var_q": 0.1707,
+                    "ks_uniform": 0.3021,
+                    "cov50": 0.203,
+                    "cov80": 0.355,
+                    "cov95": 0.462
+                },
+                {
+                    "target": "σ",
+                    "mean_q": 0.3907,
+                    "var_q": 0.122,
+                    "ks_uniform": 0.2671,
+                    "cov50": 0.347,
+                    "cov80": 0.559,
+                    "cov95": 0.66
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.5683,
+                    "var_q": 0.1212,
+                    "ks_uniform": 0.22,
+                    "cov50": 0.342,
+                    "cov80": 0.604,
+                    "cov95": 0.729
+                }
+            ]
+        },
+        {
+            "cell": "normal_iid",
+            "engine": "tmb",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.5637,
+                    "var_q": 0.0874,
+                    "ks_uniform": 0.1152,
+                    "cov50": 0.471,
+                    "cov80": 0.779,
+                    "cov95": 0.878
+                },
+                {
+                    "target": "σ",
+                    "mean_q": 0.4194,
+                    "var_q": 0.0893,
+                    "ks_uniform": 0.166,
+                    "cov50": 0.518,
+                    "cov80": 0.724,
+                    "cov95": 0.808
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.6264,
+                    "var_q": 0.1024,
+                    "ks_uniform": 0.309,
+                    "cov50": 0.464,
+                    "cov80": 0.624,
+                    "cov95": 0.669
+                }
+            ]
+        },
+        {
+            "cell": "normal_rw1",
+            "engine": "inla",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.4815,
+                    "var_q": 0.1066,
+                    "ks_uniform": 0.0753,
+                    "cov50": 0.438,
+                    "cov80": 0.676,
+                    "cov95": 0.823
+                },
+                {
+                    "target": "σ",
+                    "mean_q": 0.4847,
+                    "var_q": 0.1025,
+                    "ks_uniform": 0.0671,
+                    "cov50": 0.428,
+                    "cov80": 0.707,
+                    "cov95": 0.85
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.5044,
+                    "var_q": 0.0959,
+                    "ks_uniform": 0.0461,
+                    "cov50": 0.457,
+                    "cov80": 0.732,
+                    "cov95": 0.89
+                }
+            ]
+        },
+        {
+            "cell": "normal_rw1",
+            "engine": "tmb",
+            "n_attempted": 1000,
+            "n_posterior": 500,
+            "n_success": 1000,
+            "n_failures": 0,
+            "status": "valid",
+            "ks_null_band_95": 0.043,
+            "targets": [
+                {
+                    "target": "τ",
+                    "mean_q": 0.5359,
+                    "var_q": 0.0885,
+                    "ks_uniform": 0.0702,
+                    "cov50": 0.497,
+                    "cov80": 0.756,
+                    "cov95": 0.897
+                },
+                {
+                    "target": "σ",
+                    "mean_q": 0.4873,
+                    "var_q": 0.0862,
+                    "ks_uniform": 0.0331,
+                    "cov50": 0.496,
+                    "cov80": 0.78,
+                    "cov95": 0.92
+                },
+                {
+                    "target": "loglik",
+                    "mean_q": 0.5705,
+                    "var_q": 0.1115,
+                    "ks_uniform": 0.1831,
+                    "cov50": 0.39,
+                    "cov80": 0.633,
+                    "cov95": 0.791
+                }
+            ]
+        }
+    ]
+}
