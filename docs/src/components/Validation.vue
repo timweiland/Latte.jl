@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import validationData from '../data/validation_results.json'
 
 type Verdict = 'pass' | 'minor' | 'substantial' | 'border' | 'fail' | 'n/a'
-type Row = { cell: string; target: string; ks: number | null; verdict: Verdict; non_identified?: boolean }
+type Row = { cell: string; target: string; ks: number | null; verdict: Verdict; non_identified?: boolean; ecdf_diff?: number[] | null }
 type Regime = {
   regime: string
   n_attempted: number
@@ -14,6 +14,8 @@ type Regime = {
   n_pass: number
   n_minor: number
   n_substantial: number
+  band_lo: number[]
+  band_hi: number[]
   rows: Row[]
 }
 type Engine = { engine: string; regimes: Regime[] }
@@ -38,6 +40,20 @@ const verdictLabel: Record<Verdict, string> = {
   border: '≈ band', fail: 'fail', 'n/a': '—',
 }
 const cls = (v: string) => v.replace('/', '')
+
+// ── ECDF-difference sparklines (Säilynoja): curve ECDF(z)−z vs the band ──
+const bandZ = validationData.band_z as number[]
+const PW = 132, PH = 40, YMAX = 0.2
+const px = (z: number) => +(z * PW).toFixed(1)
+const py = (v: number) => +(PH / 2 - Math.max(-YMAX, Math.min(YMAX, v)) / YMAX * (PH / 2 - 2)).toFixed(1)
+const bandPath = (lo: number[], hi: number[]) => {
+  if (!lo || !hi) return ''
+  const top = bandZ.map((z, i) => `${px(z)},${py(hi[i])}`)
+  const bot = bandZ.map((z, i) => `${px(z)},${py(lo[i])}`).reverse()
+  return 'M' + top.join(' L') + ' L' + bot.join(' L') + ' Z'
+}
+const curvePath = (diff: number[] | null) =>
+  diff ? 'M' + bandZ.map((z, i) => `${px(z)},${py(diff[i])}`).join(' L') : ''
 const ksText = (ks: number | null) => (ks === null ? '—' : ks.toFixed(3))
 const regimeTitle = (r: string) =>
   r === 'well-identified' ? 'Well-identified' : r === 'stress (weak-id)' ? 'Weak-identification stress' : r
@@ -66,7 +82,7 @@ const regimeTitle = (r: string) =>
           </div>
           <div>
             <div class="how-tag">VERDICT (effect-size tiered)</div>
-            <p><span class="v-pass">within band</span> = passes the Säilynoja et al. (2022) 95% <em>simultaneous</em>-band ECDF test. At ~10³ replicates that test detects even tiny error, so a fail is tiered by KS: <span class="v-border">minor</span> ≤ 0.10 (approximation-level, fine), <span class="v-fail">substantial</span> &gt; 0.10. A pure significance verdict would flag every approximation at this n.</p>
+            <p><span class="v-pass">within band</span> = passes the Säilynoja et al. (2022) 95% <em>simultaneous</em>-band ECDF test. At ~10³ replicates that test detects even tiny error, so a fail is tiered by KS: <span class="v-border">minor</span> ≤ 0.10 (approximation-level, fine), <span class="v-fail">substantial</span> &gt; 0.10. The sparkline plots each cell's rank ECDF minus uniform against that band — a curve hugging zero inside the shaded band is calibrated.</p>
           </div>
           <div>
             <div class="how-tag">REGIMES</div>
@@ -105,12 +121,19 @@ const regimeTitle = (r: string) =>
 
           <table class="val-table">
             <thead>
-              <tr><th>cell</th><th>quantity</th><th class="num">KS</th><th>verdict</th></tr>
+              <tr><th>cell</th><th>quantity</th><th class="ecdf-h">ECDF − z vs band</th><th class="num">KS</th><th>verdict</th></tr>
             </thead>
             <tbody>
               <tr v-for="(row, i) in reg.rows" :key="i" :class="'vr-' + cls(row.verdict)">
                 <td class="mono">{{ row.cell }}<span v-if="row.non_identified" class="nonid-tag" title="non-identified model: only σ²+1/τ is identified — a deliberate stress case">non-id</span></td>
                 <td class="mono">{{ row.target }}</td>
+                <td>
+                  <svg class="spark" :viewBox="`0 0 ${PW} ${PH}`" preserveAspectRatio="none" aria-hidden="true">
+                    <path class="spark-band" :d="bandPath(reg.band_lo, reg.band_hi)" />
+                    <line class="spark-zero" :x1="0" :y1="py(0)" :x2="PW" :y2="py(0)" />
+                    <path class="spark-curve" :class="'sc-' + cls(row.verdict)" :d="curvePath(row.ecdf_diff)" />
+                  </svg>
+                </td>
                 <td class="num mono">{{ ksText(row.ks) }}</td>
                 <td><span class="badge" :class="'b-' + cls(row.verdict)">{{ verdictLabel[row.verdict] }}</span></td>
               </tr>
@@ -215,6 +238,15 @@ const regimeTitle = (r: string) =>
 .b-na { background: #EFE7DA; color: var(--mocha); }
 .vr-substantial td, .vr-fail td { background: rgba(192,74,42,0.04); }
 .nonid-tag { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.5px; color: var(--mocha); background: rgba(139,111,71,0.12); border-radius: 4px; padding: 1px 5px; margin-left: 8px; vertical-align: middle; }
+
+.ecdf-h { width: 140px; }
+.spark { width: 132px; height: 40px; display: block; }
+.spark-band { fill: rgba(139,111,71,0.14); stroke: none; }
+.spark-zero { stroke: rgba(139,111,71,0.45); stroke-width: 0.5; stroke-dasharray: 2 2; }
+.spark-curve { fill: none; stroke-width: 1.4; }
+.sc-pass { stroke: var(--good); }
+.sc-minor, .sc-border { stroke: #C98A3A; }
+.sc-substantial, .sc-fail { stroke: var(--berry); }
 
 .v-pass { color: var(--good); font-weight: 600; }
 .v-border { color: var(--mocha); font-weight: 600; }
