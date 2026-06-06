@@ -60,7 +60,24 @@ end
 Compute a robust initial value for optimization from a distribution.
 Uses mode by default, but can be specialized for distributions with boundary modes.
 """
-_robust_initial_value(dist::Distribution) = mode(dist)
+function _robust_initial_value(dist::Distribution)
+    try
+        return mode(dist)
+    catch e
+        # A prior with no `Distributions.mode` falls through to the generic
+        # `mode`, which tries to iterate the distribution and throws a cryptic
+        # MethodError. Turn that into an actionable message.
+        e isa MethodError || rethrow(e)
+        throw(
+            ArgumentError(
+                "Hyperparameter mode-finding needs an initial guess from the prior " *
+                    "$(typeof(dist)), but `Distributions.mode` is not available for it. " *
+                    "Define `Distributions.mode` (or `Distributions.median`) for this prior, " *
+                    "or pass an explicit `mode_init = (; hpname = value, …)` to inla / tmb / hmc_laplace.",
+            ),
+        )
+    end
+end
 
 # Specializations for distributions with boundary modes
 _robust_initial_value(dist::Exponential) = mean(dist)  # mode=0, use mean instead

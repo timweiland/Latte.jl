@@ -9,6 +9,23 @@ using Optim
 using FiniteDiff
 using Random
 
+# Regression: a prior without `Distributions.mode` must yield an actionable
+# error from the mode-finder, not a cryptic `MethodError: iterate`.
+struct _NoModePrior <: ContinuousUnivariateDistribution end
+Distributions.logpdf(::_NoModePrior, x::Real) = -abs(x)
+
+@testset "mode-finder: actionable error for a prior lacking `mode`" begin
+    err = try
+        Latte._robust_initial_value(_NoModePrior())
+        nothing
+    catch e
+        e
+    end
+    @test err isa ArgumentError
+    @test occursin("mode_init", err.msg)
+    @test occursin("_NoModePrior", err.msg)
+end
+
 @testset "Mode Finding" begin
 
     @testset "Basic hyperparameter_logpdf" begin
