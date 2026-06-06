@@ -1,16 +1,12 @@
 # [Main Interface](@id main-interface)
 
-The [`inla`](@ref) function is the primary entry point for performing Integrated Nested Laplace Approximation. It provides a unified, user-friendly interface that handles all aspects of INLA inference automatically.
+Latte's unified interface: **define a latent Gaussian model once**, run it through
+any inference engine — [`inla`](@ref), [`tmb`](@ref), or [`hmc_laplace`](@ref) — and
+work with the results through a single API.
 
-## What is INLA?
-
-Integrated Nested Laplace Approximation (INLA) is a method for fast approximate Bayesian inference in latent Gaussian models. Instead of using expensive MCMC sampling, INLA uses clever analytical approximations and numerical integration to compute posterior marginals directly.
-
-**Key advantages:**
-- **Speed**: Orders of magnitude faster than MCMC
-- **Accuracy**: High-quality approximations for most models  
-- **Deterministic**: Same results every run (no MCMC uncertainty)
-- **Automatic**: Minimal tuning required
+For the methods themselves and when to reach for each, see the engine pages,
+starting with [INLA](engines/inla.md). This page covers **defining models**,
+**calling an engine**, and **working with results**.
 
 ## Quick Start
 
@@ -55,10 +51,13 @@ latent_marginals = result.latent_marginals
 posterior_mode = result.hyperparameter_mode
 ```
 
-## The `inla` Function
+## Running an engine
 
-```@docs
-inla
+The full `inla` reference and the method itself live on the [INLA](engines/inla.md)
+page (and the other engine pages). The short version is just:
+
+```julia
+result = inla(model, y)        # or tmb(model, y), or hmc_laplace(model, y)
 ```
 
 ## Defining models
