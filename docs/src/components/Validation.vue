@@ -149,6 +149,28 @@ const regimeTitle = (r: string) =>
         </ul>
         <p class="gen">Generated {{ generatedAt }} · <code>benchmark/render_validation.jl</code></p>
       </section>
+
+      <section class="val-refs">
+        <h2>References</h2>
+        <div class="ref-grid">
+          <PaperCite
+            tag="SBC"
+            title="Validating Bayesian Inference Algorithms with Simulation-Based Calibration"
+            authors="S. Talts, M. Betancourt, D. Simpson, A. Vehtari & A. Gelman"
+            venue="arXiv preprint" year="2018"
+            arxiv="1804.06788"
+            url="https://arxiv.org/abs/1804.06788"
+            abstract="Introduces SBC: under exact inference, the rank of each prior-drawn parameter within its posterior is uniform, so non-uniform ranks diagnose miscalibration of any Bayesian computation." />
+          <PaperCite
+            tag="Calibration test"
+            title="Graphical test for discrete uniformity and its applications in goodness-of-fit evaluation and multiple sample comparison"
+            authors="T. Säilynoja, P.-C. Bürkner & A. Vehtari"
+            venue="Statistics and Computing" year="2022"
+            doi="10.1007/s11222-022-10090-6"
+            url="https://doi.org/10.1007/s11222-022-10090-6"
+            abstract="The ECDF-difference test with exact simultaneous confidence bands used here for the verdict — controlling family-wise error across the whole curve, the principled way to test SBC rank uniformity." />
+        </div>
+      </section>
     </div>
   </main>
 </template>
@@ -253,7 +275,10 @@ const regimeTitle = (r: string) =>
 .v-fail { color: var(--berry); font-weight: 600; }
 
 .val-notes { margin-top: 48px; }
-.val-notes h2 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; font-size: 24px; margin: 0 0 16px; }
+.val-notes h2, .val-refs h2 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; font-size: 24px; margin: 0 0 16px; }
+.val-refs { margin-top: 44px; }
+.ref-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+@media (max-width: 760px) { .ref-grid { grid-template-columns: 1fr; } }
 .val-notes ul { margin: 0 0 18px; padding-left: 20px; }
 .val-notes li { font-size: 14.5px; line-height: 1.6; color: #4A3828; margin-bottom: 8px; }
 .gen { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--mocha); }
