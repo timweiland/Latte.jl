@@ -10,6 +10,12 @@ points).
 |------|--------|--------:|-----:|------------:|---------|------------:|
 | `stress_n1000_inla_tmb.json` | weak-id stress | 30 | 1.0 | 1000 | inla, tmb | 0.043 |
 | `wellidentified_n500_inla_tmb.json` | well-identified | 100 | 1.0 | 500 | inla, tmb | 0.061 |
+| `stress_hmc.json` | weak-id stress | 30 | 1.0 | 250 | hmc_laplace | 0.086 |
+
+`benchmark/render_validation.jl` merges these by (engine, regime) into
+`docs/src/data/validation_results.json`, rendered as **engine tabs** on the docs
+Validation page. hmc_laplace is shown for the stress regime only — the
+well-identified regime (n=100 nodes) is prohibitively slow for per-replicate NUTS.
 
 ## Verdicts
 
@@ -18,15 +24,17 @@ points).
   the default exploration grid (a finer grid pulls it 0.07→0.05, then plateaus),
   the rest a Laplace marginal-likelihood floor for low-count data. `:loglik`
   calibrated throughout.
-- **hmc_laplace** — tracks INLA (stress τ ≈ 0.08–0.10, within band); samples the
-  Laplace marginal accurately, so it avoids TMB's failure mode. (Run lean —
-  reduced NUTS chain — because full-thread NUTS SBC is GC-bound.)
+- **hmc_laplace** — passes all 14 stress cells (band 0.086); samples the Laplace
+  marginal accurately, so it avoids TMB's failure mode and even handles the
+  non-identified Gaussian-IID better than INLA (see below). (Run lean — reduced
+  NUTS chain — because full-thread NUTS SBC is GC-bound.)
 - **TMB** — Gaussian-at-MAP: calibrated for Gaussian-like hyperparameter
   posteriors (Normal-RW1) but miscalibrated on skewed count/binary ones
   (τ 0.12–0.31) even when well-identified. A speed/accuracy trade-off.
-- **Gaussian-IID fails all engines** — structural non-identification
-  (`y~N(x,σ), x~N(0,1/τ)` ⇒ only `σ²+1/τ` is identified). A model pathology, not
-  an engine defect; RW1 structure breaks it and recovers.
+- **Gaussian-IID** — structural non-identification (`y~N(x,σ), x~N(0,1/τ)` ⇒ only
+  `σ²+1/τ` is identified). INLA/TMB miscalibrate on the ridge (KS 0.27–0.40);
+  hmc_laplace's NUTS samples it far more faithfully (KS ~0.06–0.085, though at a
+  looser band). RW1 structure breaks the degeneracy and all engines recover.
 
 Binomial is deferred (forward-sampling needs per-site trial counts the LGM's
 obs-model descriptor doesn't carry; Bernoulli covers the binary case). Full

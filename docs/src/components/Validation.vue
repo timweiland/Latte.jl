@@ -1,35 +1,37 @@
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import validationData from '../data/validation_results.json'
 
-type Row = {
-  cell: string
-  engine: string
-  target: string
-  ks: number | null
-  verdict: 'pass' | 'border' | 'fail' | 'n/a'
-}
-type Rollup = { engine: string; n: number; n_pass: number; pass_frac: number }
-type SbcTable = {
-  id: string
+type Row = { cell: string; target: string; ks: number | null; verdict: 'pass' | 'border' | 'fail' | 'n/a' }
+type Regime = {
   regime: string
+  n_attempted: number
   n_nodes: number
   pc_u: number
-  n_attempted: number
-  n_posterior: number
   band95: number
-  engines: string[]
-  is_calibration_claim: boolean
-  rollup: Rollup[]
+  n: number
+  n_pass: number
   rows: Row[]
 }
+type Engine = { engine: string; regimes: Regime[] }
 
-const tables = validationData.sbc as SbcTable[]
+const engines = validationData.engines as Engine[]
 const notes = validationData.notes as string[]
 const generatedAt = (validationData.generated_at as string).slice(0, 16).replace('T', ' ')
 
-const verdictLabel: Record<Row['verdict'], string> = {
-  pass: 'pass', border: '≈ band', fail: 'fail', 'n/a': '—',
+const engineLabel: Record<string, string> = { inla: 'INLA', tmb: 'TMB', hmc_laplace: 'HMC-Laplace' }
+const engName = (e: string) => engineLabel[e] ?? e
+const engineBlurb: Record<string, string> = {
+  inla: 'Full nested-Laplace over a hyperparameter grid. The flagship — calibrated when the model is well-posed.',
+  tmb: 'Gaussian-at-MAP in working space. Fast; accurate for Gaussian-like hyperparameter posteriors, biased on skewed ones.',
+  hmc_laplace: 'NUTS over the Laplace marginal. Samples the same marginal INLA integrates, so it tracks INLA.',
 }
+
+const active = ref(engines[0]?.engine ?? '')
+const activeEngine = computed(() => engines.find(e => e.engine === active.value) ?? engines[0])
+
+const verdictLabel: Record<Row['verdict'], string> = { pass: 'pass', border: '≈ band', fail: 'fail', 'n/a': '—' }
+const cls = (v: string) => v.replace('/', '')
 const ksText = (ks: number | null) => (ks === null ? '—' : ks.toFixed(3))
 const regimeTitle = (r: string) =>
   r === 'well-identified' ? 'Well-identified' : r === 'stress (weak-id)' ? 'Weak-identification stress' : r
@@ -44,8 +46,8 @@ const regimeTitle = (r: string) =>
         <p class="val-lede">
           Simulation-Based Calibration: draw θ from the prior, simulate data,
           run inference, rank the truth among posterior draws. A calibrated
-          procedure produces uniform ranks. Below: KS distance of the ranks to
-          uniform, per model cell, engine, and quantity — ranked by PIT.
+          procedure produces uniform ranks. Pick an engine below; each tab shows
+          its KS distance to uniform per model cell and quantity, ranked by PIT.
         </p>
       </header>
 
@@ -54,11 +56,11 @@ const regimeTitle = (r: string) =>
         <div class="how-grid">
           <div>
             <div class="how-tag">PIT RANKING</div>
-            <p>Scalar hyperparameters are ranked by their PIT, <code>cdf(marginal, truth)</code>. Required for grid/Laplace engines — INLA draws θ from a few integration-grid points, so naive sample ranks pick up a spurious staircase.</p>
+            <p>Scalar hyperparameters ranked by their PIT, <code>cdf(marginal, truth)</code>. Required for grid/Laplace engines — INLA draws θ from a few integration-grid points, so naive sample ranks pick up a spurious staircase.</p>
           </div>
           <div>
             <div class="how-tag">NULL BAND</div>
-            <p>The 95% band is <code>1.36/√n</code>. <span class="v-pass">pass</span> ≤ band, <span class="v-border">≈ band</span> ≤ 1.6× band, <span class="v-fail">fail</span> beyond. Many cells ⇒ expect a few over the band by chance.</p>
+            <p>95% band is <code>1.36/√n</code>. <span class="v-pass">pass</span> ≤ band, <span class="v-border">≈ band</span> ≤ 1.6× band, <span class="v-fail">fail</span> beyond. Many cells ⇒ expect a few over by chance.</p>
           </div>
           <div>
             <div class="how-tag">REGIMES</div>
@@ -71,46 +73,48 @@ const regimeTitle = (r: string) =>
         </div>
       </section>
 
-      <section v-for="t in tables" :key="t.id" class="val-section">
-        <header class="val-section-head">
-          <h2>{{ regimeTitle(t.regime) }}</h2>
-          <p>
-            {{ t.engines.join(' · ') }} ·
-            n_nodes {{ t.n_nodes }} · PC u {{ t.pc_u }} ·
-            {{ t.n_attempted }} replicates · band {{ t.band95.toFixed(3) }}
-            <span v-if="!t.is_calibration_claim" class="smoke-flag">· smoke (not a claim)</span>
-          </p>
-        </header>
+      <div class="engine-tabs" role="tablist">
+        <button v-for="e in engines" :key="e.engine" class="tab"
+                :class="{ active: e.engine === active }" @click="active = e.engine">
+          {{ engName(e.engine) }}
+        </button>
+      </div>
 
-        <div class="rollup">
-          <div v-for="r in t.rollup" :key="r.engine" class="rollup-chip"
-               :class="{ good: r.pass_frac >= 0.7, weak: r.pass_frac < 0.4 }">
-            <span class="rollup-eng">{{ r.engine }}</span>
-            <span class="rollup-frac">{{ r.n_pass }}/{{ r.n }} pass</span>
-          </div>
-        </div>
+      <div v-if="activeEngine" class="engine-panel">
+        <p class="engine-blurb">{{ engineBlurb[activeEngine.engine] ?? '' }}</p>
 
-        <table class="val-table">
-          <thead>
-            <tr><th>cell</th><th>engine</th><th>quantity</th><th class="num">KS</th><th>verdict</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, i) in t.rows" :key="i" :class="'vr-' + row.verdict.replace('/', '')">
-              <td class="mono">{{ row.cell }}</td>
-              <td class="mono">{{ row.engine }}</td>
-              <td class="mono">{{ row.target }}</td>
-              <td class="num mono">{{ ksText(row.ks) }}</td>
-              <td><span class="badge" :class="'b-' + row.verdict.replace('/', '')">{{ verdictLabel[row.verdict] }}</span></td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
+        <section v-for="reg in activeEngine.regimes" :key="reg.regime" class="val-section">
+          <header class="val-section-head">
+            <h2>{{ regimeTitle(reg.regime) }}</h2>
+            <p>
+              n_nodes {{ reg.n_nodes }} · PC u {{ reg.pc_u }} ·
+              {{ reg.n_attempted }} replicates · band {{ reg.band95.toFixed(3) }}
+              <span class="rollup-inline" :class="{ good: reg.n_pass / reg.n >= 0.7, weak: reg.n_pass / reg.n < 0.4 }">
+                · {{ reg.n_pass }}/{{ reg.n }} within band
+              </span>
+            </p>
+          </header>
+
+          <table class="val-table">
+            <thead>
+              <tr><th>cell</th><th>quantity</th><th class="num">KS</th><th>verdict</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, i) in reg.rows" :key="i" :class="'vr-' + cls(row.verdict)">
+                <td class="mono">{{ row.cell }}</td>
+                <td class="mono">{{ row.target }}</td>
+                <td class="num mono">{{ ksText(row.ks) }}</td>
+                <td><span class="badge" :class="'b-' + cls(row.verdict)">{{ verdictLabel[row.verdict] }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
 
       <section class="val-notes">
         <h2>Notes</h2>
         <ul>
           <li v-for="(n, i) in notes" :key="i">{{ n }}</li>
-          <li>Gaussian-IID fails every engine by construction: <code>y~N(x,σ), x~N(0,1/τ)</code> ⇒ only <code>σ²+1/τ</code> is identified. A model pathology, not an engine defect.</li>
         </ul>
         <p class="gen">Generated {{ generatedAt }} · <code>benchmark/render_validation.jl</code></p>
       </section>
@@ -149,7 +153,7 @@ const regimeTitle = (r: string) =>
 .val-hero h1 em { font-style: italic; color: var(--bean); }
 .val-lede { font-size: 18px; line-height: 1.55; color: #4A3828; max-width: 640px; margin: 0; }
 
-.how-to-read { margin-bottom: 64px; }
+.how-to-read { margin-bottom: 56px; }
 .how-to-read h2 {
   font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400;
   font-size: 26px; margin: 0 0 24px;
@@ -161,25 +165,28 @@ const regimeTitle = (r: string) =>
 }
 .how-grid p { font-size: 14.5px; line-height: 1.5; color: #4A3828; margin: 0; }
 
-.val-section { margin-bottom: 56px; }
+/* ── Engine tabs ── */
+.engine-tabs { display: flex; gap: 6px; border-bottom: 2px solid var(--tan); margin-bottom: 8px; }
+.tab {
+  font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--mocha); padding: 10px 20px; border-bottom: 3px solid transparent;
+  margin-bottom: -2px; transition: color .15s, border-color .15s;
+}
+.tab:hover { color: var(--bean); }
+.tab.active { color: var(--berry); border-bottom-color: var(--berry); }
+.engine-panel { padding-top: 22px; }
+.engine-blurb { font-size: 15px; line-height: 1.5; color: #4A3828; max-width: 640px; margin: 0 0 28px; font-style: italic; }
+
+.val-section { margin-bottom: 40px; }
 .val-section-head h2 {
-  font-family: 'Fraunces', Georgia, serif; font-weight: 400; font-size: 28px; margin: 0 0 6px;
+  font-family: 'Fraunces', Georgia, serif; font-weight: 400; font-size: 24px; margin: 0 0 6px;
 }
 .val-section-head p {
-  font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--mocha); margin: 0 0 18px;
+  font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--mocha); margin: 0 0 16px;
 }
-.smoke-flag { color: var(--berry); }
-
-.rollup { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
-.rollup-chip {
-  display: flex; gap: 8px; align-items: baseline;
-  background: var(--foam); border: 1px solid var(--tan); border-radius: 8px;
-  padding: 7px 14px;
-}
-.rollup-chip.good { border-color: var(--good); }
-.rollup-chip.weak { border-color: var(--berry); }
-.rollup-eng { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; }
-.rollup-frac { font-size: 13px; color: #4A3828; }
+.rollup-inline.good { color: var(--good); }
+.rollup-inline.weak { color: var(--berry); }
 
 .val-table { width: 100%; border-collapse: collapse; background: var(--foam); border: 1px solid var(--tan); border-radius: 10px; overflow: hidden; }
 .val-table th {
@@ -192,8 +199,7 @@ const regimeTitle = (r: string) =>
 .mono { font-family: 'JetBrains Mono', monospace; font-size: 13px; }
 
 .badge {
-  font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 9px; border-radius: 999px;
-  letter-spacing: 0.5px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 9px; border-radius: 999px; letter-spacing: 0.5px;
 }
 .b-pass { background: rgba(79,122,74,0.15); color: var(--good); }
 .b-border { background: rgba(201,152,106,0.2); color: var(--mocha); }
@@ -205,6 +211,7 @@ const regimeTitle = (r: string) =>
 .v-border { color: var(--mocha); font-weight: 600; }
 .v-fail { color: var(--berry); font-weight: 600; }
 
+.val-notes { margin-top: 48px; }
 .val-notes h2 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 400; font-size: 24px; margin: 0 0 16px; }
 .val-notes ul { margin: 0 0 18px; padding-left: 20px; }
 .val-notes li { font-size: 14.5px; line-height: 1.6; color: #4A3828; margin-bottom: 8px; }
