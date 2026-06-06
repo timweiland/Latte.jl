@@ -3,3 +3,7 @@ repos:
     rev: v1.0.0
     hooks:
       - id: runic
+        # Run Runic in a single Julia process. Without this, pre-commit splits
+        # the staged files across parallel `julia --project=@runic` invocations
+        # that deadlock racing on the @runic precompile lock on a cold cache.
+        require_serial: true
