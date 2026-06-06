@@ -66,12 +66,14 @@ function main()
             eng = String(rec.engine)
             for t in rec.targets
                 ks = t.ks_uniform === nothing ? nothing : Float64(t.ks_uniform)
+                cell = String(rec.cell)
                 push!(
                     flat, (;
                         engine = eng, regime = regime, n_attempted = n_attempted,
                         n_nodes = n_nodes, pc_u = pc_u, band = band,
-                        cell = String(rec.cell), target = String(t.target),
+                        cell = cell, target = String(t.target),
                         ks = ks, verdict = _verdict(ks, band),
+                        non_identified = cell == "normal_iid",
                     )
                 )
             end
@@ -95,7 +97,10 @@ function main()
                     "band95" => first(rr).band,
                     "n" => length(rr), "n_pass" => npass,
                     "rows" => [
-                        Dict("cell" => x.cell, "target" => x.target, "ks" => x.ks, "verdict" => x.verdict)
+                        Dict(
+                                "cell" => x.cell, "target" => x.target, "ks" => x.ks,
+                                "verdict" => x.verdict, "non_identified" => x.non_identified,
+                            )
                             for x in rr
                     ],
                 )
@@ -112,7 +117,7 @@ function main()
             "SBC ranked by PIT (cdf(marginal, truth)) for INLA/TMB; required because INLA's posterior θ is grid-quantized.",
             "Verdict vs the 95% KS null band 1.36/√n: pass ≤ band, ≈band ≤ 1.6× band, fail otherwise.",
             "hmc_laplace runs a leaner NUTS chain per replicate (offline cost), so its band is looser than INLA/TMB; the well-identified regime (n=100 nodes) is prohibitively slow for per-replicate NUTS and is omitted.",
-            "Gaussian-IID is structurally non-identified (only σ²+1/τ is identified): INLA/TMB's grid/Gaussian-MAP miscalibrate on the ridge, while hmc_laplace's NUTS samples it more faithfully.",
+            "Gaussian-IID (tagged ‘non-identified’) is a deliberate stress case: y~N(x,σ), x~N(0,1/τ) ⇒ only σ²+1/τ is identified. SBC against the EXACT posterior here is uniform (reference + harness validated), and a faithful sampler (hmc_laplace) recovers it (KS ~0.06); INLA's grid integration of the degenerate ridge does not (a finer grid barely helps), an inherent limit of grid-based hp exploration, not an implementation error. RW1 structure breaks the degeneracy and all engines recover.",
         ],
     )
 

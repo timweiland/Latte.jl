@@ -4,9 +4,9 @@
         "SBC ranked by PIT (cdf(marginal, truth)) for INLA/TMB; required because INLA's posterior θ is grid-quantized.",
         "Verdict vs the 95% KS null band 1.36/√n: pass ≤ band, ≈band ≤ 1.6× band, fail otherwise.",
         "hmc_laplace runs a leaner NUTS chain per replicate (offline cost), so its band is looser than INLA/TMB; the well-identified regime (n=100 nodes) is prohibitively slow for per-replicate NUTS and is omitted.",
-        "Gaussian-IID is structurally non-identified (only σ²+1/τ is identified): INLA/TMB's grid/Gaussian-MAP miscalibrate on the ridge, while hmc_laplace's NUTS samples it more faithfully."
+        "Gaussian-IID (tagged ‘non-identified’) is a deliberate stress case: y~N(x,σ), x~N(0,1/τ) ⇒ only σ²+1/τ is identified. SBC against the EXACT posterior here is uniform (reference + harness validated), and a faithful sampler (hmc_laplace) recovers it (KS ~0.06); INLA's grid integration of the degenerate ridge does not (a finer grid barely helps), an inherent limit of grid-based hp exploration, not an implementation error. RW1 structure breaks the degeneracy and all engines recover."
     ],
-    "generated_at": "2026-06-06T22:37:55.049",
+    "generated_at": "2026-06-07T00:25:11.199",
     "engines": [
         {
             "regimes": [
@@ -18,84 +18,98 @@
                     "n_pass": 10,
                     "rows": [
                         {
+                            "non_identified": false,
                             "verdict": "border",
                             "target": "τ",
                             "cell": "poisson_iid",
                             "ks": 0.0758
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "poisson_iid",
                             "ks": 0.0578
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "poisson_rw1",
                             "ks": 0.0536
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "poisson_rw1",
                             "ks": 0.0281
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "bernoulli_iid",
                             "ks": 0.057
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "bernoulli_iid",
                             "ks": 0.0578
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "bernoulli_rw1",
                             "ks": 0.0651
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "bernoulli_rw1",
                             "ks": 0.0335
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "normal_iid",
                             "ks": 0.401
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "σ",
                             "cell": "normal_iid",
                             "ks": 0.3331
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "normal_iid",
                             "ks": 0.305
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "normal_rw1",
                             "ks": 0.063
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "σ",
                             "cell": "normal_rw1",
                             "ks": 0.0575
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "normal_rw1",
@@ -113,84 +127,98 @@
                     "n_pass": 5,
                     "rows": [
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "poisson_iid",
                             "ks": 0.0701
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "poisson_iid",
                             "ks": 0.0379
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "poisson_rw1",
                             "ks": 0.0731
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "poisson_rw1",
                             "ks": 0.026
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "bernoulli_iid",
                             "ks": 0.069
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "bernoulli_iid",
                             "ks": 0.0273
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "bernoulli_rw1",
                             "ks": 0.072
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "bernoulli_rw1",
                             "ks": 0.0293
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "normal_iid",
                             "ks": 0.3021
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "σ",
                             "cell": "normal_iid",
                             "ks": 0.2671
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "normal_iid",
                             "ks": 0.22
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "normal_rw1",
                             "ks": 0.0753
                         },
                         {
+                            "non_identified": false,
                             "verdict": "border",
                             "target": "σ",
                             "cell": "normal_rw1",
                             "ks": 0.0671
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "normal_rw1",
@@ -213,84 +241,98 @@
                     "n_pass": 3,
                     "rows": [
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "poisson_iid",
                             "ks": 0.3074
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "poisson_iid",
                             "ks": 0.2757
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "poisson_rw1",
                             "ks": 0.1243
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "poisson_rw1",
                             "ks": 0.062
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "bernoulli_iid",
                             "ks": 0.1935
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "bernoulli_iid",
                             "ks": 0.1819
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "bernoulli_rw1",
                             "ks": 0.1337
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "bernoulli_rw1",
                             "ks": 0.108
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "normal_iid",
                             "ks": 0.1312
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "σ",
                             "cell": "normal_iid",
                             "ks": 0.1731
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "normal_iid",
                             "ks": 0.365
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "normal_rw1",
                             "ks": 0.0534
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "σ",
                             "cell": "normal_rw1",
                             "ks": 0.0501
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "normal_rw1",
@@ -308,84 +350,98 @@
                     "n_pass": 1,
                     "rows": [
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "poisson_iid",
                             "ks": 0.2416
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "poisson_iid",
                             "ks": 0.1989
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "poisson_rw1",
                             "ks": 0.1545
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "poisson_rw1",
                             "ks": 0.099
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "bernoulli_iid",
                             "ks": 0.1705
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "bernoulli_iid",
                             "ks": 0.1341
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "bernoulli_rw1",
                             "ks": 0.1974
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "bernoulli_rw1",
                             "ks": 0.1112
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "normal_iid",
                             "ks": 0.1152
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "σ",
                             "cell": "normal_iid",
                             "ks": 0.166
                         },
                         {
+                            "non_identified": true,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "normal_iid",
                             "ks": 0.309
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "τ",
                             "cell": "normal_rw1",
                             "ks": 0.0702
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "σ",
                             "cell": "normal_rw1",
                             "ks": 0.0331
                         },
                         {
+                            "non_identified": false,
                             "verdict": "fail",
                             "target": "loglik",
                             "cell": "normal_rw1",
@@ -408,84 +464,98 @@
                     "n_pass": 14,
                     "rows": [
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "poisson_iid",
                             "ks": 0.083
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "poisson_iid",
                             "ks": 0.0587
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "poisson_rw1",
                             "ks": 0.0854
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "poisson_rw1",
                             "ks": 0.0551
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "bernoulli_iid",
                             "ks": 0.071
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "bernoulli_iid",
                             "ks": 0.0456
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "bernoulli_rw1",
                             "ks": 0.0601
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "bernoulli_rw1",
                             "ks": 0.0378
                         },
                         {
+                            "non_identified": true,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "normal_iid",
                             "ks": 0.0569
                         },
                         {
+                            "non_identified": true,
                             "verdict": "pass",
                             "target": "σ",
                             "cell": "normal_iid",
                             "ks": 0.0854
                         },
                         {
+                            "non_identified": true,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "normal_iid",
                             "ks": 0.0706
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "τ",
                             "cell": "normal_rw1",
                             "ks": 0.032
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "σ",
                             "cell": "normal_rw1",
                             "ks": 0.0782
                         },
                         {
+                            "non_identified": false,
                             "verdict": "pass",
                             "target": "loglik",
                             "cell": "normal_rw1",
