@@ -2,7 +2,7 @@ using Test
 using Latte
 using DynamicPPL
 using Distributions
-using GaussianMarkovRandomFields: IIDModel
+using GaussianMarkovRandomFields: IIDModel, AR1Model, RW1Model
 using Turing
 using Random
 using Statistics
@@ -92,5 +92,45 @@ using Statistics
 
         @test 1 / 3 < τ_nuts_med / τ_inla_med < 3                  # agrees with INLA
         @test abs(log(τ_nuts_med) - log(τ_prior_med)) > log(2)     # not the prior
+    end
+
+    @testset "handoff generalizes across recognized latents" begin
+        # The probe fix must hold for other recognized latents, not just IID.
+        Random.seed!(20260606)
+        n = 25
+        base = 1.0 .+ 0.8 .* sin.(range(0, 3π; length = n))
+        y = rand.(Poisson.(exp.(base .+ 0.2 .* randn(n))))
+        τ_prior_med = median(rand(PCPrior.Precision(1.0, α = 0.01), 50_000))
+
+        # Unconstrained, two-hyperparameter latent (AR1): the handoff is faithful
+        # — Turing on dppl_model agrees with INLA on both τ and ρ.
+        @latte function ar1_h(y, n)
+            τ ~ PCPrior.Precision(1.0, α = 0.01)
+            ρ ~ PCPrior.AR1Correlation(0.7; α = 0.1, positive_only = true)
+            x ~ AR1Model(n)(τ = τ, ρ = ρ)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(x[i]); check_args = false)
+            end
+        end
+        r_ar1 = inla(ar1_h(y, n), y; progress = false)
+        ch_ar1 = sample(Latte.dppl_model(ar1_h)(y, n), NUTS(400, 0.9), 800; progress = false)
+        for nm in (:τ, :ρ)
+            ratio = median(vec(Array(ch_ar1[nm]))) / quantile(hyperparameter_marginals(r_ar1, nm)[1], 0.5)
+            @test 1 / 3 < ratio < 3
+        end
+
+        # Constrained intrinsic latent (RW1): the probe still COUPLES τ to the
+        # latent (pulled far below its prior), but plain NUTS samples the
+        # *unconstrained* density (ignoring sum-to-zero), so its τ need not match
+        # INLA's constrained posterior — we only assert coupling here.
+        @latte function rw1_h(y, n)
+            τ ~ PCPrior.Precision(1.0, α = 0.01)
+            x ~ RW1Model(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(x[i]); check_args = false)
+            end
+        end
+        ch_rw1 = sample(Latte.dppl_model(rw1_h)(y, n), NUTS(400, 0.9), 800; progress = false)
+        @test median(vec(Array(ch_rw1[:τ]))) < τ_prior_med / 3   # coupled, not the prior
     end
 end
