@@ -33,6 +33,7 @@ makedocs(;
             "Sampling hyperparameters (HMC-Laplace)" => "tutorials/hmc_laplace_when.md",
         ],
         "Benchmarks" => "benchmarks/index.md",
+        "Validation" => "validation/index.md",
         "Main Interface" => "main_interface.md",
         "Reference" => [
             "Observation Models" => "reference/observation_models.md",

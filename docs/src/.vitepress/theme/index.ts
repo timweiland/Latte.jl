@@ -17,6 +17,7 @@ import LatteNav from '@/LatteNav.vue'
 import LatteFooter from '@/LatteFooter.vue'
 import LatteAwning from '@/LatteAwning.vue'
 import Benchmarks from '@/Benchmarks.vue'
+import Validation from '@/Validation.vue'
 
 import { enhanceAppWithTabs } from 'vitepress-plugin-tabs/client'
 
@@ -53,6 +54,7 @@ export const Theme: ThemeConfig = {
     app.component('LatteFooter', LatteFooter)
     app.component('LatteAwning', LatteAwning)
     app.component('Benchmarks', Benchmarks)
+    app.component('Validation', Validation)
   }
 }
 export default Theme
