@@ -80,6 +80,12 @@ const tutorials: Tutorial[] = [
     title: 'Handoff to Turing',
     blurb: 'The same DPPL @model that fits with INLA also samples cleanly under Turing.sample(NUTS()). Use it as a gold-standard cross-check.',
   },
+  {
+    href: '/tutorials/hmc_laplace_when',
+    tag: 'INFERENCE · HMC-LAPLACE',
+    title: 'When to sample the hyperparameters',
+    blurb: 'INLA integrates the hyperparameters out on a deterministic grid; when that posterior is a curved, skewed ridge, the design is biased. hmc_laplace samples it instead — shown on an AR(1) model, validated against gold-standard NUTS.',
+  },
 ]
 </script>
 

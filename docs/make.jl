@@ -30,6 +30,7 @@ makedocs(;
             "Posterior predictive checks" => "tutorials/posterior_predictive_checks.md",
             "Simulation-based calibration" => "tutorials/sbc_calibration.md",
             "Handoff to Turing" => "tutorials/turing_handoff.md",
+            "Sampling hyperparameters (HMC-Laplace)" => "tutorials/hmc_laplace_when.md",
         ],
         "Benchmarks" => "benchmarks/index.md",
         "Main Interface" => "main_interface.md",
