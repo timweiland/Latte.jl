@@ -80,3 +80,31 @@ jobs:
           using Latte
           DocMeta.setdocmeta!(Latte, :DocTestSetup, :(using Latte); recursive=true)
           doctest(Latte)
+  validate:
+    name: Correctness gate (validate_ci)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: julia-actions/setup-julia@v1
+        with:
+          version: '1.10'
+          arch: x64
+      - uses: julia-actions/cache@v1
+      - name: Resolve benchmark env (Latte from checkout, GMRFs from registry)
+        # The committed benchmark/Manifest.toml pins local dev-paths; drop it so
+        # CI resolves Latte from the checkout and its deps from the registry.
+        shell: julia --color=yes {0}
+        run: |
+          using Pkg
+          rm(joinpath("benchmark", "Manifest.toml"); force = true)
+          Pkg.activate("benchmark")
+          Pkg.develop(PackageSpec(path = pwd()))
+          Pkg.instantiate()
+      - name: Run the analytic-conjugate correctness gate
+        run: julia --project=benchmark benchmark/validate_ci.jl
