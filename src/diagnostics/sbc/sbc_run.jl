@@ -1,5 +1,6 @@
 using Random
 using StableRNGs: StableRNG
+using Distributions: cdf
 
 export sbc_run, sbc_coverage, sbc_quantile_position
 
@@ -14,6 +15,7 @@ export sbc_run, sbc_coverage, sbc_quantile_position
             base_seed = UInt64(0xbadc0de),
             failure_policy = SBCFailurePolicy(),
             obs_name = :y,
+            rank_method = :auto,
             progress = true) -> SBCResult
 
 Run Simulation-Based Calibration on a model.
@@ -34,6 +36,18 @@ derived and reported separately on the result.
 
 For publishable calibration claims, `n_attempted = 200` is a smoke
 test. Aim for 1000–5000.
+
+`rank_method` controls how the rank of `θ_true` is computed:
+
+- `:auto` (default) — rank a scalar hyperparameter by its **PIT**,
+  `cdf(marginal, θ_true)`, whenever the engine exposes a continuous marginal
+  CDF (INLA, TMB). This is the right measure for grid/Laplace engines, whose
+  posterior θ *samples* are quantized (e.g. INLA draws θ from a handful of
+  integration-grid points, so sample-based ranks pick up a spurious
+  granularity bias). Derived quantities ([`DataDependentQuantity`](@ref)) and
+  engines without a marginal CDF fall back to ranking against the sample.
+- `:sample` — always rank against the posterior sample (Talts et al.). Correct
+  for genuinely continuous samples; biased for grid-quantized ones.
 """
 function sbc_run(
         build_model, y_prototype;
@@ -47,7 +61,11 @@ function sbc_run(
         failure_policy::SBCFailurePolicy = SBCFailurePolicy(),
         obs_name::Symbol = :y,
         executor::ParallelExecutor = SequentialExecutor(),
+        rank_method::Symbol = :auto,
         progress::Bool = true,
+    )
+    rank_method in (:auto, :sample) || throw(
+        ArgumentError("sbc_run: rank_method must be :auto or :sample, got :$(rank_method).")
     )
     engine_fn = _engine_fn(engine)
 
@@ -92,7 +110,7 @@ function sbc_run(
         return _run_one_replicate(
             build_model, y_prototype, rng_i, i,
             engine_fn, engine_kwargs, random,
-            descriptors, n_posterior, obs_name, is_lgm, dummy_y,
+            descriptors, n_posterior, obs_name, is_lgm, dummy_y, rank_method,
         )
     end
     elapsed = time() - t_start
@@ -170,7 +188,7 @@ _concrete_dummy_y(y_prototype::AbstractVector) =
 function _run_one_replicate(
         build_model, y_prototype, rng, replicate_id,
         engine_fn, engine_kwargs, random,
-        descriptors, n_posterior, obs_name, is_lgm, dummy_y,
+        descriptors, n_posterior, obs_name, is_lgm, dummy_y, rank_method,
     )
     # Stage 1: prior simulate. Dispatch on the built model type. The LGM
     # path builds from a concrete dummy y (an `@latte` factory needs
@@ -242,17 +260,25 @@ function _run_one_replicate(
 
     # Stage 5: rank. Targets see either the truth NamedTuple + θ matrix
     # (scalar targets) or the full per-replicate context (derived targets).
+    # `rank_method = :auto` ranks a scalar hyperparameter by its PIT — the
+    # probability-integral transform `cdf(marginal, truth)` — when the engine
+    # exposes a continuous marginal CDF. This avoids the granularity bias of
+    # ranking against discretely-sampled draws (e.g. INLA's grid-quantized θ).
+    # Derived quantities and engines without a marginal CDF fall back to ranking
+    # against the posterior sample.
     local ranks_row, truths_row
     try
         ctx = (;
             truth_nt = truth_nt, latent_truth = rep.latent_truth,
-            θ_mat = θ_mat, x_mat = x_mat, y = rep.y, lgm = lgm,
+            θ_mat = θ_mat, x_mat = x_mat, y = rep.y, lgm = lgm, result = inf_result,
         )
         ranks_row = Vector{Int}(undef, length(descriptors))
         truths_row = Vector{Float64}(undef, length(descriptors))
         for (j, d) in enumerate(descriptors)
             truth_val, post = _extract_target(d, ctx)
-            ranks_row[j] = _rank(post, truth_val, rng)
+            q = rank_method === :sample ? nothing : _pit_quantile(d, ctx, truth_val)
+            ranks_row[j] = q === nothing ? _rank(post, truth_val, rng) :
+                _q_to_rank(q, n_posterior)
             truths_row[j] = truth_val
         end
     catch e
@@ -285,6 +311,25 @@ _extract_target(d::TargetDescriptor, ctx) =
     (d.extract_truth(ctx.truth_nt), d.extract_posterior(ctx.θ_mat))
 _extract_target(d::DerivedTargetDescriptor, ctx) =
     (d.extract_truth(ctx), d.extract_posterior(ctx))
+
+# PIT quantile `cdf(marginal, truth)` for a scalar hyperparameter target, or
+# `nothing` when unavailable (derived target, vector component, no marginal CDF,
+# or any failure) — in which case the caller ranks against the sample instead.
+function _pit_quantile(d::TargetDescriptor, ctx, truth_val)
+    d.index === nothing || return nothing
+    try
+        marginal = only(hyperparameter_marginals(ctx.result, d.sym))
+        return clamp(Float64(cdf(marginal, truth_val)), 0.0, 1.0)
+    catch
+        return nothing
+    end
+end
+_pit_quantile(::DerivedTargetDescriptor, ctx, truth_val) = nothing
+
+# Map a PIT quantile `q ∈ [0,1]` onto the integer rank scale `{0,…,L}` so it
+# flows through the same `ranks`/`sbc_quantile_position` machinery as
+# sample-based ranks. `(rank+0.5)/(L+1)` reconstructs `q` to within `0.5/(L+1)`.
+_q_to_rank(q::Real, L::Int) = clamp(round(Int, q * (L + 1) - 0.5), 0, L)
 
 """Rank of `truth` in `posterior_draws`. Talts et al. style:
 `r = #{ l : draws[l] < truth } + tie_break` where ties are broken
