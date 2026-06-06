@@ -122,4 +122,59 @@ using HCubature
 
         @test abs(empirical_cdf - cdf_integral) < 0.02
     end
+
+    @testset "cdf / quantile / median (positive_only)" begin
+        d = PCPrior.AR1Correlation(0.9; α = 0.05, positive_only = true)
+        @test cdf(d, 0.9) ≈ 0.95 atol = 1.0e-12   # P(ρ < U) = 1-α
+        @test cdf(d, 0.0) == 0.0
+        @test cdf(d, -0.5) == 0.0
+        @test cdf(d, 1.0) == 1.0
+        @test cdf(d, 2.0) == 1.0
+        cdfs = [cdf(d, x) for x in 0.01:0.02:0.99]
+        @test all(diff(cdfs) .> 0)
+        for p in (0.05, 0.25, 0.5, 0.75, 0.95)
+            @test cdf(d, quantile(d, p)) ≈ p atol = 1.0e-10
+        end
+        @test quantile(d, 0.95) ≈ 0.9 atol = 1.0e-10
+        @test median(d) == quantile(d, 0.5)
+        @test 0 < median(d) < 1
+        @test insupport(d, median(d))
+        for ρ_hi in (0.3, 0.6, 0.85)
+            num, _ = hcubature([0.0], [ρ_hi]) do x
+                lp = logpdf(d, x[1])
+                isfinite(lp) ? exp(lp) : 0.0
+            end
+            @test num ≈ cdf(d, ρ_hi) atol = 2.0e-3
+        end
+        @test_throws DomainError quantile(d, -0.1)
+        @test_throws DomainError quantile(d, 1.1)
+    end
+
+    @testset "cdf / quantile / median (two-sided)" begin
+        d = PCPrior.AR1Correlation(0.9; α = 0.05, positive_only = false)
+        @test cdf(d, 0.9) ≈ 0.975 atol = 1.0e-12   # symmetric tails split evenly
+        @test cdf(d, -0.9) ≈ 0.025 atol = 1.0e-12
+        @test cdf(d, 0.0) == 0.5
+        for ρ in (0.1, 0.4, 0.8)
+            @test cdf(d, -ρ) ≈ 1 - cdf(d, ρ) atol = 1.0e-12
+        end
+        @test cdf(d, -1.0) == 0.0
+        @test cdf(d, 1.0) == 1.0
+        cdfs = [cdf(d, x) for x in -0.99:0.02:0.99]
+        @test all(diff(cdfs) .> 0)
+        for p in (0.05, 0.25, 0.5, 0.75, 0.95)
+            @test cdf(d, quantile(d, p)) ≈ p atol = 1.0e-10
+        end
+        @test median(d) == 0.0          # symmetry; coincides with mode
+        @test median(d) == quantile(d, 0.5)
+        @test insupport(d, median(d))
+        @test insupport(d, mode(d))
+        # Integrate only the smooth positive piece (avoid the integrable cusp at
+        # ρ=0 that hcubature under-resolves across): ∫[0,0.6] = cdf(0.6) - cdf(0).
+        num, _ = hcubature([1.0e-6], [0.6]) do x
+            lp = logpdf(d, x[1])
+            isfinite(lp) ? exp(lp) : 0.0
+        end
+        @test num ≈ cdf(d, 0.6) - 0.5 atol = 2.0e-3
+    end
 end
