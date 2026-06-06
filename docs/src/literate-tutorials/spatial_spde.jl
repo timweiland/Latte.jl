@@ -96,6 +96,10 @@ fig
 # latent `field` lives on the mesh DOFs; at each observation, the linear
 # predictor reads `field` through the projection.
 using GaussianMarkovRandomFields
+# Activate the GaussianMarkovRandomFields FEM extension: `MaternModel` builds an
+# SPDE / finite-element representation, so it needs Ferrite + FerriteGmsh + Gmsh
+# (plus LibGEOS to derive the mesh domain from the observation hull).
+using Ferrite, FerriteGmsh, Gmsh, LibGEOS
 
 obs_points = hcat(df.lon, df.lat)   # N × 2 — lon first, then lat
 base_matern = MaternModel(obs_points; smoothness = 1)
