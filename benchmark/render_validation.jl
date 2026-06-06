@@ -93,6 +93,28 @@ function _sailynoja_verdict(hist::Vector{Int}, M::Int, γ::Float64)
     return "pass"
 end
 
+# ── ECDF-difference curve + band for the per-cell sparklines ──
+# Evaluated at EVAL_K interior points z_k = k/EVAL_K (the 100-bin histogram makes
+# these exact when EVAL_K divides 100). Curves are the *difference* ECDF(z) - z so
+# a calibrated cell hugs zero; the band is the γ-adjusted simultaneous band, also
+# centred on zero. Rounded for compact JSON.
+const EVAL_K = 50
+_eval_z() = [k / EVAL_K for k in 1:(EVAL_K - 1)]
+function _ecdf_diff(hist::Vector{Int}, M::Int)
+    cum = cumsum(hist)
+    step = length(hist) ÷ EVAL_K
+    return [round(cum[k * step] / M - k / EVAL_K, digits = 4) for k in 1:(EVAL_K - 1)]
+end
+function _ecdf_band(M::Int, γ::Float64)
+    lo = Float64[]; hi = Float64[]
+    for k in 1:(EVAL_K - 1)
+        z = k / EVAL_K
+        push!(lo, round(quantile(Binomial(M, z), γ / 2) / M - z, digits = 4))
+        push!(hi, round(quantile(Binomial(M, z), 1 - γ / 2) / M - z, digits = 4))
+    end
+    return lo, hi
+end
+
 # Identification regime, keyed on how much data informs the variance component.
 function _regime(n_nodes)
     n_nodes >= 100 && return "well-identified"
@@ -146,12 +168,13 @@ function main()
                 else
                     _ks_verdict(ks, band)
                 end
+                ecdf_diff = (hist !== nothing && M > 0) ? _ecdf_diff(Int.(collect(hist)), M) : nothing
                 push!(
                     flat, (;
                         engine = eng, regime = regime, n_attempted = n_attempted,
-                        n_nodes = n_nodes, pc_u = pc_u, band = band,
+                        n_nodes = n_nodes, pc_u = pc_u, band = band, M = M,
                         cell = cell, target = String(t.target),
-                        ks = ks, verdict = verdict,
+                        ks = ks, verdict = verdict, ecdf_diff = ecdf_diff,
                         non_identified = cell == "normal_iid",
                     )
                 )
@@ -167,6 +190,8 @@ function main()
         regimes = Dict{String, Any}[]
         for reg in sort(unique(getfield.(eng_rows, :regime)); by = r -> _order(r, REGIME_ORDER))
             rr = filter(x -> x.regime == reg, eng_rows)
+            bM = first(rr).M
+            band_lo, band_hi = _ecdf_band(bM, γfor(bM))
             push!(
                 regimes, Dict(
                     "regime" => reg,
@@ -177,10 +202,12 @@ function main()
                     "n_pass" => count(x -> x.verdict == "pass", rr),
                     "n_minor" => count(x -> x.verdict == "minor", rr),
                     "n_substantial" => count(x -> x.verdict == "substantial", rr),
+                    "band_lo" => band_lo, "band_hi" => band_hi,
                     "rows" => [
                         Dict(
                                 "cell" => x.cell, "target" => x.target, "ks" => x.ks,
                                 "verdict" => x.verdict, "non_identified" => x.non_identified,
+                                "ecdf_diff" => x.ecdf_diff,
                             )
                             for x in rr
                     ],
@@ -194,6 +221,7 @@ function main()
         "generated_at" => string(now()),
         "rank_method" => "pit",
         "verdict_test" => "sailynoja_ecdf_simultaneous",
+        "band_z" => _eval_z(),
         "engines" => engines,
         "notes" => [
             "SBC ranked by PIT (cdf(marginal, truth)) for INLA/TMB; required because INLA's posterior θ is grid-quantized.",
