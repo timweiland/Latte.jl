@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import validationData from '../data/validation_results.json'
 
-type Row = { cell: string; target: string; ks: number | null; verdict: 'pass' | 'border' | 'fail' | 'n/a' }
+type Row = { cell: string; target: string; ks: number | null; verdict: 'pass' | 'border' | 'fail' | 'n/a'; non_identified?: boolean }
 type Regime = {
   regime: string
   n_attempted: number
@@ -101,7 +101,7 @@ const regimeTitle = (r: string) =>
             </thead>
             <tbody>
               <tr v-for="(row, i) in reg.rows" :key="i" :class="'vr-' + cls(row.verdict)">
-                <td class="mono">{{ row.cell }}</td>
+                <td class="mono">{{ row.cell }}<span v-if="row.non_identified" class="nonid-tag" title="non-identified model: only σ²+1/τ is identified — a deliberate stress case">non-id</span></td>
                 <td class="mono">{{ row.target }}</td>
                 <td class="num mono">{{ ksText(row.ks) }}</td>
                 <td><span class="badge" :class="'b-' + cls(row.verdict)">{{ verdictLabel[row.verdict] }}</span></td>
@@ -206,6 +206,7 @@ const regimeTitle = (r: string) =>
 .b-fail { background: rgba(192,74,42,0.14); color: var(--berry); }
 .b-na { background: #EFE7DA; color: var(--mocha); }
 .vr-fail td { background: rgba(192,74,42,0.04); }
+.nonid-tag { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.5px; color: var(--mocha); background: rgba(139,111,71,0.12); border-radius: 4px; padding: 1px 5px; margin-left: 8px; vertical-align: middle; }
 
 .v-pass { color: var(--good); font-weight: 600; }
 .v-border { color: var(--mocha); font-weight: 600; }
