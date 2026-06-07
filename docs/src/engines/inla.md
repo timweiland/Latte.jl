@@ -24,6 +24,10 @@ approximations over those points.
 The craft is in two places — *how accurately the inner marginals are taken* and
 *where the outer ``\theta`` points are placed* — and both are exposed.
 
+```@raw html
+<InlaNested />
+```
+
 ## Tuning
 
 The defaults are accurate-and-fast for typical models; reach for these when a

@@ -19,6 +19,7 @@ import LatteAwning from '@/LatteAwning.vue'
 import Benchmarks from '@/Benchmarks.vue'
 import Validation from '@/Validation.vue'
 import PaperCite from '@/PaperCite.vue'
+import InlaNested from '@/InlaNested.vue'
 
 import { enhanceAppWithTabs } from 'vitepress-plugin-tabs/client'
 
@@ -57,6 +58,7 @@ export const Theme: ThemeConfig = {
     app.component('Benchmarks', Benchmarks)
     app.component('Validation', Validation)
     app.component('PaperCite', PaperCite)
+    app.component('InlaNested', InlaNested)
   }
 }
 export default Theme
