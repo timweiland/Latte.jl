@@ -8,6 +8,22 @@ For the methods themselves and when to reach for each, see the engine pages,
 starting with [INLA](engines/inla.md). This page covers **defining models**,
 **calling an engine**, and **working with results**.
 
+## Latent Gaussian models
+
+Every Latte engine targets the same model class — a *latent Gaussian model*:
+
+```math
+p(\theta, x, y) = \underbrace{p(\theta)}_{\text{hyperprior}}\;
+                  \underbrace{p(x \mid \theta)}_{\text{Gaussian latent field (GMRF)}}\;
+                  \underbrace{p(y \mid x)}_{\text{cond.-independent observations}}
+```
+
+A Gaussian latent field ``x`` (a GMRF) governed by a few hyperparameters ``\theta``,
+with observations conditionally independent given the latent field. GLMMs, spatial
+(Besag, SPDE) and temporal (AR, random-walk) models, splines, and disease mapping
+all fit this template. You specify the three pieces — the hyperparameter priors,
+the latent GMRF, and the observation model — once, and any engine consumes it.
+
 ## Quick Start
 
 ```julia
@@ -239,10 +255,10 @@ INLA offers different methods for computing latent field marginals:
 
 ```julia
 # Gaussian marginalization (faster, good for most cases)
-result_gaussian = inla(model, y_observed, marginalization_method=GaussianMarginal())
+result_gaussian = inla(model, y_observed, latent_marginalization_method=GaussianMarginal())
 
 # Laplace marginalization (more accurate, especially for non-Gaussian posteriors)
-result_laplace = inla(model, y_observed, marginalization_method=LaplaceMarginal())
+result_laplace = inla(model, y_observed, latent_marginalization_method=LaplaceMarginal())
 
 # Compare the methods
 i = 50  # Example latent component
@@ -328,8 +344,8 @@ end
 ### Poor Approximation Quality
 ```julia
 # Compare Gaussian vs Laplace marginalization
-result_g = inla(model, y, marginalization_method=GaussianMarginal())
-result_l = inla(model, y, marginalization_method=LaplaceMarginal())
+result_g = inla(model, y, latent_marginalization_method=GaussianMarginal())
+result_l = inla(model, y, latent_marginalization_method=LaplaceMarginal())
 
 # Large differences suggest Gaussian approximation may be poor
 mean_diff = mean(abs.([mean(m) for m in result_g.latent_marginals] - 
