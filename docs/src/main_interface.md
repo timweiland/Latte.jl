@@ -87,14 +87,12 @@ converted with `latte_from_dppl`. Both produce the `LatentGaussianModel` that
 latte_from_dppl
 ```
 
-## Alternative inference engines
+## Inference engines
 
-The same model runs through other engines too. [`tmb`](@ref) has its own
-[TMB](engines/tmb.md) page; the HMC-Laplace engine is below.
-
-```@docs
-hmc_laplace
-```
+Each engine has its own page covering the method and how to tune it:
+[INLA](engines/inla.md), [TMB](engines/tmb.md), and
+[HMC-Laplace](engines/hmc_laplace.md). They all consume the model defined above and
+return results through the same API.
 
 ## Diagnostics
 
