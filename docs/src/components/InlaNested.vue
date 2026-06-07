@@ -22,7 +22,7 @@ const NF = 240, dThF = (TH1 - TH0) / NF
 const Zg = (() => { let z = 0; for (let i = 0; i <= NF; i++) z += gUn(TH0 + i * dThF) * dThF; return z })()
 const gN = (t: number) => gUn(t) / Zg
 
-const K = ref(5)                                 // grid points (INLA's default ≈ 5)
+const K = ref(3)                                 // start coarse; INLA's real default is ≈ 5
 
 const NX = 140, dX = (X1 - X0) / NX
 const xs = Array.from({ length: NX + 1 }, (_, i) => X0 + i * dX)
