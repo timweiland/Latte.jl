@@ -15,7 +15,6 @@ import Landing from '@/Landing.vue'
 import TutorialGallery from '@/TutorialGallery.vue'
 import LatteNav from '@/LatteNav.vue'
 import LatteFooter from '@/LatteFooter.vue'
-import LatteAwning from '@/LatteAwning.vue'
 import Benchmarks from '@/Benchmarks.vue'
 import Validation from '@/Validation.vue'
 import PaperCite from '@/PaperCite.vue'
@@ -56,7 +55,6 @@ export const Theme: ThemeConfig = {
     app.component('TutorialGallery', TutorialGallery)
     app.component('LatteNav', LatteNav)
     app.component('LatteFooter', LatteFooter)
-    app.component('LatteAwning', LatteAwning)
     app.component('Benchmarks', Benchmarks)
     app.component('Validation', Validation)
     app.component('PaperCite', PaperCite)
