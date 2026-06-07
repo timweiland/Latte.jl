@@ -1,80 +1,106 @@
 # [INLA](@id engine-inla)
 
-Integrated Nested Laplace Approximation — Latte's flagship engine, and the method
-the package is named for. It computes posterior marginals for latent Gaussian
-models **deterministically** and **fast**, with no MCMC. The entry point is
-[`inla`](@ref).
+Latte's flagship engine — and the method the package is named for. Given a
+[latent Gaussian model](@ref main-interface), [`inla`](@ref) returns posterior
+marginals for the latent field and the hyperparameters, without MCMC, by *nesting*
+two approximations.
 
-## What it does
+## How it works
 
-A latent Gaussian model factorises as
+INLA never forms the full joint posterior — it targets each marginal directly.
 
-```math
-p(\theta, x, y) = \underbrace{p(\theta)}_{\text{hyperprior}}\;
-                  \underbrace{p(x \mid \theta)}_{\text{Gaussian latent (GMRF)}}\;
-                  \underbrace{p(y \mid x, \theta)}_{\text{cond. indep. observations}}
+**Inner — the latent field given the hyperparameters.** For a fixed ``\theta``,
+the conditional ``p(x \mid y, \theta)`` is approximated by a Gaussian at its mode.
+For Gaussian observations this is *exact*; otherwise it is a Laplace
+approximation, and how faithfully you take it is the main accuracy knob.
+
+**Outer — the hyperparameters.** The marginal posterior
+``p(\theta \mid y) \propto p(\theta)\,p(y \mid \theta)`` — with the marginal
+likelihood ``p(y \mid \theta)`` coming from that inner step — is reconstructed by
+evaluating it at a set of ``\theta`` points and fitting a smooth surface through
+them. The latent marginals are then a weighted mixture of the inner
+approximations over those points.
+
+The craft is in two places — *how accurately the inner marginals are taken* and
+*where the outer ``\theta`` points are placed* — and both are exposed.
+
+## Tuning
+
+The defaults are accurate-and-fast for typical models; reach for these when a
+model is unusual.
+
+### Latent marginal accuracy — `latent_marginalization_method`
+
+The inner Gaussian is symmetric, but real latent marginals are often skewed. This
+controls how much of that skew you recover:
+
+- `GaussianMarginal()` — the inner Gaussian itself. Fastest, symmetric.
+- `SimplifiedLaplace()` — **default**: a cheap skewness correction to the Gaussian.
+  The INLA sweet spot for most models.
+- `LaplaceMarginal()` — a full Laplace approximation per component. Most accurate,
+  most expensive; use it when the simplified correction isn't enough (strongly
+  non-Gaussian likelihoods, few observations informing each latent).
+
+```julia
+inla(model, y; latent_marginalization_method = LaplaceMarginal())
 ```
 
-with a Gaussian latent field ``x`` (a GMRF), a *small* number of hyperparameters
-``\theta``, and conditionally-independent observations. INLA targets the marginals
-``p(\theta_j \mid y)`` and ``p(x_i \mid y)`` directly, through two nested
-approximations:
+### Hyperparameter exploration — `exploration_strategy`
 
-1. **Inner Laplace.** For a fixed ``\theta``, the conditional ``p(x \mid y, \theta)``
-   is approximated by a Gaussian at its mode (a Laplace approximation). For Gaussian
-   observations this is *exact*; otherwise it is the Gaussian matching the mode and
-   curvature of the log-posterior.
-2. **Outer grid.** The hyperparameter posterior
-   ``p(\theta \mid y) \propto p(\theta)\,p(y \mid \theta)`` — with the marginal
-   likelihood ``p(y \mid \theta)`` coming from that inner Laplace — is explored on a
-   grid: a handful of points for one or two hyperparameters, a central-composite
-   design as the dimension grows.
+Where the outer ``\theta`` points go:
 
-Latent marginals are then obtained by integrating the inner approximation over the
-grid of ``\theta`` (optionally refined per grid point with a Laplace correction for
-skew). Every step is deterministic numerical integration, so you get the same
-answer every run and zero sampling noise.
+- `AutoExplorationStrategy()` — **default**: a dense grid in low dimension,
+  switching to a central-composite design (CCD) as the number of hyperparameters
+  grows.
+- `GridExplorationStrategy(integration_step_z = …, max_log_drop = …)` — an explicit
+  grid. **Decrease `integration_step_z` to densify it** — the default is
+  deliberately coarse, and a finer grid visibly sharpens *skewed* hyperparameter
+  tails (we measure this on the [Validation](../validation/index.md) page). The cost
+  is roughly one extra inner solve per added point.
+- `CCDExplorationStrategy()` — force the CCD design: the practical choice with
+  several hyperparameters, where a full grid is too expensive.
 
-## When to reach for it
+```julia
+inla(model, y; exploration_strategy = GridExplorationStrategy(integration_step_z = 0.5))
+```
 
-INLA is the right default for latent Gaussian models with **few hyperparameters**
-(roughly ``\le 5``) when you want **speed and determinism** — GLMMs, spatial and
-temporal models, smoothing, disease mapping. See [Benchmarks](../benchmarks/index.md)
-for wall-clock and the [Validation](../validation/index.md) page for calibration.
+### Mode finding — `mode_init`, `mode_diagnostic`
 
-| reach for | when |
-|-----------|------|
-| **INLA** | standard LGM, low-dimensional ``\theta``, want fast deterministic marginals |
-| **TMB** | the fastest approximate fit, ``\theta`` posterior close to Gaussian |
-| **HMC-Laplace** | ``\theta`` higher-dimensional or awkward (skewed, correlated, ridged) — where the grid gets expensive or struggles |
+The outer points are placed relative to the mode of ``p(\theta \mid y)``. On
+awkward (multimodal, skewed, near-degenerate) hyperparameter posteriors the
+optimiser can settle on a poor mode, so Latte runs a post-hoc check and by default
+**warns** if it finds a better grid point (`mode_diagnostic = :warn`). When that
+fires, seed the search with a better guess — or a multi-start — via `mode_init`.
 
-## Using `inla`
+### Other knobs
+
+- `latent_indices` — compute marginals only for the components you care about; a
+  large speed-up on big latent fields.
+- Model-selection criteria (DIC, WAIC, CPO, the marginal likelihood) are computed
+  alongside by default through `accumulators`.
+
+## Reference
 
 ```@docs
 inla
 ```
 
-Useful options: `marginalization_method` (`GaussianMarginal()` for speed,
-`LaplaceMarginal()`/the simplified-Laplace for skew), `exploration_strategy`
-(densify or switch the hyperparameter grid), `latent_indices` (compute marginals
-only where you need them on large models), and `progress`.
+## Limits
 
-## Limits & caveats
+Measured, not asserted — see the [Validation](../validation/index.md) page:
 
-These are *measured*, not asserted — see the [Validation](../validation/index.md) page:
-
-- **Skewed hyperparameter tails at the default grid.** The coarse default grid
-  leaves a small gap on a skewed ``\theta`` marginal (KS ``\approx`` 0.03–0.07 in
-  our SBC); a finer `integration_step_z` closes most of it. The remainder, for
-  non-Gaussian likelihoods, is the Laplace marginal-likelihood approximation.
+- **Skewed hyperparameter tails.** The coarse default grid under-resolves them;
+  densify with `GridExplorationStrategy(integration_step_z = …)`. A small residual
+  remains for non-Gaussian likelihoods — that part is the inner Laplace marginal
+  likelihood, which a finer grid can't fix.
 - **Non-identified / ridged hyperparameter posteriors.** When the data identify
-  only a combination of hyperparameters (e.g. ``\sigma^2 + 1/\tau`` in a
-  Gaussian–Gaussian IID model), the grid cannot cover the degenerate ridge and the
-  marginals there are off — even though the inner Laplace and the *exact* posterior
-  agree. A faithful sampler (HMC-Laplace) recovers it; reach for that on such
-  models.
-- **Hyperparameter count.** Grid cost grows with ``|\theta|``; beyond ``\approx 5``
-  the `Auto` strategy switches to CCD, and HMC-Laplace becomes the better choice.
+  only a *combination* of hyperparameters (e.g. ``\sigma^2 + 1/\tau`` in a
+  Gaussian–Gaussian IID model), the outer surface can't follow the degenerate ridge
+  and those marginals drift — even though the inner Laplace and the *exact*
+  posterior agree. A faithful sampler (HMC-Laplace) recovers it.
+- **Many hyperparameters.** The full grid grows exponentially in the number of
+  hyperparameters; the `Auto`/CCD path mitigates this, and HMC-Laplace scales
+  better when ``\theta`` is large.
 
 ## References
 
