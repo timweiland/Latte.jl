@@ -1,32 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-
-// Random awning tagline on every load.
-const taglines = [
-  'How do you take your posterior?',
-  'Same beans, three brews.',
-  'Pick your pour.',
-  'Slow-roasted, fast-pulled.',
-  'Posteriors on tap.',
-  'Latent Gaussians, three brewing methods.',
-  'Bayes by the cup.',
-]
-const tagline = ref(taglines[0])
-onMounted(() => {
-  tagline.value = taglines[Math.floor(Math.random() * taglines.length)]
-})
+import LandingBenchmark from './LandingBenchmark.vue'
 </script>
 
 <template>
   <div class="latte-landing">
-
-    <!-- Awning -->
-    <div class="awning">
-      <div class="awning-inner">
-        <span><span class="dot"></span>OPEN · EST. 2026 · <code>latte-prototype</code> · v0.1 in preparation</span>
-        <span>{{ tagline }}</span>
-      </div>
-    </div>
 
     <!-- Nav -->
     <nav class="top">
@@ -56,6 +33,7 @@ onMounted(() => {
           <a href="/main_interface">Docs</a>
           <a href="/tutorials/">Tutorials</a>
           <a href="/benchmarks/">Benchmarks</a>
+          <a href="/validation/">Validation</a>
           <a href="https://github.com/timweiland/Latte.jl">GitHub</a>
           <span class="ver">v0.1-dev</span>
         </div>
@@ -107,21 +85,24 @@ onMounted(() => {
   <span class="c-kw">end</span>
 <span class="c-kw">end</span>
 
+<span class="c-comment"># Choose your inference engine</span>
 <span class="c-var">fit</span> = <span class="c-fn">inla</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
+<span class="c-var">fit</span> = <span class="c-fn">tmb</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
+<span class="c-var">fit</span> = <span class="c-fn">hmc_laplace</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
 </pre>
             </div>
           </div>
         </div>
 
         <div class="engines">
-          <div class="engine default">
-            <div class="method">INLA <span class="badge default">default</span></div>
+          <div class="engine">
+            <div class="method">INLA</div>
             <div class="desc">Nested Laplace approximation with per-hyperparameter marginals.</div>
             <div class="fit">typical fit · ms – s</div>
           </div>
           <div class="engine">
             <div class="method">TMB</div>
-            <div class="desc">Gaussian approximation around the hyperparameter MAP. Cheap point estimate when you want one.</div>
+            <div class="desc">Gaussian approximation at the hyperparameter mode — a full posterior with uncertainty, fast.</div>
             <div class="fit">typical fit · ~ms</div>
           </div>
           <div class="engine">
@@ -133,34 +114,10 @@ onMounted(() => {
       </div>
     </section>
 
-    <!-- Receipt: standalone, centered -->
-    <section class="receipt-section">
+    <!-- Benchmark visual: Latte vs R-INLA — same posterior, warm-fit time -->
+    <section class="bench-viz-section">
       <div class="container">
-        <div class="receipt-wrap">
-          <div class="receipt">
-            <div class="stamp">PREVIEW</div>
-            <div class="head">
-              <div class="name">Latte.jl Café</div>
-              <div class="sub">— Benchmark Receipt —</div>
-              <div class="sub">numbers landing with v0.1</div>
-            </div>
-            <hr/>
-            <div class="row"><span>Server</span><span>MBP M3 · 16GB</span></div>
-            <div class="row"><span>Julia</span><span>1.11.2</span></div>
-            <hr/>
-            <div class="row" style="font-weight:600;"><span>Spatial GLMM (n=3k)</span><span>pending</span></div>
-            <div class="row muted"><span>vs glmmTMB</span><span>—</span></div>
-            <div class="row muted"><span>vs R-INLA</span><span>—</span></div>
-            <br/>
-            <div class="row" style="font-weight:600;"><span>Separable space-time</span><span>pending</span></div>
-            <div class="row muted"><span>vs R-INLA</span><span>—</span></div>
-            <br/>
-            <div class="row" style="font-weight:600;"><span>Hierarchical GLMM</span><span>pending</span></div>
-            <div class="row muted"><span>vs brms</span><span>—</span></div>
-            <hr/>
-            <div class="row total"><span>HOUSE SPEEDUP</span><span>tbd</span></div>
-          </div>
-        </div>
+        <LandingBenchmark />
       </div>
     </section>
 
@@ -182,8 +139,11 @@ onMounted(() => {
           <a class="card" href="/tutorials/spatio_temporal_separable">
             <div class="tag">SPACE-TIME · SEPARABLE</div>
             <h4>Kronecker space-time</h4>
-            <p>Region-specific temporal dynamics via a <code>SeparableModel</code> Kronecker prior. Additive vs interaction-only vs full, on one DPPL spec.</p>
+            <p>Region-specific temporal dynamics via a <code>SeparableModel</code> Kronecker prior. Additive vs interaction-only vs full, from one <code>@latte</code> model.</p>
           </a>
+        </div>
+        <div class="gallery-more">
+          <a class="btn btn-ghost" href="/tutorials/">Show all tutorials →</a>
         </div>
       </div>
     </section>
@@ -214,7 +174,7 @@ onMounted(() => {
               <span class="wm-txt">Latte<span class="wm-jl">.jl</span></span>
             </a>
             <div class="foot-about">
-              A Julia package for latent Gaussian models. INLA, TMB, and HMC-Laplace, behind one DPPL <code>@model</code>.
+              Probabilistic programming for latent Gaussian models in Julia. INLA, TMB, and HMC-Laplace, all behind one <code>@latte</code> macro.
             </div>
           </div>
           <div>
@@ -276,12 +236,6 @@ onMounted(() => {
 
 .container { max-width: 1200px; margin: 0 auto; padding: 0 48px; }
 
-/* ── Awning strip ── */
-.awning { background: var(--espresso); color: var(--cream); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.5px; }
-.awning-inner { display: flex; justify-content: space-between; align-items: center; padding: 10px 48px; max-width: 1200px; margin: 0 auto; }
-.awning .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #86C068; margin-right: 8px; box-shadow: 0 0 8px rgba(134,192,104,0.5); }
-.awning code { font: inherit; background: rgba(245,230,211,0.1); padding: 1px 5px; border-radius: 2px; }
-
 /* ── Nav ── */
 nav.top { padding: 22px 0; }
 nav.top .container { display: flex; align-items: center; justify-content: space-between; }
@@ -312,10 +266,7 @@ nav.top .container { display: flex; align-items: center; justify-content: space-
 .engines { margin-top: 64px; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--tan); background: var(--foam); }
 .engine { padding: 22px 24px; border-right: 1px solid var(--tan); position: relative; }
 .engine:last-child { border-right: none; }
-.engine.default { background: #fff; }
 .engine .method { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 500; font-size: 22px; color: var(--espresso); display: flex; align-items: center; gap: 10px; margin-bottom: 8px; letter-spacing: -0.3px; }
-.engine .badge { font-family: 'Inter', sans-serif; font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; padding: 2px 7px; border-radius: 2px; font-weight: 500; }
-.engine .badge.default { background: var(--mocha); color: var(--cream); }
 .engine .desc { font-size: 13.5px; color: var(--mocha); line-height: 1.5; }
 .engine .fit { font-size: 11px; color: var(--caramel); font-family: 'JetBrains Mono', monospace; margin-top: 10px; font-variant-numeric: tabular-nums; }
 
@@ -332,19 +283,8 @@ pre.code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-hei
 .c-str { color: #C9986A; }
 .c-var { color: var(--caramel); }
 
-/* ── Receipt section ── */
-.receipt-section { padding: 96px 0; background: var(--bg); }
-.receipt-wrap { max-width: 480px; margin: 0 auto; }
-.receipt { background: #FFFCF7; padding: 36px 32px 24px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--espresso); line-height: 1.75; box-shadow: 0 18px 48px rgba(42,24,16,0.1); position: relative; }
-.receipt::after { content: ''; position: absolute; left: 0; right: 0; bottom: -12px; height: 14px; background-image: linear-gradient(-45deg, #FFFCF7 7px, transparent 7px), linear-gradient(45deg, #FFFCF7 7px, transparent 7px); background-size: 14px 14px; background-position: 0 0; }
-.receipt .head { text-align: center; margin-bottom: 16px; }
-.receipt .head .name { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 22px; font-weight: 500; }
-.receipt .head .sub { font-size: 10px; color: var(--mocha); margin-top: 2px; letter-spacing: 0.5px; }
-.receipt hr { border: none; border-top: 1px dashed var(--mocha); margin: 12px 0; }
-.receipt .row { display: flex; justify-content: space-between; }
-.receipt .row.muted { color: var(--mocha); padding-left: 12px; font-size: 11.5px; }
-.receipt .row.total { font-weight: 700; font-size: 13px; padding-top: 4px; }
-.receipt .stamp { position: absolute; top: 24px; right: 18px; transform: rotate(-12deg); border: 2px solid var(--berry); color: var(--berry); padding: 4px 10px; border-radius: 4px; font-family: 'Fraunces', serif; font-style: italic; font-size: 12px; font-weight: 600; letter-spacing: 0.5px; opacity: 0.85; }
+/* ── Benchmark visual section ── */
+.bench-viz-section { padding: 88px 0; background: var(--bg); }
 
 /* ── Gallery ── */
 .gallery { padding: 96px 0; background: var(--bg); }
@@ -355,6 +295,7 @@ pre.code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-hei
 .card .tag { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--caramel); text-transform: uppercase; letter-spacing: 1.3px; }
 .card h4 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 500; font-size: 24px; margin: 0; letter-spacing: -0.4px; line-height: 1.15; }
 .card p { font-size: 14px; line-height: 1.55; color: #4A3828; margin: 0; }
+.gallery-more { text-align: center; margin-top: 36px; }
 
 /* ── Footer ── */
 footer { background: var(--espresso); color: var(--cream); padding: 56px 0 36px; }

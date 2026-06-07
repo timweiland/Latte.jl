@@ -1,16 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-
-const taglines = [
-  'How do you take your posterior?',
-  'Same beans, three brews.',
-  'Pick your pour.',
-  'Slow-roasted, fast-pulled.',
-  'Posteriors on tap.',
-  'Latent Gaussians, three brewing methods.',
-  'Bayes by the cup.',
-]
-const tagline = ref(taglines[0])
+import { onMounted, onUnmounted } from 'vue'
 
 // LatteNav is `position: sticky; top: 0`, so its height is constant
 // while it's pinned. We publish that height as `--latte-nav-height`
@@ -27,8 +16,6 @@ function publishNavHeight() {
 }
 
 onMounted(() => {
-  tagline.value = taglines[Math.floor(Math.random() * taglines.length)]
-
   publishNavHeight()
   const navEl = document.querySelector('.latte-nav-wrap') as HTMLElement | null
   if (navEl && typeof ResizeObserver !== 'undefined') {
@@ -44,14 +31,6 @@ onUnmounted(() => {
 
 <template>
   <div class="latte-nav-wrap">
-    <!-- Awning -->
-    <div class="awning">
-      <div class="awning-inner">
-        <span><span class="dot"></span>OPEN · EST. 2026 · <code>latte-prototype</code> · v0.1 in preparation</span>
-        <span>{{ tagline }}</span>
-      </div>
-    </div>
-
     <!-- Nav -->
     <nav class="top">
       <div class="container">
@@ -115,11 +94,6 @@ onUnmounted(() => {
 }
 
 .container { max-width: 1200px; margin: 0 auto; padding: 0 48px; }
-
-.awning { background: var(--espresso); color: var(--cream); font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: 0.5px; }
-.awning-inner { display: flex; justify-content: space-between; align-items: center; padding: 10px 48px; max-width: 1200px; margin: 0 auto; }
-.awning .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #86C068; margin-right: 8px; box-shadow: 0 0 8px rgba(134,192,104,0.5); }
-.awning code { font: inherit; background: rgba(245,230,211,0.1); padding: 1px 5px; border-radius: 2px; }
 
 nav.top { padding: 22px 0; background: var(--bg); }
 nav.top .container { display: flex; align-items: center; justify-content: space-between; }
