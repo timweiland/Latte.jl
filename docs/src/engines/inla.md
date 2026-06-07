@@ -1,6 +1,6 @@
 # [INLA](@id engine-inla)
 
-INLA is Latte's default engine, and the method the package is named for. Given a
+INLA is Latte's default inference engine. Given a
 [latent Gaussian model](@ref main-interface), [`inla`](@ref) computes posterior
 marginals for the latent field and the hyperparameters without any MCMC. It does
 this by nesting two approximations.

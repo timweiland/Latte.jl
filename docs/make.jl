@@ -36,6 +36,7 @@ makedocs(;
         "Validation" => "validation/index.md",
         "Inference engines" => [
             "INLA" => "engines/inla.md",
+            "TMB" => "engines/tmb.md",
         ],
         "Main Interface" => "main_interface.md",
         "Reference" => [
