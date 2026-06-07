@@ -96,7 +96,7 @@ const pathComp = (c: number[]) => 'M' + xs.map((x, i) => `${fmt(xx(x))},${fmt(yy
 
     <div class="inla-controls">
       <label>grid density
-        <input type="range" min="3" max="25" step="2" v-model.number="K" />
+        <input type="range" min="3" max="9" step="1" v-model.number="K" />
         <span class="kval">{{ K }} points</span>
       </label>
       <div class="legend">
