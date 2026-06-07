@@ -89,10 +89,10 @@ latte_from_dppl
 
 ## Alternative inference engines
 
-The same model can be run through other engines for comparison and validation:
+The same model runs through other engines too. [`tmb`](@ref) has its own
+[TMB](engines/tmb.md) page; the HMC-Laplace engine is below.
 
 ```@docs
-tmb
 hmc_laplace
 ```
 
