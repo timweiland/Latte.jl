@@ -105,15 +105,6 @@ const pathComp = (c: number[]) => 'M' + xs.map((x, i) => `${fmt(xx(x))},${fmt(yy
         <span class="lg exact-lg">exact (fine grid)</span>
       </div>
     </div>
-
-    <figcaption>
-      INLA places a few points in hyperparameter space (left), approximates the
-      latent field by a Gaussian at each, and sums them — weighted by
-      <code>p(θ|y)</code> — into every marginal (right). Drag the slider: at the
-      default ~5 points the mixture is lumpy and misses the exact curve; densify it
-      (a smaller <code>integration_step_z</code>) and it snaps to the truth. That is
-      the whole method — and the whole tuning story — in one picture.
-    </figcaption>
   </figure>
 </template>
 
@@ -152,8 +143,6 @@ const pathComp = (c: number[]) => 'M' + xs.map((x, i) => `${fmt(xx(x))},${fmt(yy
 .comp-lg::before { border-top-color: var(--caramel); }
 .inla-lg::before { border-top-color: var(--berry); }
 .exact-lg::before { border-top-color: var(--good); border-top-style: dashed; }
-figcaption { font-size: 13px; line-height: 1.55; color: #5A4636; margin-top: 8px; padding-top: 12px; border-top: 1px solid #F0E6D8; }
-figcaption code { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; background: rgba(139,111,71,0.1); padding: 0 4px; border-radius: 3px; }
 
 @media (max-width: 720px) {
   .inla-panels { flex-direction: column; }
