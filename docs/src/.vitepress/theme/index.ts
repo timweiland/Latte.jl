@@ -21,6 +21,7 @@ import Validation from '@/Validation.vue'
 import PaperCite from '@/PaperCite.vue'
 import InlaNested from '@/InlaNested.vue'
 import TmbGaussian from '@/TmbGaussian.vue'
+import HmcLaplace from '@/HmcLaplace.vue'
 
 import { enhanceAppWithTabs } from 'vitepress-plugin-tabs/client'
 
@@ -61,6 +62,7 @@ export const Theme: ThemeConfig = {
     app.component('PaperCite', PaperCite)
     app.component('InlaNested', InlaNested)
     app.component('TmbGaussian', TmbGaussian)
+    app.component('HmcLaplace', HmcLaplace)
   }
 }
 export default Theme

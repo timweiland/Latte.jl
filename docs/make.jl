@@ -37,6 +37,7 @@ makedocs(;
         "Inference engines" => [
             "INLA" => "engines/inla.md",
             "TMB" => "engines/tmb.md",
+            "HMC-Laplace" => "engines/hmc_laplace.md",
         ],
         "Main Interface" => "main_interface.md",
         "Reference" => [
