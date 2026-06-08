@@ -265,3 +265,60 @@ using Random
         end
     end
 end
+
+@testset "Diagonal third/fourth derivatives — Gamma" begin
+    Random.seed!(7)
+
+    # Independent reference: central finite differences of the analytic loghessian
+    # diagonal (GMRFs ships the closed-form Gamma loghessian, so this is AD-free).
+    hess_diag(x, ol) = diag(loghessian(x, ol))
+    function fd_third(x0, i, ol; δ = 1.0e-4)
+        e = zeros(length(x0))
+        e[i] = 1.0
+        return (hess_diag(x0 + δ * e, ol)[i] - hess_diag(x0 - δ * e, ol)[i]) / (2δ)
+    end
+    function fd_fourth(x0, i, ol; δ = 1.0e-3)
+        e = zeros(length(x0))
+        e[i] = 1.0
+        return (hess_diag(x0 + δ * e, ol)[i] - 2 * hess_diag(x0, ol)[i] + hess_diag(x0 - δ * e, ol)[i]) / δ^2
+    end
+
+    @testset "matches closed form + finite-diff (indices = 1:n)" begin
+        n = 8
+        y = rand(n) .+ 0.5            # Gamma observations must be positive
+        φ = 2.7
+        ol = ExponentialFamily(Gamma)(y; phi = φ)
+        x0 = 0.5 .* randn(n)
+
+        d3 = third_derivative_diagonal(ol, x0)
+        d4 = fourth_derivative_diagonal(ol, x0)
+        @test d3 !== nothing                 # no longer the AD fallback
+        @test d4 !== nothing
+        @test d3.indices == collect(1:n)
+        @test d4.indices == collect(1:n)
+
+        # closed form (log link, μ = e^η): h'''(η) = +φy e^{−η}, h''''(η) = −φy e^{−η}
+        @test d3.values ≈ [φ * y[j] * exp(-x0[j]) for j in 1:n] rtol = 1.0e-12
+        @test d4.values ≈ [-φ * y[j] * exp(-x0[j]) for j in 1:n] rtol = 1.0e-12
+
+        # independent finite-difference check against GMRFs' analytic Hessian
+        @test d3.values ≈ [fd_third(x0, i, ol) for i in 1:n] atol = 1.0e-4
+        @test d4.values ≈ [fd_fourth(x0, i, ol) for i in 1:n] atol = 1.0e-2
+    end
+
+    @testset "honours custom indices (augmented η block)" begin
+        # observations map to a sub-block of a larger latent vector, as in the
+        # augmented layout where the η predictor block occupies positions 1:n_obs.
+        n_latent = 12
+        n_obs = 5
+        idx = collect(1:n_obs)
+        y = rand(n_obs) .+ 0.5
+        φ = 1.3
+        ol = GammaLikelihood(LogLink(), y, φ, idx)
+        x0 = 0.3 .* randn(n_latent)
+
+        d3 = third_derivative_diagonal(ol, x0)
+        @test d3.indices == idx
+        @test d3.values ≈ [φ * y[j] * exp(-x0[idx[j]]) for j in 1:n_obs] rtol = 1.0e-12
+    end
+end
