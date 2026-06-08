@@ -1,0 +1,15 @@
+{
+  "mesh_convex": -0.03,
+  "mesh_concave": -0.05,
+  "mesh_max_edge_inner": 0.45,
+  "mesh_max_edge_outer": 1.0,
+  "mesh_cutoff": 0.2,
+  "n_groups": 25,
+  "range_U": 1.0,
+  "range_p": 0.5,
+  "sigma_field_U": 1.0,
+  "sigma_field_p": 0.5,
+  "rw1_sigma_U": 1.0,
+  "rw1_sigma_alpha": 0.5,
+  "prec_intercept": 0.001
+}
