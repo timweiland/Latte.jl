@@ -107,6 +107,43 @@ Using smoothness=1 here gave range KS 0.71; smoothness=0 dropped it to 0.055.
 - Not wired into `render_docs.jl` / the Benchmarks page: the speed result has
   Latte losing, so publication is a separate call once the per-θ cost improves.
 
+## Paraná precipitation (Gamma + rw1(seaDist) + Matérn-SPDE, shared mesh)
+
+Files: `paranaprec/paranaprec_compare.{R,jl}`. The canonical SPDE-book §2.8 model:
+Gamma likelihood (log link), η = intercept + rw1(seaDist) + SPDE field, on the
+shared non-convex-hull mesh R-INLA builds (407 nodes). Both engines: scaled rw1
+(`scale.model=TRUE` / `scale_model=true`), PC priors, matched Gamma-dispersion
+prior (R `loggamma(2, 0.2)` == Latte `phi ~ Gamma(2, 5)`), `int.strategy=ccd`.
+
+**rw1 component — RESOLVED by the RWModel variance scaling (GMRFs #149).**
+- rw1-Stdev KS: **0.94 → ~0.05–0.08** (the headline fix)
+- rw1(seaDist) node KS: max 0.055, median 0.029
+Before #149 Latte's rw1 was unscaled while R-INLA scales (`scale.model=TRUE`), so
+the PC-prior σ referred to different metrics. With both scaled the rw1 matches.
+
+**Residual field gap — small, understood, NOT a bug.**
+- field node KS: max 0.106, median 0.105 (407/407 > 0.05); field-mean max-diff 0.014
+- intercept β KS 0.105 (means match: 1.566 vs 1.566)
+- field range KS 0.185 (range Latte 11.6 vs R 10.8); field Stdev KS 0.173 (σ 0.345 vs 0.40)
+
+The entire residual reduces to σ_field being ≈14% tighter in Latte (means match, so
+every node's marginal is uniformly narrower → flat ~0.105 KS). Root cause is
+**weak identifiability, not an inference error**: the estimated range (≈10.8) exceeds
+the domain diagonal (≈7.67), `range/diag = 1.41`, so the field is near-constant over
+the observation window and (range, σ) are barely constrained by data — the prior and
+second-order INLA details (CCD grid placement, the Gamma marginal-likelihood Laplace)
+then set the 7–14% spread. Ruled out, in order: SLA marginalization (Gaussian
+marginalization gives byte-identical field KS), the prior (GMRFs normalizes the field
+to marginal variance 1/τ independent of range, so `PCPrior.Precision(τ)` == R's
+`prior.sigma`), the Gamma-dispersion φ prior (matched explicitly, no change), and a
+field constraint (neither engine constrains the proper SPDE field).
+
+**Speed.** Latte warm ≈6.7 s vs R-INLA ≈2.1 s (≈3.2× slower) — the per-θ cost on the
+non-Gaussian (Gamma) likelihood. Cause not yet characterised; the perf phase is next.
+
+**Env note:** the benchmark project pins `GaussianMarkovRandomFields#main` from GitHub
+(includes #146/#147/#149), independent of any local dev checkout.
+
 ## Open
 
 The Tokyo fix changes the `RW2SumOnly` wrapper inside the benchmark file.
