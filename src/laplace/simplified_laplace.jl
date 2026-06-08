@@ -112,6 +112,16 @@ function _marginalize_impl(
         μ_i = μ[i]
         σ_i = σ[i]
 
+        if augmentation_info !== nothing && i in augmentation_info.linear_predictor_indices
+            # η linear-predictor node: emit the Gaussian marginal and skip the
+            # per-node skew solve. The predictor aggregates many latent terms so
+            # it is near-Gaussian (its skew correction is negligible), and these
+            # marginals only feed observation_marginals/fitted values — never the
+            # named latent components or the accumulators.
+            push!(marginals, SkewNormal(μ_i, max(σ_i, 1.0e-30), 0.0))
+            continue
+        end
+
         if σ_i < 1.0e-10
             # Near-zero variance: dividing by σ_i in the skew formulas
             # would NaN. Return a degenerate SkewNormal instead.
@@ -120,34 +130,37 @@ function _marginalize_impl(
         end
 
         cond_col = conditional_column(ga, i)
-        a_coeffs = cond_col ./ (σ * σ_i)
 
-        # γ_1 needs the full conditional path including σ_i at slot i —
-        # the σ_i perturbation of x_i itself enters the log|H_M| term
-        # whenever the likelihood's curvature depends on x_i directly or
-        # via a design matrix (e.g. additive intercept η_j = β + x_j).
-        # γ_3 instead uses dir with [i] zeroed.
-        curvature_dir = σ .* a_coeffs
-        curvature_dir[i] = σ_i
-
-        dir = σ .* a_coeffs
-        dir[i] = 0.0
-
+        # The directional vectors are curvature_dir[k] = dir[k] = cond_col[k]/σ_i,
+        # with curvature_dir[i] overridden to σ_i and dir[i] to 0. γ_1 needs the
+        # σ_i perturbation of x_i itself (it enters log|H_M| whenever the
+        # likelihood's curvature depends on x_i directly or via a design matrix,
+        # e.g. additive intercept η_j = β + x_j); γ_3 uses dir with [i] zeroed.
         if diag_h3 !== nothing
-            # Direct sum, no matrix allocation. Math:
+            # Direct sum, no per-node vector allocation. The γ sums only read
+            # curvature_dir/dir at the diagonal obs indices, so fold their
+            # closed form (cond_col[k]/σ_i, with the [i] overrides) into the loop:
             # γ_1 = 0.5 · Σ_k h'''(μ_k) · curvature_dir[k] · (Σ_kk − τ_i · cond_col[k]²)
             # γ_3 = Σ_k h'''(μ_k) · dir[k]³
             τ_i = 1 / σ_i^2
+            inv_σ_i = 1 / σ_i
             γ_i_1 = 0.0
             γ_i_3 = 0.0
             @inbounds for (j, k) in enumerate(diag_h3.indices)
                 λ_k = diag_h3.values[j]
-                γ_i_1 += λ_k * curvature_dir[k] *
-                    (σ²[k] - τ_i * cond_col[k]^2)
-                γ_i_3 += λ_k * dir[k]^3
+                c_k = cond_col[k]
+                cdir = k == i ? σ_i : c_k * inv_σ_i
+                d_k = k == i ? 0.0 : c_k * inv_σ_i
+                γ_i_1 += λ_k * cdir * (σ²[k] - τ_i * c_k^2)
+                γ_i_3 += λ_k * d_k^3
             end
             γ_i_1 *= 0.5
         else
+            a_coeffs = cond_col ./ (σ * σ_i)
+            curvature_dir = σ .* a_coeffs
+            curvature_dir[i] = σ_i
+            dir = σ .* a_coeffs
+            dir[i] = 0.0
             # Fallback for non-diagonal obs_liks (LinearlyTransformedLikelihood,
             # generic AD-backed). Builds the directional-derivative matrix.
             #
