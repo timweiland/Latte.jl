@@ -151,6 +151,20 @@ function explore_hyperparameter_posterior(
     # Step 3: Compute analytical CCD integration weights (Rue et al. 2009)
     w_sphere, w_center = ccd_integration_weights(n_design, d, f0)
 
+    # Warm-start seed for every CCD point: the latent mode x*(θ*). All design
+    # points sit at a bounded radius around θ*, where the latent mode barely
+    # moves, so x*(θ*) cuts each point's GA Newton iterations ~in half (6 → 2–3)
+    # without changing its converged marginals. Falls back to nothing (the GA's
+    # prior-mean start) if the centre solve fails numerically.
+    x0_seed = with_workspace(pool) do ws
+        try
+            latent_mode(model, y, θ_star_nt, ws)
+        catch e
+            _is_numerical_failure(e) || rethrow(e)
+            nothing
+        end
+    end
+
     # Step 4: Evaluate all CCD points (PARALLEL with per-task workspaces)
     # Build work items with pre-computed θ values
     work_items = [(z = z, θ = transform(z), is_center = all(iszero, z)) for z in z_points]
@@ -169,7 +183,7 @@ function explore_hyperparameter_posterior(
     ) do item, ws
         result = evaluate_at_grid_point(
             model, y, item.θ;
-            ws = ws,
+            ws = ws, x0 = x0_seed,
             compute_marginals = true,
             marginalization_method = marginalization_method,
             marginalization_indices = marginalization_indices,
