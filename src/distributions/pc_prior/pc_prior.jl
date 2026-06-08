@@ -10,6 +10,7 @@ module PCPrior
     include("common.jl")
     include("precision.jl")
     include("sigma.jl")
+    include("range.jl")
     include("ar1_correlation.jl")
     include("bym_proportion.jl")
 
