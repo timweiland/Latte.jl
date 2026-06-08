@@ -65,9 +65,11 @@ stk <- inla.stack(
 
 t_rinla <- system.time({
     res <- inla(
-        y ~ 0 + Intercept + f(seaDist, model = "rw1", hyper = rw1.hyper) + f(spatial, model = spde),
+        y ~ 0 + Intercept + f(seaDist, model = "rw1", hyper = rw1.hyper, scale.model = TRUE) + f(spatial, model = spde),
         data = inla.stack.data(stk),
         family = "gamma",
+        # match Latte's phi ~ Gamma(shape=2, scale=5) == Gamma(shape=2, rate=0.2)
+        control.family = list(hyper = list(prec = list(prior = "loggamma", param = c(2, 0.2)))),
         control.predictor = list(A = inla.stack.A(stk)),
         control.fixed = list(prec.intercept = p$prec_intercept),
         control.inla = list(int.strategy = "ccd")
