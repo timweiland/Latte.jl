@@ -103,7 +103,7 @@ function main(args::Vector{String} = ARGS)
     @assert all(0.99 .< vec(sum(A_spde; dims = 2)) .< 1.01) "obs points off mesh"
     A_rw1 = sparse(1:n, grp, ones(n), n, n_groups)
     base_matern = MaternModel(disc; smoothness = 0)
-    rw1 = RWModel{1}(n_groups)
+    rw1 = RWModel{1}(n_groups; scale_model = true)   # match R-INLA's scale.model=TRUE (PC prior on marginal SD)
     perm = node_to_dof(disc, n_nodes)
 
     @info "running Latte INLA (Gamma + rw1 + SPDE)"
