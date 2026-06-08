@@ -1,0 +1,14 @@
+{
+  "mesh_max_edge_inner": 0.05,
+  "mesh_max_edge_outer": 0.2,
+  "mesh_cutoff": 0.01,
+  "mesh_offset_inner": 0.1,
+  "mesh_offset_outer": 0.4,
+  "range_U": 0.3,
+  "range_p": 0.5,
+  "sigma_field_U": 1.0,
+  "sigma_field_p": 0.5,
+  "sigma_obs_U": 1.0,
+  "sigma_obs_alpha": 0.5,
+  "prec_intercept": 0.01
+}

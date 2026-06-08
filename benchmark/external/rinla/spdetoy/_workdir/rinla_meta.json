@@ -1,0 +1,13 @@
+{
+  "n": 200,
+  "n_nodes": 1680,
+  "n_triangles": 3305,
+  "inla_version": "25.6.7",
+  "elapsed_seconds": 2.3564,
+  "elapsed_wall": 2.468,
+  "intercept_mean": 9.4854,
+  "intercept_sd": 0.7256,
+  "range_mean": 0.4036,
+  "stdev_mean": 1.9254,
+  "status": "ok"
+}
