@@ -227,4 +227,37 @@ end
 
         @test result1.log_density ≈ result2.log_density atol = 1.0e-10
     end
+
+    @testset "GA warm-start (x0) is result-invariant" begin
+        # The exploration strategies warm-start each grid point's Gaussian-
+        # approximation Newton solve from the mode x*(θ*) to cut iterations.
+        # That must NOT change any returned quantity: the converged GA — hence
+        # the log density and marginals — is independent of the Newton start.
+        x_star = Latte.latent_mode(model, y_test, θ_mode_nt, ws)
+        cold = evaluate_at_grid_point(
+            model, y_test, θ_mode; ws = ws, compute_marginals = true,
+            marginalization_method = GaussianMarginal(), marginalization_indices = 1:k,
+        )
+        # latent_mode returns exactly the GA mode reported by evaluate_at_grid_point
+        @test x_star ≈ cold.x_star atol = 1.0e-8
+
+        # warm-start from a perturbed seed → identical converged result
+        x0 = x_star .+ 0.5
+        warm = evaluate_at_grid_point(
+            model, y_test, θ_mode; ws = ws, x0 = x0, compute_marginals = true,
+            marginalization_method = GaussianMarginal(), marginalization_indices = 1:k,
+        )
+        @test warm.log_density ≈ cold.log_density atol = 1.0e-8
+        @test warm.x_star ≈ cold.x_star atol = 1.0e-8
+        for i in 1:k
+            @test mean(warm.marginal_result.marginals[i]) ≈ mean(cold.marginal_result.marginals[i]) atol = 1.0e-8
+            @test std(warm.marginal_result.marginals[i]) ≈ std(cold.marginal_result.marginals[i]) atol = 1.0e-8
+        end
+
+        # even a far / deliberately bad seed converges to the same mode
+        far = evaluate_at_grid_point(
+            model, y_test, θ_mode; ws = ws, x0 = fill(5.0, k), compute_marginals = false,
+        )
+        @test far.log_density ≈ cold.log_density atol = 1.0e-8
+    end
 end

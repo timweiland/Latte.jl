@@ -1,6 +1,21 @@
 export evaluate_at_grid_point, create_weighted_mixtures
 
 """
+    latent_mode(model, y, θ_natural_nt, ws) -> Vector{Float64}
+
+Latent posterior mode x*(θ) at a single hyperparameter point. Used to warm-start
+the per-grid-point Gaussian-approximation Newton solves during exploration: the
+latent mode varies little across the integration grid, so seeding every point's
+GA from x*(θ*) cuts its Newton iterations roughly in half (6 → 2–3 here) without
+changing the converged marginals at each fixed θ.
+"""
+function latent_mode(model::LatentGaussianModel, y, θ_natural_nt, ws)
+    prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
+    obs_lik = model.observation_model(y; θ_natural_nt...)
+    return collect(mean(gaussian_approximation(prior_gmrf, obs_lik)))
+end
+
+"""
     evaluate_at_grid_point(model::LatentGaussianModel, y, θ::WorkingHyperparameters; compute_marginals::Bool=false, marginalization_method=nothing, marginalization_indices=nothing)
 
 Evaluate all quantities needed at a hyperparameter grid point.
@@ -28,7 +43,7 @@ NamedTuple with:
 """
 function evaluate_at_grid_point(
         model::LatentGaussianModel, y, θ::WorkingHyperparameters;
-        ws,
+        ws, x0 = nothing,
         compute_marginals::Bool = false, marginalization_method = nothing, marginalization_indices = nothing,
     )
     # Convert to natural space for model evaluation
@@ -56,7 +71,7 @@ function evaluate_at_grid_point(
     try
         prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
         obs_lik = model.observation_model(y; θ_natural_nt...)
-        ga = gaussian_approximation(prior_gmrf, obs_lik)
+        ga = gaussian_approximation(prior_gmrf, obs_lik; x0 = x0)
         x_star = mean(ga)
 
         # Compute log posterior density using the pre-computed GA

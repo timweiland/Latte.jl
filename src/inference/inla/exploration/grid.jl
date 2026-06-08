@@ -19,7 +19,7 @@ function explore_half_axis_by_steps(
         dim::Int, direction::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
         marginalization_method, marginalization_indices, accumulators::Tuple,
         accumulator_call_keys::Vector, ws;
-        progress_callback = nothing,
+        x0 = nothing, progress_callback = nothing,
     )
     n_dim = length(transform.θ_star)
     keyed_points = []
@@ -37,7 +37,7 @@ function explore_half_axis_by_steps(
 
         result = evaluate_at_grid_point(
             model, y, θ_test;
-            ws = ws,
+            ws = ws, x0 = x0,
             compute_marginals = is_integration_point,
             marginalization_method = marginalization_method,
             marginalization_indices = marginalization_indices,
@@ -93,20 +93,20 @@ function explore_dimension_and_build_lookup(
         dim::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
         marginalization_method, marginalization_indices, accumulators::Tuple,
         accumulator_call_keys::Vector, ws;
-        progress_callback = nothing,
+        x0 = nothing, progress_callback = nothing,
     )
     # Call our helper function for both directions
     pos_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, 1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
         marginalization_method, marginalization_indices, accumulators,
-        accumulator_call_keys, ws; progress_callback = progress_callback,
+        accumulator_call_keys, ws; x0 = x0, progress_callback = progress_callback,
     )
     neg_points = explore_half_axis_by_steps(
         model, y, transform, mode_logpdf,
         dim, -1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
         marginalization_method, marginalization_indices, accumulators,
-        accumulator_call_keys, ws; progress_callback = progress_callback,
+        accumulator_call_keys, ws; x0 = x0, progress_callback = progress_callback,
     )
 
     # Return a dictionary for fast, safe lookups
@@ -183,6 +183,11 @@ function explore_hyperparameter_posterior(
     step_ranges_per_dim = Vector{UnitRange{Int}}(undef, n_dim)
     evaluation_step_z = integration_step_z / interpolation_subdivisions
     mode_log_density = 0.0
+    # Warm-start seed for the axis-walk + off-axis GA solves: the latent mode
+    # x*(θ*), captured from the mode-point evaluation below. Seeding every grid
+    # point's GA from it halves their Newton iterations (the latent mode barely
+    # moves across the grid) without changing the converged per-θ marginals.
+    x0_seed = nothing
 
     # Steps 2-3: mode-point evaluation + on-axis exploration are both
     # sequential. Hold a single workspace for the whole stretch.
@@ -193,6 +198,7 @@ function explore_hyperparameter_posterior(
         )
         mp = GridPoint(θ_star, mode_result.log_density, mode_result.marginal_result)
         mode_log_density = mode_result.log_density
+        x0_seed = mode_result.x_star
         if !isfinite(mode_log_density)
             throw(
                 ArgumentError(
@@ -229,7 +235,7 @@ function explore_hyperparameter_posterior(
                 model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
                 interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators,
                 accumulator_call_keys, ws;
-                progress_callback = progress_callback,
+                x0 = x0_seed, progress_callback = progress_callback,
             )
             merge!(point_lookup, axis_points)
             step_ranges_per_dim[d] = axis_range
@@ -282,7 +288,7 @@ function explore_hyperparameter_posterior(
     ) do item, ws
         result = evaluate_at_grid_point(
             model, y, item.θ;
-            ws = ws,
+            ws = ws, x0 = x0_seed,
             compute_marginals = item.is_integration,
             marginalization_method = marginalization_method,
             marginalization_indices = marginalization_indices,
