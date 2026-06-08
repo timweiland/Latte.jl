@@ -10,6 +10,7 @@ using Test
     include("test_bijectors.jl")
     include("test_pc_prior_precision.jl")
     include("test_pc_prior_sigma.jl")
+    include("test_pc_prior_range.jl")
     include("test_pc_prior_ar1.jl")
     include("test_pc_prior_bym.jl")
 end
