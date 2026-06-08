@@ -115,6 +115,21 @@ function third_derivative_diagonal(::NormalLikelihood{IdentityLink}, x0::Abstrac
     return (; values = zeros(0), indices = Int[])
 end
 
+function third_derivative_diagonal(obs_lik::GammaLikelihood{LogLink}, x0::AbstractVector)
+    indices = obs_lik.indices === nothing ? eachindex(x0) : obs_lik.indices
+    # log link, μ = e^η, shape φ:  h(η) = const − φη − φy·e^{−η}
+    #   h''(η)  = −φy·e^{−η} = −φy/μ   (matches GMRFs' loghessian)
+    #   h'''(η) = +φy·e^{−η} = +φy/μ
+    y = obs_lik.y
+    φ = obs_lik.phi
+    values = Float64[]
+    sizehint!(values, length(indices))
+    for (j, i) in enumerate(indices)
+        push!(values, φ * y[j] * exp(-x0[i]))
+    end
+    return (; values = values, indices = collect(Int, indices))
+end
+
 """
     fourth_derivative_diagonal(obs_lik, x0) -> Union{Nothing, NamedTuple}
 
@@ -164,6 +179,19 @@ end
 function fourth_derivative_diagonal(::NormalLikelihood{IdentityLink}, x0::AbstractVector)
     # Gaussian likelihood: all derivatives above 2nd vanish.
     return (; values = zeros(0), indices = Int[])
+end
+
+function fourth_derivative_diagonal(obs_lik::GammaLikelihood{LogLink}, x0::AbstractVector)
+    indices = obs_lik.indices === nothing ? eachindex(x0) : obs_lik.indices
+    # h''''(η) = −φy·e^{−η} = −φy/μ  (log link, μ = e^η, shape φ)
+    y = obs_lik.y
+    φ = obs_lik.phi
+    values = Float64[]
+    sizehint!(values, length(indices))
+    for (j, i) in enumerate(indices)
+        push!(values, -φ * y[j] * exp(-x0[i]))
+    end
+    return (; values = values, indices = collect(Int, indices))
 end
 
 # ============================================================================
