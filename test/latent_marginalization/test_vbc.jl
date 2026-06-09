@@ -405,3 +405,30 @@ end
     @test all(mean(o) > 0 for o in om_vbc)          # Poisson fitted rates are positive
     @test norm([mean(o) for o in om_vbc] - [mean(o) for o in om_g]) > 1.0e-4
 end
+
+@testset "compact mode-finding warm-start is start-invariant" begin
+    # The well-conditioned compact GA mode is start-invariant, so warm-starting
+    # each θ-step's Newton solve must not move the converged θ*.
+    Random.seed!(55)
+    m = 6
+    n = 20
+    spec = @hyperparams begin
+        (τ ~ Gamma(2, 1), transform = log, space = natural)
+    end
+    Qbase = let Qr = Matrix(2.0I, m, m)
+        for i in 1:m, j in (i + 1):m
+            Qr[i, j] = Qr[j, i] = -0.1
+        end
+        sparse(Qr)
+    end
+    latent_func = (; τ, kwargs...) -> (zeros(m), τ .* Qbase)
+    A = _design(n, m)
+    obs_model = LinearlyTransformedObservationModel(ExponentialFamily(Poisson), A)
+    model = LatentGaussianModel(spec, FunctionLatentModel(latent_func, m), obs_model; augment_latent = false)
+    x_true = randn(m) .* 0.7
+    y = [rand(Poisson(exp(clamp((A * x_true)[i], -2.0, 3.0)))) for i in 1:n]
+
+    θ_cold = find_hyperparameter_mode(model, y; warm_start = false)[1]
+    θ_warm = find_hyperparameter_mode(model, y; warm_start = true)[1]
+    @test θ_warm.θ ≈ θ_cold.θ atol = 1.0e-4
+end
