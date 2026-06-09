@@ -1,0 +1,1467 @@
+#+TITLE: A Variational Bayes Correction (VBC) Mode for Latte's INLA
+#+AUTHOR: Latte design note
+#+OPTIONS: toc:2 num:nil
+#+STARTUP: showall
+
+* Motivation
+
+Benchmarking the Paraná §2.8 model (Gamma + rw1(seaDist) + Matérn-SPDE) against
+R-INLA surfaced a structural gap: Latte's *augmented* INLA formulation (the linear
+predictors carried as explicit latent nodes, pinned by a \(\sim 10^6\) precision
+penalty) costs roughly *2x* end-to-end and produces a posterior precision with
+condition number \(\sim 10^{13}\), which also *blocks safe warm-starting* of the
+mode-finder. A controlled 2x2 experiment confirmed it: holding the marginalization
+fixed, dropping the augmentation (the "compact" formulation, already reachable via
+~parana_model(...; augment=false)~) is a clean ~2x speedup at identical accuracy,
+landing *below* R-INLA's warm time.
+
+The catch is that the augmentation buys a *diagonal likelihood*, which is what
+makes the cheap per-node Simplified Laplace (SLA) skew correction work. Drop the
+augmentation and the per-node SLA no longer applies; the base marginals become
+Gaussian-on-the-mode, and the Laplace *mean* (= the mode) is biased for skewed
+conditionals. The fix — the same one the INLA authors adopted for their "compact"
+mode — is a *low-rank Variational Bayes correction (VBC)* that cheaply recovers the
+posterior-mean accuracy without re-introducing the augmentation.
+
+This document (1) explains VBC and the compact reformulation assuming familiarity
+with Latte's current INLA, (2) designs a VBC mode that coexists with the existing
+augmented mode (VBC the new default), with efficiency at the centre, and (3) lays
+out how to evaluate the prototype.
+
+* Part I --- Explanation
+
+** Why a Variational Bayes Correction: theory and the compact reformulation
+
+This section is the conceptual core of the design. It assumes you already
+understand Latte's *current* INLA: the augmented Laplace approximation (latent
+field \(=\) \([\eta; x_{\text{base}}]\) with \(\eta \approx A x_{\text{base}}\)
+pinned by a \(\sim 10^6\) precision penalty), the per-node Simplified Laplace
+(SLA) skew correction, and the hyperparameter loop that mode-finds \(\theta\),
+explores a grid \(\{\theta_k\}\), and \(\theta\)-mixes the per-\(\theta\)
+marginals. The goal here is to teach *why* we want the Variational Bayes
+Correction (VBC), *why* the compact (un-augmented) reformulation forces us to
+have it, the VBC math step by step, and how it stays cheap.
+
+*** The fundamental problem: Laplace gives you the MODE, but you want the MEAN
+
+INLA's per-\(\theta\) inner approximation is a Gaussian
+\(\pi_G(x \mid \theta, y) = \mathcal N(\mu(\theta), Q_X(\theta)^{-1})\) built by a
+second-order Taylor expansion of the log-conditional \(\log \pi(x\mid\theta,y)\)
+about its *mode* \(\mu(\theta)\). By construction this is the negative-Hessian
+quadratic centered at the mode:
+
+\[
+\log \pi(x\mid\theta,y) \;\approx\; \text{const} \;-\; \tfrac12 (x-\mu)^\top Q_X (x-\mu).
+\]
+
+A Gaussian is symmetric, so its mean *equals* its mode. But the *true*
+conditional \(\pi(x\mid\theta,y)\) is generally **skewed** whenever the
+likelihood is non-Gaussian (low-count Poisson, Gamma, Bernoulli — the
+log-likelihood in \(\eta\)-space is asymmetric). For a right-skewed density the
+mean sits away from the mode, pushed toward the heavy tail. So the Gaussian
+approximation, anchored at the mode, reports the *wrong location*: it reports
+\(\mu = \text{mode}\) when the quantity a Bayesian actually wants for a point
+summary and for downstream integrals is \(\mathbb E[x\mid\theta,y] = \text{mean}\).
+
+#+begin_quote
+*Intuition (cumulant view).* Think of the error of the Gaussian approximation
+order by order. The *mean* (1st cumulant) is wrong at *first order* in the
+skewness — it is the leading, cheapest-to-fix error. The *variance* (2nd
+cumulant) is only wrong at *higher order*; the negative Hessian \(Q_X^{-1}\)
+already captures the local curvature well. So the principled, parsimonious move
+is: **trust the Hessian variance, fix only the location.** This is exactly what
+VBC does — keep \(Q_X\) fixed, correct only the mean. It is also exactly the
+division of labor SLA already follows, as we see next.
+#+end_quote
+
+*** How this relates to what SLA already does
+
+Latte's current SLA is itself a mode\(\to\)mean+skew correction, just done
+per-node. For each latent index \(i\) it forms a skew-normal from a third-order
+Taylor expansion of the Laplace marginal, parameterized by two cumulant-style
+quantities (see ~src/laplace/simplified_laplace.jl~, \(\gamma_1, \gamma_3\) in
+~_get_skew_params~):
+
+- \(\gamma_1\) — a *first-order location* correction (shifts the marginal mean
+  off the mode), and
+- \(\gamma_3\) — a *third-order skewness* term (bends the marginal into a
+  skew-normal).
+
+Note the marginal *standard deviation* feeding both comes straight from the GA's
+selected-inverse diagonal \(\sigma_i = \sqrt{(Q_X^{-1})_{ii}}\) and is **not**
+re-derived — same "trust the Hessian variance" philosophy. So SLA = (Hessian
+variance) + (location fix \(\gamma_1\)) + (skew \(\gamma_3\)).
+
+VBC keeps the first two of those three and drops the third *from the conditional*:
+
+| Ingredient            | SLA (current)                  | VBC (proposed, compact)                 |
+|-----------------------+--------------------------------+-----------------------------------------|
+| Conditional variance  | Hessian \(\sigma_i\) (kept)    | Hessian \(\sigma_i\) (kept, unchanged)  |
+| Conditional location  | per-node \(\gamma_1\)          | *joint* low-rank \(\mu^* = \mu + M\lambda\) |
+| Conditional skew      | per-node \(\gamma_3\)          | none (conditional stays Gaussian)       |
+| Marginal skew         | conditional \(\gamma_3\) + \(\theta\)-mixture | \(\theta\)-mixture *only* |
+
+The key structural difference: SLA's location fix is *element-wise and local*
+(it touches each marginal independently). VBC's location fix is *joint and
+propagated* — it nudges a handful of influential nodes and lets the GA precision
+matrix spread that correction to the whole field with a guarantee of joint
+improvement. We will see why that distinction is exactly what the compact model
+needs.
+
+*** The compact reformulation, and why it FORCES VBC
+
+**** The two formulations
+
+The *augmented* (classic) latent field carries the linear predictors as explicit
+nodes: \(X = [\eta;\, x_{\text{base}}]\) with the soft constraint
+\(\eta \approx A x_{\text{base}}\) enforced by a precision \(Q_\eta = \tau I\),
+\(\tau \sim 10^6\). The single structural payoff of this is a **diagonal
+likelihood**: datum \(i\) depends on exactly *one* latent element \(\eta_i\). That
+conditional independence is precisely what makes the per-node SLA skew correction
+both cheap and uniform across components.
+
+The *compact* ("modern") latent field is base components only:
+\[
+\psi = x_{\text{base}} = \{\beta_0, \beta, f\}, \qquad \psi\mid\theta \sim \mathcal N(0, Q(\theta)^{-1}),
+\]
+and the predictors are *not* latent — they are the linear map \(\eta = A\psi\).
+The joint becomes
+\[
+\pi(\psi,\theta\mid y) \;\propto\; \pi(\theta)\,\pi(\psi\mid\theta)\,\prod_i \pi\!\big(y_i \mid (A\psi)_i,\, \theta\big).
+\]
+Each datum now depends on a *row* of \(A\), i.e. on a linear combination of base
+nodes — the likelihood is **no longer diagonal in \(\psi\)-coordinates**. The GA
+collapses cleanly to the compact Gaussian (this is what Latte already builds with
+~augment=false~; see ~LinearlyTransformedLikelihood~):
+\[
+\log \pi(\psi\mid\theta,y) \approx -\tfrac12 \psi^\top \big(\underbrace{Q(\theta) + A^\top D A}_{Q_X(\theta)}\big)\psi - b^\top A\psi,
+\qquad \psi\mid\theta,y \sim \mathcal N(\mu(\theta), Q_X(\theta)^{-1}),
+\]
+with \(D = \operatorname{diag}\{c_i\}\) the per-observation likelihood curvature
+in \(\eta\)-space and \(b\) the gradient, both iterated to the mode. The GA
+Hessian \(Q_X = Q + A^\top D A\) is of size \(m\) (base dim), never \(m+n\), and
+crucially has **no near-singular \(10^6\) jitter block** (no cond\(\sim 10^{13}\),
+no 1049-dim blow-up), which is what makes it faster *and* safe to warm-start.
+
+**** Why dropping \(\eta\) removes the mean accuracy — and why VBC is the fix
+
+Here is the logical chain that makes VBC mandatory, not optional, in compact mode:
+
+1. *Drop the augmented \(\eta\) nodes* \(\Rightarrow\) the likelihood is no longer
+   diagonal in latent coordinates.
+2. \(\Rightarrow\) the cheap, uniform *per-node SLA* — whose whole premise was
+   "each datum touches one latent node" — no longer applies to the components
+   that matter (the predictors are gone; the base nodes each see a *sum* of
+   likelihood terms).
+3. \(\Rightarrow\) the per-\(\theta\) conditional marginals are now **Gaussian on
+   the mode** (eq. 11: \(x_j\mid\theta,y \sim \mathcal N(\mu_j(\theta),
+   (Q_X^{-1})_{jj})\)). All non-Gaussianity of the final marginal now comes
+   *only* from the \(\theta\)-mixture (eq. 12).
+4. \(\Rightarrow\) but the *mode* \(\mu(\theta)\) is biased for the *mean*
+   whenever the likelihood is skewed (§"the fundamental problem"). Without the
+   SLA's \(\gamma_1\) location fix, that bias is now uncorrected. The predictor
+   marginals \(\eta = A\psi\) inherit it, and (the authors' words) "the tiny
+   errors compound."
+5. \(\Rightarrow\) we must **recover the conditional MEAN cheaply**, without
+   re-augmenting and without the per-node SLA machinery. *That recovery is VBC.*
+
+The literature considered two rejected alternatives before VBC: (i) plain
+Gaussian post-inference of the predictors — cheap but inaccurate, errors compound;
+(ii) skew-normal predictor marginals with a Gaussian copula — accurate but it
+"essentially negates the computational benefit of removing the linear
+predictors." VBC is the third way: it restores *mean* accuracy at the cost of one
+extra \(p\)-dimensional solve per \(\theta\). Note the word *mean*: VBC recovers the
+location the dropped SLA used to supply (\(\gamma_1\)), but **not** the *conditional
+skew* (\(\gamma_3\)) — the conditional stays Gaussian and all marginal skew now
+comes from the \(\theta\)-mixture. That is the right trade for the data-rich regime
+VBC targets (near-Gaussian conditionals), but a real limitation at fixed /
+sharply-concentrated \(\theta\) with a strongly non-Gaussian likelihood — see
+"Scope, limitations & mode choice" in the Design for when to reach for the
+augmented (or, later, compact+SLA) mode instead.
+
+#+begin_quote
+*Intuition.* The augmented model and VBC are two places to pay for getting the
+*mean* right under a skewed likelihood. The augmented model pays *up front and
+globally*: it inflates the latent field by \(n\) near-singular nodes so a uniform
+per-node skew correction becomes possible — and that correction also yields the
+conditional *skew* as a byproduct. VBC pays *late and locally*: it keeps the small
+well-conditioned field and adds a tiny rank-\(p\) mean nudge per \(\theta\) — but
+buys only the mean, not the conditional skew. For data-rich models (data \(\gg\)
+model size) with near-Gaussian conditionals the augmentation cost dominates *and*
+the skew it would add is negligible, so VBC is the better trade; when the
+conditional skew is genuinely large, it is not.
+#+end_quote
+
+*** The VBC math, step by step
+
+We now derive VBC for a single fixed \(\theta\) (it runs once per grid point;
+see efficiency section). Drop the \(\theta\) argument; write the GA precision as
+\(Q_0 := Q_X(\theta) = Q + A^\top D A\) and the GA mode as \(\psi_0 := \mu(\theta)\).
+
+**** Step 1 — the mode is a linear-system solution
+
+At convergence of the GA's Newton iteration, fix
+\(Q_0 = H|_{\psi_0}\) (negative Hessian of the log-posterior) and
+\(b_0 = \gamma|_{\psi_0} + H|_{\psi_0}\psi_0\) (with \(\gamma = \nabla \log\pi\)).
+The mode solves the linear system
+\[
+Q_0 \,\psi_0 = b_0 . \tag{5}
+\]
+This reframing — "the mode is the RHS-determined solution of \(Q_0\psi = b_0\)"
+— is what lets us correct the mean *implicitly*, by perturbing the RHS.
+
+**** Step 2 — implicit RHS correction instead of explicit mean shift
+
+The naive correction is explicit: replace \(\psi_0\) by \(\psi_1 = \psi_0 +
+\delta\) and optimize the *full \(m\)-vector* \(\delta\). That is \(m\)-dimensional
+— hopeless for spatial/large random-effect models.
+
+Instead, perturb the RHS of the linear system by a vector \(\lambda\):
+\[
+Q_0 \,\psi_1 = b_0 + \lambda \;=\; b_1, \qquad \psi_1 = Q_0^{-1} b_1 . \tag{10}
+\]
+The sensitivity of the solution to a single RHS coordinate is one full column of
+the *inverse*:
+\[
+\frac{\partial \psi_1}{\partial \lambda_j} = Q_0^{\cdot j} \quad\text{(the $j$-th column of $Q_0^{-1}$).} \tag{11–12}
+\]
+
+#+begin_quote
+*Intuition (why a few nudges fix the whole field).* \(Q_0\) is *sparse* but its
+inverse column \(Q_0^{\cdot j}\) is generally *dense*. So injecting a correction
+at one RHS coordinate \(\lambda_j\) moves *every* component of \(\psi_1\) along
+that dense inverse-column. The conditional-dependence graph baked into \(Q_0\)
+propagates a correction made at a few influential "hub" nodes out to all
+connected nodes — i.e. to the entire latent field. This is the structural reason
+a *rank-\(p\)* nudge can fix an \(m\)-dimensional mean.
+#+end_quote
+
+**** Step 3 — the low-rank restriction
+
+Choose an index set \(I \subset \{1,\dots,m\}\) with \(|I| = p \ll m\) — the *hub
+coordinates*. Force \(\lambda\) to be supported only on \(I\). Then
+\[
+\boxed{\;\psi_1 = \psi_0 + Q_{0,I}^{-1}\,\lambda\;}
+\]
+where \(Q_{0,I}^{-1}\) is the \(m\times p\) matrix of the \(p\) columns of \(Q_0^{-1}\)
+indexed by \(I\) (the **propagation matrix** \(M := Q_{0,I}^{-1}\)). Only these
+\(p\) columns ever need to be computed — each is one sparse solve \(Q_0 x = e_j\)
+against the *existing* GA factorization. The unknown is now the \(p\)-vector
+\(\lambda\).
+
+#+begin_quote
+*Which nodes go in \(I\)?* Theory says *any* reasonable \(I\) yields a similarly
+improved *joint* mean, precisely because the correction propagates through the
+single shared GA rather than being applied element-wise — you are "assured of a
+joint improvement." Practically: pick the nodes that are (i) most influential and
+(ii) connected to many data points. Concretely **all fixed effects \(\beta\)** (each
+enters every \(\eta_i\), so they touch all data) plus **"short" random effects**
+(small-dimension components replicated across many observations). In Latte these
+are readable from ~model.latent_layout~ / the latent groups: fixed effects + short
+random-effect blocks.
+#+end_quote
+
+**** Step 4 — the variational objective for \(\lambda\)
+
+We pick \(\lambda\) by a variational principle (Zellner's optimal
+information-processing rule), which — unlike a plain ELBO — does *not* require the
+unknown true posterior. Among Gaussians \(g\), choose the one minimizing
+"expected \(-\)loglik plus KL-to-prior":
+\[
+\lambda^* = \arg\min_{\lambda}\;
+\underbrace{\mathbb E_{\psi \sim \mathcal N(\psi_0 + M\lambda,\, Q_0^{-1})}\big[-\log \pi(y\mid\psi)\big]}_{\text{expected data misfit}}
+\;+\;
+\underbrace{\operatorname{KLD}\!\big(\mathcal N(\psi_0+M\lambda, Q_0^{-1})\,\big\|\,\pi(\psi)\big)}_{\text{stay close to prior}} . \tag{13}
+\]
+Interpretation: among all Gaussians with the *fixed* GA covariance \(Q_0^{-1}\),
+shift the mean to best fit the data while staying anchored to the prior. The
+final answer is \(\psi_1 = \psi_0 + M\lambda^*\), precision unchanged at \(Q_0\).
+
+For an LGM the prior is Gaussian \(\mathcal N(0, Q_\pi^{-1})\) and \(q\) shares the
+same covariance \(Q_0^{-1}\), so the KL between them keeps only the Mahalanobis
+term (the log-det and trace terms *cancel* — no determinant is ever computed):
+\[
+\operatorname{KLD} \;\to\; \tfrac12\,(\psi_0 + M\lambda)^\top\, Q_\pi\, (\psi_0 + M\lambda) \;+\; \text{const}. \tag{25}
+\]
+Here \(Q_\pi = Q(\theta)\) is the *prior* precision (the \(Q\) inside
+\(Q_X = Q + A^\top D A\)), available from the prior GMRF.
+
+**** Step 5 — Gauss–Hermite reduces the expected loglik to a \(p\)-dim quadratic
+
+The likelihood depends on \(\psi\) only through \(\eta = A\psi\), and
+conditionally factorizes, so the expected \(-\)loglik is a sum of *one-dimensional*
+expectations over each \(\eta_i\) under its Gaussian marginal:
+\[
+\mathbb E_{\psi}\big[-\log \pi(y\mid\psi)\big]
+= -\sum_i \mathbb E_{\eta_i}\big[\log \pi(y_i\mid\eta_i)\big],
+\qquad \eta_i \sim \mathcal N\!\big((A\psi_1)_i,\; S_i^2\big),
+\]
+where the marginal predictor std is **independent of \(\lambda\)** (it depends
+only on the fixed GA):
+\[
+S_i = \sqrt{(A^\top Q_0^{-1} A)_{ii}}\,.
+\]
+Each 1-D expectation is an \(m_g\)-node Gauss–Hermite quadrature (\(m_g \approx
+5\)–\(11\)). Taylor-expanding the GH sum to second order *in \(\lambda\)* around
+\(\lambda = 0\) (node value of the mean predictor at \(\lambda=0\) is
+\(A_{i\cdot}\psi_0\)) gives per-datum linear/quadratic coefficients:
+\[
+B_i = \sum_{r} \frac{w_r x_r}{S_i}\,\log\pi\!\big(y_i \mid x_r S_i + A_{i\cdot}\psi_0\big),\qquad
+C_i = \sum_{r} \frac{w_r (x_r^2 - 1)}{S_i^2}\,\log\pi\!\big(y_i \mid x_r S_i + A_{i\cdot}\psi_0\big).
+\]
+\(B_i, C_i\) are the 1st/2nd derivatives of datum \(i\)'s expected loglik w.r.t.
+the mean of \(\eta_i\) (Stein-type identities for Gaussian quadrature). With
+\(M_A := A\,Q_{0,I}^{-1}\) (an \(n\times p\) matrix), the expected-loglik term
+becomes the \(p\)-dim quadratic
+\[
+\text{const} + (M_A^\top B)^\top \lambda + \tfrac12\,\lambda^\top \big(M_A^\top \operatorname{diag}(C)\, M_A\big)\,\lambda . \tag{18}
+\]
+Add the prior-penalty quadratic from Step 4 and you get a single \(p\times p\)
+quadratic in \(\lambda\) whose minimizer is one small linear solve — *no inner
+Newton over \(m\)*.
+
+#+begin_quote
+*Closed form for Poisson/Gamma (skip quadrature).* For a log-link count
+likelihood the Gaussian expectation is analytic via the log-normal MGF
+\(\mathbb E[e^{\eta_i}] = \exp(\text{mean}_i + \tfrac12 \text{var}_i)\). For Poisson:
+\[
+\mathbb E_\psi[-\log\pi(\psi\mid y)] = \sum_i\Big( \exp\!\big(A_{i\cdot}\psi_1 + \tfrac{S_i^2}{2}\big) - y_i\,A_{i\cdot}\psi_1 \Big) + \text{const}.
+\]
+The variance inflation \(S_i^2/2\) is *exactly* the term that makes
+\(\mathbb E[e^{\eta_i}] > e^{\text{mode}}\) — i.e. the mechanism that pushes the
+mean off the mode for log-link counts. In Latte the relevant per-family
+derivative machinery already exists (Poisson/Gamma via log-normal MGF in
+~loghessian_derivatives.jl~), so these can use the closed form; Bernoulli/Binomial
+fall back to Gauss–Hermite. **Gaussian likelihood is a no-op**: the GA mode is
+exact, \(\mu^* = \mu\), skip VBC entirely.
+#+end_quote
+
+**** Step 6 — feed \(\mu^*\) into the marginals, leave \(\theta\) untouched
+
+The corrected mean \(\mu^*(\theta) = \mu(\theta) + M\lambda^*(\theta)\) replaces
+\(\mu(\theta)\) in:
+- the *latent* conditional marginal (variance unchanged):
+  \[
+  \pĩ(\psi_j\mid\theta,y) \approx \mathcal N\!\big(\mu^*_j(\theta),\; (Q_0^{-1})_{jj}\big), \tag{27}
+  \]
+- and, via \(\eta = A\psi\), the *predictor* conditional marginal
+  \(\eta_j\mid\theta,y \sim \mathcal N\!\big((A\mu^*)_j,\; \sigma_j^2(\theta)\big)\)
+  with \(\sigma_j^2 = \sum_{i,l} A_{ji}A_{jl} C_{il}\) from the selected inverse
+  \(C\) (eq. 17).
+
+Everything else in the INLA loop is *unchanged*. In particular, the
+hyperparameter posterior is **kept on the GA mode**:
+\[
+\pĩ(\theta\mid y) \propto \frac{\pi(\psi,\theta,y)}{\pi_G(\psi\mid\theta,y)}\bigg|_{\psi=\psi_0}, \tag{28}
+\]
+i.e. evaluated at \(\psi_0 = \mu(\theta)\), *not* \(\mu^*\). VBC corrects only the
+conditional *mean* that enters the marginal builders and the linear-combination
+predictor path; it does **not** touch the \(\theta\)-weights. (In Latte:
+~hyperparameter_logpdf~ at ~mode_finding.jl:172~ stays exactly as is.) The final
+\(\theta\)-mixture then gives the skew of each marginal:
+\[
+\pĩ(\psi_j\mid y) = \sum_{k=1}^K \pĩ_{\text{VBC}}(\psi_j\mid\theta_k,y)\,\pĩ(\theta_k\mid y)\,\Delta_k .
+\]
+
+*** How VBC stays efficient
+
+The whole point is that VBC adds *negligible* cost on top of the GA you already
+compute. Overall complexity is \(\mathcal O(m p^2)\), dominated by the GA's own
+Cholesky and selected inverse, with \(p \in \{2,4,\dots\}\) independent of \(m,n\).
+What gets reused vs. what must never be densified:
+
+*Reuse (no new factorizations):*
+- *The GA factorization of \(Q_0 = Q + A^\top D A\)* — already computed by the
+  mode finder. Factor **once**, back-substitute \(p\) times.
+- *The \(p\) propagation columns* \(M = Q_{0,I}^{-1}\) — \(p\) sparse solves
+  \(Q_0 x = e_j\) against that existing factor. In Latte this is exactly the
+  ~conditional_column(ga, i)~ primitive (~laplace_cache.jl:205~, \(=Q^{-1}[:,i]\)
+  via one back-solve).
+- *The diagonal \(S_i^2 = (A^\top Q_0^{-1} A)_{ii}\)* — the *same* selected
+  inverse \(C\) (Takahashi recursion from \(Q_0 = LL^\top\)) that already supplies
+  the GA marginal variances \((Q_0^{-1})_{jj}\) (kept as the VBC variance) *also*
+  supplies these predictor-std diagonals. The literature proves all needed
+  \(C_{il}\) entries are *in-graph* (\(i \sim_{G_X} l \Rightarrow A_{ji}A_{jl}\neq
+  0\)), so the \(A^\top D A\) sparsity pattern already carries them. In Latte:
+  ~selected_covariance~ (~selinv.jl:30~) and ~lincomb_variance~ /
+  ~linear_predictor_marginals~ (note: prefer ~linear_predictor_marginals~ for
+  *constrained* models — ~lincomb_variance~ skips the Woodbury constraint
+  correction).
+- *The \(\theta\)-grid / CCD mixing* (\(\Delta_k\) weights) — entirely untouched.
+
+*Cheap additions only:*
+- one \(\mathcal O(n\cdot m_g)\) pass to build \(B,C\) (or the closed form for
+  Poisson/Gamma), and
+- one \(p\times p\) linear solve for \(\lambda^*\) (the KLD prior penalty
+  \(Q_\pi M\) is sparse·(\(m\times p\)) \(= m\times p\), precomputed once).
+
+*Densification traps (the explicit anti-patterns):*
+- *Never form \(Q_0^{-1}\) densely* — only the \(p\) columns of \(M\) plus the
+  selected-inverse diagonal are needed. Forming it turns \(\mathcal O(mp^2)\) into
+  \(\mathcal O(m^3)\).
+- *Never form \(\operatorname{Cov}(\eta) = A Q_0^{-1} A^\top\) densely* (\(n\times
+  n\)) — only its diagonal is ever required.
+- *Never optimize the \(m\)-vector \(\delta\) or the \(n\)-vector \(\eta\)
+  directly* — always the \(p\)-vector \(\lambda\).
+- *Never refactor \(Q_0\)* — reuse the GA factor for both the mode solve and the
+  \(p\) propagation solves.
+- *Keep \(Q_\pi\) sparse*, and recall the shared-covariance KLD has its log-det
+  and trace terms cancel — *do not compute any determinant* for the correction.
+
+#+begin_quote
+*Where this lands in Latte.* VBC is per-\(\theta\) (M, \(S_i\), \(L\) are all
+\(\theta\)-dependent) and slots into ~evaluate_at_grid_point~
+(~exploration/utils.jl:44~) between ~ga = gaussian_approximation(...)~ (line 74)
+and the ~marginalize(...)~ call (lines 90–95): compute \(\lambda^*\), form
+\(\mu^* = \text{mean}(ga) + M\lambda^*\), and pass it downstream so the marginal
+builders (~gaussian_marginal.jl:25~, and the predictor/lincomb path) use \(\mu^*\)
+instead of \(\text{mean}(ga)\). A "compute \(M/\lambda\) once at \(\hat\theta\) and
+reuse across the grid" shortcut is *off-spec* (the method specifies per-\(\theta\)
+VBC) and is an accuracy trade-off to be escalated, not silently adopted.
+#+end_quote
+
+* Part II --- Design
+** Executive summary
+
+This is the committed, implementation-ready design. It promotes the *compact*
+latent formulation (latent = base components only, ~η = Aψ~, GA Hessian
+~Q + AᵀDA~) plus a low-rank *Variational Bayes Correction* (VBC) of the
+conditional mean to the **default** INLA path, while keeping the classic
+*augmented* path (explicit ~η~ nodes + per-node Simplified Laplace) fully
+available as an explicit opt-in. No fork, no duplicated pipeline.
+
+The design resolves the two candidate proposals by committing to:
+
+1. *One construction switch* — the existing ~augment~ flag — whose DSL/front-door
+   default flips to ~false~ (compact). (From Candidate A: do NOT add an
+   ~InferenceMode~ enum; it duplicates state already carried by ~augment~ +
+   ~augmentation_info~ and invites desync. Candidate B's enum is rejected as
+   surplus surface.)
+2. *One new ~MarginalApproximation~ subtype* — ~VBCMarginal~ — selected through
+   the existing ~latent_marginalization_method~ kwarg, with a one-line resolver
+   ~default_marginalization(model)~ keying off ~augmentation_info~. (Candidate A's
+   minimal switch story.)
+3. *μ\* delivered by explicit threading of a plain vector* — NOT a
+   ~MeanCorrectedGMRF~ wrapper (an earlier draft's keystone, now *rejected*). The
+   GA is a stateful, pooled, *versioned* ~WorkspaceGMRF~ whose behaviour-critical
+   API is dispatched on its CONCRETE type: ~mean~, ~var~, ~logdetcov~, ~logpdf~
+   (+ its AD ~rrule~), ~_rand!~, and — decisively — the predictor-variance
+   constraint correction ~_apply_lpm_constraint_correction!(…, ::WorkspaceGMRF)~.
+   A plain ~AbstractGMRF~ wrapper would silently miss those (MethodError, or a
+   dense/wrong generic fallback that drops the rw1 sum-to-zero Woodbury
+   correction — the *exact* trap §6 forbids), and ~mean(::WorkspaceGMRF)~ is
+   itself a computed KKT-projected quantity, not a free field. So VBC returns μ\*
+   as a ~Vector{Float64}~ and threads it: base marginals are built directly as
+   ~Normal(μ*[j], σ_j)~ with σ from the *real* GA's selected inverse; the
+   predictor/fitted marginals take their *variance* from
+   ~linear_predictor_marginals(ga, obs_lik)~ on the genuine ~WorkspaceGMRF~
+   (constraint-correct) and their *mean* from ~A·μ\*~. All stateful,
+   constraint-aware machinery stays on the real GA; only the location is swapped,
+   as a value. See §"μ\* delivery (explicit threading)".
+4. *The correction kernel in one new file* ~src/laplace/vbc.jl~, reusing the GA's
+   single factorization: ~p~ ~conditional_column~ back-solves for the propagation
+   matrix ~M~, the same selected inverse for variances and predictor std,
+   closed-form (Poisson/Gamma) or ~p~-dim Gauss–Hermite for ~λ~, and — for
+   constrained components (rw1 sum-to-zero) — the rank-~p~ shift ~Mλ~ *projected
+   onto the constraint tangent space* (the same Woodbury projection the
+   forward-mode IFT uses), so μ\* stays constraint-consistent. Cost ~O(m p²)~,
+   ~p~ independent of ~m,n~.
+5. *Scope — read this.* VBC corrects only the per-θ conditional *mean*; the
+   conditional stays Gaussian, so all marginal skew comes from the θ-mixture. That
+   is the right trade for the data-rich regime VBC targets (near-Gaussian
+   conditionals + integrated θ), but it does NOT reproduce genuine *conditional*
+   skew at a fixed / sharply-concentrated θ with a strongly non-Gaussian
+   likelihood. There, use the augmented+SLA mode (full per-node skew) — or, as a
+   *secondary, non-blocking* goal, a compact+SLA mode that keeps component skew at
+   the better conditioning, once the transformed-likelihood SLA fallback is fixed.
+   See §"Scope, limitations & mode choice".
+
+Requirements map: §3 (Coexistence with augmentation) → R1; §2/§9 (named
+types/files/signatures, minimal surface) → R2; §6 (Densification audit) → R3;
+§5 (the six dimensions) → R4. §7 is the per-θ loop; §10 the phased plan;
+§"Scope, limitations & mode choice" the conditional-skew trade-off + 3-mode space.
+
+** The rationale this design encodes (skeleton only)
+
+Full equation-level derivation lives in the prose explainer. Design-relevant
+skeleton:
+
+- *Augmented (legacy):* latent ~X = [η; x_base]~, ~η ≈ A x_base~ pinned by
+  ~Q_η = 1e6·I~. Payoff: diagonal likelihood ⇒ cheap uniform per-node SLA skew.
+  Cost: ~+n~ near-singular nodes, cond ~~1e13~, unsafe warm-start.
+- *Compact (new default):* latent ~ψ = x_base~, ~η = Aψ~, GA ~Q_X = Q + AᵀDA~ of
+  size ~m~, well-conditioned. The likelihood is no longer diagonal in ~ψ~ ⇒ the
+  per-node SLA premise is gone ⇒ conditional marginals are Gaussian *on the mode*
+  ~N(μ_j,(Q_X⁻¹)_jj)~; all skew comes only from the θ-mixture.
+- *The gap:* the GA mode ~μ(θ)~ is biased for the mean under skewed likelihoods.
+  The dropped SLA used to supply that location fix (~γ₁~).
+- *VBC is the replacement:* recover the conditional mean by a rank-~p~ RHS
+  perturbation ~μ*(θ) = μ(θ) + M λ*(θ)~, keep the GA variance, leave the
+  θ-weights on the mode. One extra ~p~-dim solve per θ.
+
+** New types and files (R2: minimal, well-factored surface)
+
+*** New file: ~src/laplace/vbc.jl~
+
+Holds the marginal type, the index-set policy, the correction kernel, the μ\*
+threading helpers, and the per-family coefficient passes. Single cohesive unit.
+
+**** ~VBCMarginal~ — the new ~MarginalApproximation~ subtype
+
+#+begin_src julia
+export VBCMarginal, AutoVBCIndexSet
+
+"""
+    AutoVBCIndexSet(; short_dim = 8)
+
+Default policy for the VBC hub set I: every fixed-effect block (intercepts,
+coefficient blocks — they enter every η_i, so touch all data) plus every
+random-effect block of dimension ≤ `short_dim`. Large structured blocks
+(SPDE field, long RW splines) are *excluded from I* and corrected implicitly
+by propagation through M. Resolved per model from `latent_groups` /
+`latent_components`.
+"""
+struct AutoVBCIndexSet
+    short_dim::Int
+end
+AutoVBCIndexSet(; short_dim::Int = 8) = AutoVBCIndexSet(short_dim)
+
+"""
+    VBCMarginal(index_set = AutoVBCIndexSet(); n_gh = 7) <: MarginalApproximation
+
+Compact-mode marginalization with a low-rank Variational Bayes mean Correction
+(Van Niekerk & Rue 2021). The per-θ conditional marginals stay Gaussian with the
+GA's selected-inverse variances; only the mean μ(θ) is corrected to
+μ*(θ) = μ(θ) + M λ*(θ). Requires a compact LGM (`augmentation_info === nothing`)
+whose likelihood exposes a design matrix A (a `LinearlyTransformedLikelihood`).
+
+`index_set` is an `AutoVBCIndexSet`, an explicit `AbstractVector{<:Integer}`,
+or a tuple of latent-block symbols (resolved via `latent_groups`).
+"""
+struct VBCMarginal{I} <: MarginalApproximation
+    index_set::I
+    n_gh::Int
+end
+VBCMarginal(index_set = AutoVBCIndexSet(); n_gh::Int = 7) =
+    VBCMarginal{typeof(index_set)}(index_set, n_gh)
+#+end_src
+
+**** μ\* delivery — explicit threading, *not* a GMRF wrapper
+
+VBC produces μ\* as a plain ~Vector{Float64}~ and delivers it to the consumers *as
+a value*. An earlier draft wrapped the GA in a ~MeanCorrectedGMRF <: AbstractGMRF~
+that overrode ~mean~; that is *unsound* and is dropped. The GA is a stateful,
+pooled, *versioned* ~WorkspaceGMRF~ whose behaviour-critical API is dispatched on
+its CONCRETE type — ~logpdf~ (+ its AD ~rrule~), ~var~, ~logdetcov~, ~_rand!~,
+and — decisively — the predictor-variance constraint correction
+~_apply_lpm_constraint_correction!(…, ::WorkspaceGMRF)~ — none of which a wrapper
+type can satisfy (it gets a MethodError, or a silent dense/wrong generic fallback
+that *drops the rw1 sum-to-zero Woodbury correction*, the exact §6 trap). And
+~mean(::WorkspaceGMRF)~ is itself a *computed* KKT-projected quantity, not a free
+field, so "override mean" is not even well-defined for constrained models.
+
+A vector cannot be dispatched on, so there is *nothing to miss*: the genuine
+~WorkspaceGMRF~ remains the only GMRF in play. μ\* reaches its consumers through
+three one-line seams — the honest price of the workspace's concrete-typed surface:
+
+1. *Base-component marginals* — built straight from μ\* and the GA's selected-
+   inverse std (see ~_marginalize_impl(::VBCMarginal)~ below; μ\* arrives via the
+   ~mean_override~ kwarg, a defaulted no-op for every other method).
+2. *Predictor / fitted marginals* — *variance* from the real GA (constraint-
+   correct), *mean* from ~A·μ\*~:
+   #+begin_src julia
+   μ_η, v_η, _ = linear_predictor_marginals(ga, obs_lik)  # constraint-correct VAR, real ga
+   η_marginals = Normal.(obs_lik.design_matrix * μ_star, sqrt.(v_η))  # corrected MEAN = A·μ*
+   #+end_src
+   The only added work is the sparse ~A·μ\*~ matvec; the expensive (constraint-
+   corrected) variance is the GA's own. (Gaussian at fixed θ; the θ-mixture
+   supplies marginal skew.)
+3. *Accumulators* — receive μ\* via the ~x_star_vbc~ field of the
+   ~evaluate_at_grid_point~ NamedTuple (§7) for the η location; the ~ga~ they get
+   is the *unwrapped* ~WorkspaceGMRF~, so every ~::WorkspaceGMRF~-typed call
+   (logpdf, its rrule, the LPM constraint correction) keeps working verbatim.
+
+"Variance unchanged" is then preserved not by a wrapper invariant but because μ\*
+is *never* fed anywhere a covariance is derived — σ always comes from the real GA.
+The price (three explicit touch-points vs one wrapper) is real but each is a single
+line and independently testable; the wrapper's apparent "single source of truth"
+was an illusion that broke the workspace's dispatch contract.
+
+**** ~_marginalize_impl(::VBCMarginal, …)~
+
+#+begin_src julia
+function _marginalize_impl(
+        ga, obs_lik, log_prior_θ::Real,
+        method::VBCMarginal, indices::AbstractVector{<:Integer}, prior_gmrf;
+        augmentation_info = nothing, mean_override = nothing,
+    )
+    augmentation_info === nothing || throw(ArgumentError(
+        "VBCMarginal is a compact-mode method but received an augmented model. " *
+        "Construct with augment=false, or use SimplifiedLaplace()."))
+    # μ* is computed ONCE per θ in evaluate_at_grid_point (§7) and threaded in as a
+    # plain vector via `mean_override` — NOT a GMRF wrapper. A bare-GA direct caller
+    # gets the fallback: compute the correction here from the method's index set.
+    μ = mean_override === nothing ?
+        vbc_correction(ga, obs_lik, prior_gmrf,
+                       resolve_vbc_indices(method.index_set, prior_gmrf);
+                       n_gh = method.n_gh)[1] : mean_override
+    σ = std(ga)                              # real GA selected-inverse diagonal, unchanged
+    return [Normal(μ[i], σ[i]) for i in indices]
+end
+
+# KLD diagnostic: VBC keeps the Gaussian shape and only shifts the mean, so the
+# moment-KLD vs the GA baseline reduces to the standardized mean shift.
+reported_moments(::VBCMarginal, μ_base::Real, σ_base::Real, marginal) =
+    (mean(marginal), σ_base)
+#+end_src
+
+~GaussianMarginal~/~SimplifiedLaplace~ are unaffected: ~mean_override~ is added to
+~marginalize~/~_marginalize_impl~ with default ~nothing~ (the single signature
+touch), and those methods hit the existing default-fallback ~_marginalize_impl~
+(~marginalize.jl:104~), which never reads it.
+
+**** The correction kernel ~vbc_correction~
+
+#+begin_src julia
+"""
+    vbc_correction(ga, obs_lik, prior_gmrf, I; n_gh = 7)
+        -> (μ_star::Vector{Float64}, λ::Vector{Float64})
+
+One per-θ Variational Bayes mean correction. `I` is the p-vector of hub indices.
+Returns μ* = mean(ga) + M λ (M = the p columns Q_X⁻¹[:,I]); variance untouched.
+Cost O(m p²): p back-solves against the EXISTING GA factor + an O(n·n_gh)
+(or O(n) closed-form) coefficient pass + one p×p solve. Never densifies Q_X⁻¹.
+"""
+function vbc_correction(ga, obs_lik, prior_gmrf, I::AbstractVector{<:Integer}; n_gh::Int = 7)
+    A     = obs_lik.design_matrix                       # n×m sparse  (verified field)
+    base  = obs_lik.base_likelihood                     # per-obs family (verified field)
+    μ0    = mean(ga)                                     # GA mode ψ₀
+    p     = length(I)
+
+    # (1) p propagation columns  M = Q_X⁻¹[:,I] — reuse the GA factor, p back-solves.
+    #     conditional_column carries the WorkspaceGMRF constraint (Woodbury) correction,
+    #     so A·Σ_c = 0 ⇒ M's columns lie in the constraint tangent ⇒ μ* = μ0 + Mλ stays
+    #     constraint-consistent automatically (μ0 is already the KKT-projected mean).
+    #     Do NOT bypass conditional_column with a raw factor solve, or μ* drifts off Aψ=e.
+    lsc = GaussianMarkovRandomFields.linsolve_cache(ga)
+    M   = reduce(hcat, (conditional_column(ga, j, lsc) for j in I))   # m×p, constraint-correct
+
+    # (2) predictor std S_i = √((A Q_X⁻¹ Aᵀ)_ii) and predictor mean η0 — via the
+    #     constraint-correct selected-inverse path, NEVER a dense A Q⁻¹ Aᵀ. §6.
+    η0, S = _vbc_predictor_moments(ga, obs_lik)         # both length-n
+
+    # (3) per-obs linear/quadratic coeffs of the expected −loglik about λ=0
+    Bc, Cc = _vbc_coefficients(base, obs_lik, η0, S; n_gh = n_gh)   # length-n each
+
+    # (4) assemble & solve the p×p quadratic (prior penalty from §"step 4"):
+    M_A = A * M                                          # n×p
+    Qπ  = precision_matrix(prior_gmrf)                  # sparse m×m (no determinant)
+    QπM = Qπ * M                                         # m×p
+    Hλ  = M_A' * (Cc .* M_A) .+ M' * QπM                # p×p, SPD for log-concave lik
+    gλ  = M_A' * Bc          .+ (QπM' * μ0)             # p
+    λ   = -(Symmetric(Hλ) \ gλ)
+    return (μ0 .+ M * λ, λ)
+end
+#+end_src
+
+**** Predictor moments helper (constraint-correctness baked in)
+
+#+begin_src julia
+# η0 = A·μ0 + offset and S_i = √((A Q_X⁻¹ Aᵀ)_ii). Reuses GMRFs'
+# linear_predictor_marginals, which applies the Woodbury constraint correction
+# (the documented gap that lincomb_variance skips, linear_combinations.jl:14-20).
+function _vbc_predictor_moments(ga, obs_lik)
+    μ_η, v_η, _eta_lik = GaussianMarkovRandomFields.linear_predictor_marginals(ga, obs_lik)
+    return (μ_η, sqrt.(v_η))
+end
+#+end_src
+
+DECISION (resolves the candidates' S_i tension): always route S_i through
+~linear_predictor_marginals~ rather than a hand-rolled ~selected_covariance~
+contraction. It is constraint-correct for both constrained and unconstrained GAs,
+it is the exact path the accumulators already trust, and it returns η0 and S in
+one call. The hand-rolled selinv contraction is kept only as a documented
+fallback for backends where ~linear_predictor_marginals~ is undefined.
+
+**** Coefficient passes — closed form vs Gauss–Hermite (R4d fast paths)
+
+#+begin_src julia
+# Gaussian likelihood: GA mode exact ⇒ VBC is a no-op. Belt-and-braces; the caller
+# also short-circuits before ever wrapping (see _is_vbc_correctable, §3).
+_vbc_coefficients(::NormalLikelihood, args...; kwargs...) = (Float64[], Float64[])
+
+# Poisson/Gamma log-link: closed form via log-normal MGF E[e^η] = exp(mean + ½var).
+# B_i, C_i = 1st/2nd derivs of Σ_i (E[e^{η_i}] − y_i·mean_i) w.r.t. mean_i at η0_i.
+function _vbc_coefficients(::Union{PoissonLikelihood, GammaLikelihood}, obs_lik, η0, S; kwargs...)
+    Eexp = @. exp(η0 + S^2 / 2)
+    y    = _vbc_response(obs_lik)            # observed counts/responses
+    return (Eexp .- y, Eexp)                 # (B, C); C ≥ 0
+end
+
+# Bernoulli/Binomial (and any non-MGF family): n_gh-node Gauss–Hermite over η_i.
+function _vbc_coefficients(::ObservationLikelihood, obs_lik, η0, S; n_gh::Int)
+    x, w = gausshermite_nodes(n_gh)          # reuse the GH cache, laplace_cache.jl:6
+    B = similar(η0); C = similar(η0)
+    @inbounds for i in eachindex(η0)
+        bi = 0.0; ci = 0.0; si = S[i]
+        for r in eachindex(x)
+            ℓ = pointwise_logpdf_at(obs_lik, i, x[r] * si + η0[i])   # log π(y_i | η)
+            bi += (w[r] * x[r] / si) * ℓ
+            ci += (w[r] * (x[r]^2 - 1) / si^2) * ℓ
+        end
+        B[i] = -bi                            # derivatives of −loglik
+        C[i] = max(-ci, 0.0)                  # clamp ≥ 0 (guards a non-convex outlier)
+    end
+    return (B, C)
+end
+#+end_src
+
+The Poisson/Gamma branch reuses the per-family log-normal-MGF identities already
+in ~src/model/loghessian_derivatives.jl~. The GH branch needs a scalar per-obs
+log-density ~pointwise_logpdf_at(obs_lik, i, η)~, a one-element evaluation of the
+base family's log-density — no new likelihood code.
+
+*** Edits to existing files (small, additive)
+
+- ~src/inference/inla/inference.jl~ — add ~default_marginalization~ resolver,
+  flip the ~latent_marginalization_method~ default to ~nothing~, add compact
+  predictor-marginal derivation in the split block.
+- ~src/inference/inla/exploration/utils.jl~ — the per-θ VBC hook (§7): compute
+  μ*, pass it to ~marginalize~ as ~mean_override~, expose ~x_star_vbc~ (no wrapper).
+- ~src/posterior/linear_combinations.jl~ — make ~_reconstruct_ga~ produce the
+  wrapped GA in compact+VBC mode so the lincomb predictor mean uses μ*.
+- ~src/model/latent_gaussian_model.jl~ — ~latent_index_set_for_vbc~ +
+  ~resolve_vbc_indices~ helpers.
+- ~src/dsl/adapter.jl~ + ~src/dsl/macro/latte.jl~ — flip ~augment~ default to
+  ~false~.
+- ~src/inference/inla/validation.jl~ — early error for ~VBCMarginal~ on
+  augmented / non-LTM models.
+- module include + exports for ~VBCMarginal~, ~AutoVBCIndexSet~.
+
+** The mode switch (R1: compact+VBC default, augmented fully available)
+
+*** Two coordinated switches, no enum
+
+A "mode" is the pair (latent formulation, mean correction). These are already
+two honest switches in the codebase; we keep them and add only a resolver so they
+cannot silently desync. We explicitly REJECT Candidate B's ~InferenceMode~ enum:
+it would mirror state (~augment~ / ~augmentation_info~) that already exists,
+and force an ~_assert_mode_matches_model~ consistency check that the resolver
+makes unnecessary.
+
+**** Switch 1 — construction (~augment~ flag), default flipped to compact
+
+~latte_from_dppl(...; augment::Bool = false)~ (~adapter.jl:47~, was ~true~) and
+~@latte fname; augment = false~ (~macro/latte.jl:122~, was ~true~). The LGM ctor
+keyword ~augment_latent~ KEEPS its current default (~true~) so hand-built LGMs and
+external callers are unchanged — the default flip is a DSL/front-door decision
+only. ~augment=false~ already yields the compact LGM (~augmentation_info ===
+nothing~, latent = base, GA = ~Q+AᵀDA~; ctor pass-through at
+~latent_gaussian_model.jl:226~). The forced-false workspace-only-latent path
+(~adapter.jl:95~) is unaffected.
+
+**** Switch 2 — marginalization method, resolved from the model
+
+#+begin_src julia
+# inference.jl
+"""
+    default_marginalization(model) -> MarginalApproximation
+
+Compact model (augmentation_info === nothing) ⇒ VBCMarginal(); augmented model
+⇒ SimplifiedLaplace(). A user-supplied `latent_marginalization_method` always
+wins. This is the entire "mode" coupling — derived, never stored twice.
+"""
+default_marginalization(model) =
+    model.augmentation_info === nothing ? VBCMarginal() : SimplifiedLaplace()
+#+end_src
+
+In ~inla~ (~inference.jl:62~) flip the default and resolve after
+~_prepare_for_prediction~:
+
+#+begin_src julia
+function inla(model::LatentGaussianModel, y::AbstractVector;
+        latent_marginalization_method = nothing,   # was SimplifiedLaplace()
+        ... )
+    # ... _prepare_for_prediction → model_pred ...
+    method = latent_marginalization_method === nothing ?
+             default_marginalization(model_pred) : latent_marginalization_method
+    # ... unchanged phases, passing `method` ...
+end
+#+end_src
+
+Result: build-model-then-~inla~ is compact+VBC end-to-end with no extra
+keystrokes; ~augment=true~ gives augmented+SLA; an explicit
+~latent_marginalization_method~ always wins; the two switches can never desync
+(a compact model never gets the inapplicable augmented SLA; an augmented model
+never gets VBC). There is no ~mode=:compact_vbc~ enum — one construction flag and
+one derived default.
+
+** The six dimensions VBC changes/enables (R4)
+
+*** (a) Latent field — augmented ↔ compact via the ~augment~ flag
+
+Served entirely by switch 1. Compact ⇒ ctor pass-through (~:226~),
+~augmentation_info === nothing~, latent = base. Augmented ⇒ ctor wraps in
+~AugmentedLatentModel~ (~:262~) and sets ~AugmentationInfo~ (~:270~). The
+~latent_layout~ / ~latent_groups~ are populated identically (compact just lacks
+the leading η range), so named-block lookups, accumulators, and
+~linear_combinations~ keep working in both modes. No new machinery.
+
+*** (b) GA — diagonal (augmented) vs ~Q + AᵀDA~ (compact)
+
+Untouched by VBC. ~gaussian_approximation~ already builds the right GA per
+formulation. VBC CONSUMES the compact GA's factorization; it never alters how the
+GA is built. The DSL non-augmented fast path pre-unions ~Q_base~ with the ~AᵀA~
+boolean pattern (~_bool_AtA_pattern~, ~adapter.jl:298~) so the workspace symbolic
+factor covers ~Q+AᵀDA~ — VBC's ~p~ back-solves and selected inverse run against
+exactly that factor.
+
+*** (c) The mean correction — rank-~p~ VBC: WHERE, index set, selinv reuse
+
+*WHERE (per-θ):* inside ~evaluate_at_grid_point~ (~exploration/utils.jl:44~),
+between ~ga = gaussian_approximation(...)~ (line 74) and ~marginalize(...)~ (line
+90). VBC is per-θ because M, S_i, the factor are all θ-dependent; this function is
+already called per grid point (~inla_grid.jl:130~, ~ccd.jl:184~). The detailed
+hook is §7.
+
+*INDEX SET I for OUR models* (~resolve_vbc_indices~ → ~latent_index_set_for_vbc~):
+
+#+begin_src julia
+# latent_gaussian_model.jl
+"""
+    latent_index_set_for_vbc(model; short_block_max = 8) -> Vector{Int}
+
+VBC hub indices: every fixed-effect block plus every random-effect block of
+dimension ≤ `short_block_max`. Large structured blocks (SPDE field, long RW
+splines) are excluded and corrected by propagation through M. Per Van Niekerk &
+Rue any reasonable I yields a similarly improved JOINT mean, so excluding the big
+block costs essentially nothing while keeping p tiny.
+"""
+function latent_index_set_for_vbc(model::LatentGaussianModel; short_block_max::Int = 8)
+    layout = latent_groups(model)               # = model.latent_layout (verified :288)
+    idx = Int[]
+    for (_name, range) in layout
+        length(range) <= short_block_max && append!(idx, range)
+    end
+    isempty(idx) && (idx = collect(1:min(length(model.latent_prior), 4)))  # p ≤ 4 fallback
+    return idx
+end
+#+end_src
+
+~resolve_vbc_indices(method.index_set, model)~: an explicit ~Vector{Int}~ is used
+verbatim; an ~AutoVBCIndexSet~ calls ~latent_index_set_for_vbc(model;
+short_block_max = policy.short_dim)~; a symbol tuple is mapped through
+~latent_groups~. For the Paraná Gamma+rw1+SPDE benchmark this auto-selects the
+intercept(s) (and any short fixed effects) → ~p ≈ 1–4~; the rw1 and SPDE field
+get the joint mean correction by propagation through M.
+
+*SELINV / factor reuse:* M = ~p~ columns via ~conditional_column(ga, i, lsc)~
+(verified ~laplace_cache.jl:210~, the lsc-reuse form) against the existing factor;
+S_i and η0 via ~linear_predictor_marginals~ (constraint-correct). Never a dense
+inverse, never a dense ~A Q_X⁻¹ Aᵀ~. Full accounting in §6.
+
+*** (d) Marginals — Gaussian base + VBC mean + predictor lincombs; SLA replacement
+
+- *Base latent marginals:* ~_marginalize_impl(::VBCMarginal)~ emits
+  ~Normal(μ*_j, σ_j)~ — same shape as ~GaussianMarginal~, mean from ~μ*~ (threaded
+  in as a vector via ~mean_override~), variance ~σ_j~ from the GA selected-inverse
+  diagonal (unchanged). This IS the per-node-SLA replacement: SLA's location fix
+  (~γ₁~) is now supplied *jointly* by ~Mλ~; the *skew* comes only from the
+  θ-mixture (~create_weighted_mixtures~, unchanged).
+- *Predictor marginals* η = Aψ: in compact mode the ~inla~ augmentation split
+  (~inference.jl:170–176~) does NOT fire, so predictor marginals are derived
+  *explicitly*: *variance* from ~linear_predictor_marginals(ga, obs_lik)~ on the
+  *real, unwrapped* GA (the constraint-correct ~v_η~), *mean* from ~A·μ*~ (one
+  sparse matvec). The accumulators (DIC/WAIC/CPO, ~accumulator_core.jl:120~) take
+  μ* via the ~x_star_vbc~ NamedTuple field for the η location; the ~ga~ they
+  receive is unwrapped, so their ~::WorkspaceGMRF~ logpdf/rrule paths are untouched.
+  The public ~INLAResult.linear_predictor_marginals~ field
+  (~augmentation_info === nothing~) is populated the same way:
+  ~Normal.(obs_lik.design_matrix * μ*, sqrt.(v_η))~.
+- *On-demand lincombs:* a linear combination ~aᵀψ~ takes its *mean* from ~aᵀμ*~ and
+  its *variance* from ~linear_predictor_marginals~ / the constraint-correct
+  selected inverse (NOT ~lincomb_variance~, which skips the Woodbury correction —
+  §6 trap). So ~linear_combinations~ gains a mean-vector argument (defaulting to
+  ~mean(ga)~) rather than wrapping the GA; pass μ* there. Cache λ (or μ*) per
+  integration point on the exploration result to avoid recomputing
+  ~vbc_correction~ in the lincomb path (negligible length-~p~ / length-~m~ memory).
+
+*** (e) The hyperparameter loop — VBC per-θ; π̃(θ|y) stays on the GA mode
+
+- *Per-θ* (on-spec). A "compute M/λ once at θ̂ and reuse across the grid" variant
+  is OFF-SPEC (M, S_i, factor are θ-dependent) and an accuracy trade-off to
+  ESCALATE, not adopt silently.
+- *θ-weights untouched.* ~hyperparameter_logpdf~ (~mode_finding.jl:172~) — the
+  π̃(θ|y) ratio evaluated at the GA mode ~x_star = mean(ga)~ — is NOT changed
+  (eq 28). The hook (§7) wraps ~ga~ AFTER ~log_density~ is computed, so the
+  un-wrapped mode feeds the weights and the wrapped μ* feeds only the marginals /
+  predictors. ~find_hyperparameter_mode~, the exploration/CCD/grid code, and
+  ~create_weighted_mixtures~ are all unchanged.
+
+*** (f) Warm-start safety unlocked by compact conditioning
+
+The compact ~Q+AᵀDA~ has no ~1e6~ block (well-conditioned, ~m~-sized), so the
+existing ~x0~ warm-start seam (~evaluate_at_grid_point(...; x0)~ at ~utils.jl:46/74~,
+and ~_reconstruct_ga~ which currently passes NO ~x0~) becomes safe to use
+aggressively: seed each grid point's Newton from a neighbour's GA mode. CRITICAL:
+warm-start from the *uncorrected* mode ~μ(θ)~ (the Newton target / ~x_star~), NOT
+μ* — VBC is a post-GA correction and must never feed back into the GA solve. This
+is a follow-on optimization (§10 phase 4), gated on ~augmentation_info === nothing~;
+do NOT warm-start the augmented path.
+
+** What changes in the per-θ loop (the §7 hook)
+
+The single edit in ~evaluate_at_grid_point~ (~exploration/utils.jl~), inserted
+after ~x_star = mean(ga)~ (line 75) and BEFORE the ~marginalize~ call (line 90):
+
+#+begin_src julia
+# after line 78 (log_density uses x_star = mean(ga) — eq 28, untouched):
+mean_override = nothing
+x_star_vbc    = x_star
+if compute_marginals && marginalization_method isa VBCMarginal &&
+        model.augmentation_info === nothing && _is_vbc_correctable(obs_lik)
+    I = resolve_vbc_indices(marginalization_method.index_set, model)
+    μ_star, _λ = vbc_correction(ga, obs_lik, prior_gmrf, I;
+                                n_gh = marginalization_method.n_gh)
+    mean_override = μ_star      # a plain Vector{Float64} — NOT a GMRF wrapper
+    x_star_vbc    = μ_star      # fed to the predictor/accumulator path via the NamedTuple
+end
+
+marginal_result = marginalize(
+    ga, obs_lik, log_prior_θ, marginalization_method,    # the real, UNWRAPPED WorkspaceGMRF
+    marginalization_indices;
+    prior_gmrf = prior_gmrf, augmentation_info = model.augmentation_info,
+    mean_override = mean_override,
+)
+#+end_src
+
+The returned NamedTuple gains ~x_star_vbc~ (the corrected mean, used by the
+predictor/accumulator path) while ~x_star~ stays the GA mode (used by the
+θ-weights and any mode-expecting accumulator). ~marginalize~ and
+~_marginalize_impl~ signatures are UNCHANGED — the wrapper carries μ* in.
+
+~_is_vbc_correctable(obs_lik)~ = ~obs_lik isa LinearlyTransformedLikelihood &&
+!(obs_lik.base_likelihood isa NormalLikelihood)~ (Gaussian ⇒ μ*=μ, skip entirely —
+SPDEtoy Gaussian pays zero VBC cost).
+
+** Coexistence with augmentation (R1, expanded)
+
+- *Augmented path is byte-for-byte unchanged.* When ~augment=true~,
+  ~augmentation_info !== nothing~, ~default_marginalization~ returns
+  ~SimplifiedLaplace()~, the §7 VBC branch is skipped (its guard requires
+  ~augmentation_info === nothing~), ~ga~ is never wrapped, the augmentation split
+  in ~inla~ (~:170–176~) fires as today, and ~AugmentedLatentModel~ +
+  ~SimplifiedLaplace~ run verbatim.
+- *Cross-pairing is rejected loudly.* ~VBCMarginal~ on an augmented model: the
+  ~_marginalize_impl(::VBCMarginal)~ guard throws; ~validate_inla_inputs~ also
+  raises early with the fix ("construct with augment=false"). ~SimplifiedLaplace~
+  on a compact model remains allowed (it degrades to vanilla per-node SLA on base
+  nodes — a valid, if non-default, choice).
+- *No shared mutable state, no enum to keep in sync.* The only coupling is the
+  pure resolver ~default_marginalization(model)~.
+
+** Scope, limitations & mode choice (the conditional-skew trade-off)
+
+*** What VBC does, and does *not*, do
+
+VBC corrects the per-θ conditional *mean* and nothing else. The per-θ conditional
+marginal stays *Gaussian* (variance = the GA selected-inverse diagonal), so **all
+skewness in a final marginal comes from the θ-mixture** (eq 12) — never from a
+per-node conditional-skew correction. This is a trade the source paper makes
+explicitly: dropping the augmentation loses the unified per-node SLA, and VBC is
+introduced "precisely to recover the *mean*"; the paper even considers and
+*rejects* a skew-normal-copula route as "essentially negating the computational
+benefit."
+
+Consequence to keep front of mind: at a *fixed* θ (or a sharply concentrated
+θ-posterior, where the mixture is effectively a point mass) with a genuinely
+non-Gaussian likelihood, compact+VBC reports a *mean-correct Gaussian* and **misses
+the real conditional skew** — an accuracy loss versus augmented+SLA, which captures
+it via ~γ₃~.
+
+*** When this is fine vs when it bites
+
+- *Fine (VBC's design target):* data-rich models with θ integrated. More data per
+  latent node ⇒ near-Gaussian conditionals (CLT) ⇒ the dropped skew is genuinely
+  small, and the θ-mixture supplies what remains — this is where the paper's "mean
+  accuracy on par with MCMC" holds. Predictor marginals are near-Gaussian
+  regardless (≤0.25% skew measured on Paraná), so they lose ~nothing.
+- *Bites:* few effective observations per node + strongly non-Gaussian likelihood
+  (low-count Poisson/Gamma effects), *especially* at fixed/concentrated θ where the
+  mixture cannot recover the conditional skew.
+
+*** Three modes, not two
+
+| mode | mean | component skew | predictor skew | conditioning | speed |
+|------+------+----------------+----------------+--------------+-------|
+| augmented + SLA (legacy)  | SLA ~γ₁~ | yes (SLA)     | yes (per-node) | bad (~1e13~) | slow    |
+| *compact + VBC* (default) | VBC      | no (Gaussian) | no (mixture)   | good (~4e8~) | fastest |
+| compact + SLA (secondary) | SLA ~γ₁~ | yes (SLA)     | no (mixture)   | good (~4e8~) | medium  |
+
+- *Default = compact + VBC* for the common data-rich / θ-integrated case.
+- *Need conditional skew today?* use *augmented + SLA* (~augment=true~ +
+  ~SimplifiedLaplace()~) — kept fully intact (R1). This is the supported answer now.
+- *compact + SLA* would be strictly better than augmented+SLA for skew-needing
+  cases (same component skew, better conditioning, faster LA — losing only the
+  ~Gaussian~ predictor skew). It is a *SECONDARY, NON-BLOCKING* goal: it needs the
+  transformed-likelihood SLA fallback fixed first — the 2×2 experiment showed
+  today's compact+SLA both *slower* and *less accurate* (KS 0.133 vs 0.107), i.e.
+  the fallback adds wrong skew (the augmentation-shadow bug resurfacing). Nice if it
+  lands and is fast; fine if it doesn't land soon. NB: VBC and component-SLA are
+  *alternative* mean routes — you would not run both (both correct the mean).
+
+*** Not a silent footgun (required behaviour)
+
+Since VBC is the default, the implementation MUST NOT silently flatten skew where it
+matters: (1) document the above; (2) keep ~augment=true~ + ~SimplifiedLaplace()~ one
+switch away; (3) emit a diagnostic/warning in the danger regime — very low
+observations-per-latent-node, or a fixed-θ / single-point request — pointing at the
+augmented mode. Part I is framed accordingly: VBC is a *mean* fix, not a full skew
+approximation.
+
+** Densification audit (R3 — every trap + how avoided)
+
+Per-θ overhead is ~O(m p²)~, strictly dominated by the GA's own Cholesky +
+selected inverse that ~evaluate_at_grid_point~ ALREADY computes.
+
+| Quantity | Naïve dense form | Trap | How VBC avoids it |
+|----------+------------------+------+-------------------|
+| ~Q_X = Q+AᵀDA~ | — | — | already built by ~gaussian_approximation~; one sparse Cholesky; D diagonal so ~AᵀDA~ sparse |
+| ~M = Q_X⁻¹[:,I]~ (m×p) | full ~Q_X⁻¹~ | O(m³) | ~p~ back-solves ~conditional_column(ga, j, lsc)~ against the EXISTING factor; only ~p~ columns |
+| GA marginal var ~(Q_X⁻¹)_jj~ | dense inverse | O(m³) | ~selected_covariance(ga)~ Takahashi selected inverse — already computed for the marginals; VBC keeps it as σ |
+| ~S_i² = (A Q_X⁻¹ Aᵀ)_ii~ | n×n ~Cov(η)~ | O(n²)+O(m³) | ~linear_predictor_marginals(ga, obs_lik)~ → only the diagonal ~v_η~; all needed entries in-graph on the ~AᵀDA~ pattern; constraint-correct |
+| mean shift δ | optimize m-vector | O(m) unknowns | optimize the ~p~-vector ~λ~; ~p ∈ {1,2,4}~ independent of m,n |
+| ~B,C~ coeffs | inner Newton over m | O(m·iters) | closed form Poisson/Gamma (~exp(η0+S²/2)~, ~loghessian_derivatives.jl:80–131~) or one O(n·n_gh) GH pass; NO inner Newton |
+| ~M_A=A·M~ (n×p), ~Q_πM~ (m×p) | — | — | sparse·(m×p): the only new dense allocs, O(p·max(m,n)) |
+| KLD / normalizer | log-det of ~Q_X~,~Q_π~ | O(m^{3/2}) | shared-covariance Gaussian KLD ⇒ log-det & trace CANCEL; only the Mahalanobis ~½ψ*ᵀQ_πψ*~ remains; NO determinant computed |
+| ~λ~ solve | — | — | one ~p×p~ ~Symmetric(Hλ)\gλ~ |
+
+*Explicit anti-patterns the code must NOT do* (assert/comment in ~vbc.jl~):
+- Never ~inv(Q_X)~ / ~Matrix(Q_X⁻¹)~ — only ~p~ ~conditional_column~ solves + the
+  selected-inverse diagonal.
+- Never ~A * Q_X⁻¹ * A'~ as a dense ~n×n~ — only its diagonal via
+  ~linear_predictor_marginals~.
+- Never refactor ~Q_X~ for the VBC solves — reuse the GA factor (~linsolve_cache(ga)~).
+- Never a determinant in the KLD.
+- *Constraint trap:* for constrained models do NOT use ~lincomb_variance~ for S_i
+  / predictor variance — it skips the Woodbury constraint correction (documented at
+  ~linear_combinations.jl:14–20~). Use ~linear_predictor_marginals~ (as the
+  accumulators do).
+
+** Fast-path short-circuits
+
+- *Gaussian likelihood ⇒ VBC no-op.* ~_is_vbc_correctable~ returns false; the
+  hook never wraps; SPDEtoy Gaussian preserves its observed 1.5× speedup.
+- *Poisson/Gamma ⇒ closed form*, reusing ~loghessian_derivatives.jl~'s log-normal
+  MGF; the Paraná Gamma benchmark hits this path with ~p ≈ 1–4~.
+- *Bernoulli/Binomial ⇒ p-dim Gauss–Hermite* (~n_gh ≈ 7~), one O(n·n_gh) pass.
+
+** Phased implementation plan
+
+Per TDD (write tests first at each phase):
+
+1. *Kernel, unit-tested in isolation.* Add ~src/laplace/vbc.jl~: ~VBCMarginal~,
+   ~AutoVBCIndexSet~, ~vbc_correction~, ~_vbc_predictor_moments~,
+   ~_vbc_coefficients~ (Gaussian no-op + Poisson/Gamma closed form + GH),
+   ~pointwise_logpdf_at~ shim, ~_is_vbc_correctable~, ~resolve_vbc_indices~.
+   Tests: a small compact Poisson LGM where μ* is checked against a brute-force
+   expected-loglik minimization; the ~mean_override~ path (base marginals use μ*,
+   σ from the real GA, variance untouched, μ* constraint-consistent); Gaussian
+   no-op (~_is_vbc_correctable~ false) leaves ~mean(ga)~ exactly.
+
+2. *Marginal dispatch + KLD.* ~_marginalize_impl(::VBCMarginal)~ +
+   ~reported_moments~; ~latent_index_set_for_vbc~/~resolve_vbc_indices~ in
+   ~latent_gaussian_model.jl~. Tests: ~marginalize~ on a wrapped GA returns
+   ~Normal(μ*_i, σ_i)~; augmented-model guard throws.
+
+3. *Per-θ hook + defaults + validation.* The §7 edit in
+   ~exploration/utils.jl~ (~x_star_vbc~, wrap, guard); ~default_marginalization~
+   + ~latent_marginalization_method=nothing~ in ~inference.jl~; flip ~augment~
+   default in ~adapter.jl~ + ~latte.jl~; early error in ~validate_inla_inputs~;
+   exports. Tests: end-to-end compact+VBC ~inla~ on the Paraná Gamma+rw1+SPDE
+   case, posterior MEAN vs MCMC reference closer than compact-Gaussian-only and
+   within tolerance of augmented+SLA; augmented mode (~augment=true~) results
+   unchanged vs current main (regression guard).
+
+4. *Predictor / lincomb consistency + warm-start (follow-on).* Wrap in
+   ~_reconstruct_ga~ so ~linear_combinations~ predictor mean uses μ*; populate
+   ~INLAResult.linear_predictor_marginals~ in compact mode; cache λ per
+   integration point. Then enable ~x0~ warm-start from the previous grid point's
+   GA mode in compact mode only. Tests: predictor marginals match the
+   accumulator-derived μ_η; warm-start produces identical results to cold within
+   solver tolerance.
+
+Escalate (per feedback_ask_on_accuracy_tradeoffs): (i) per-θ vs once-at-mode VBC
+— default per-θ, flag any reuse shortcut; (ii) ~AutoVBCIndexSet.short_dim~ (8) and
+~n_gh~ (7) defaults — widening I or n_gh to chase accuracy trades cost, escalate
+rather than auto-tune; (iii) switching constrained-model predictor variance from
+~lincomb_variance~ to ~linear_predictor_marginals~ is a behavior change (closes a
+documented gap) requiring sign-off, kept separate from the VBC mean fix.
+
+** Surface manifest (R2, at a glance)
+
+NEW file ~src/laplace/vbc.jl~: ~VBCMarginal~, ~AutoVBCIndexSet~,
+~vbc_correction~, ~_vbc_predictor_moments~, ~_vbc_coefficients~ (Normal no-op /
+Poisson-Gamma closed-form / GH), ~pointwise_logpdf_at~, ~_is_vbc_correctable~,
+~resolve_vbc_indices~, ~_marginalize_impl(::VBCMarginal,…)~,
+~reported_moments(::VBCMarginal,…)~.
+EDITED signatures (the one threading touch): ~marginalize~/~_marginalize_impl~ gain
+a defaulted ~mean_override=nothing~ kwarg; ~linear_combinations~ gains a defaulted
+mean-vector argument; ~evaluate_at_grid_point~ gains the ~x_star_vbc~ output field.
+
+CHANGED (additive): ~inference.jl~ (~default_marginalization~ + default flip +
+compact predictor split); ~exploration/utils.jl~ (§7 hook + ~x_star_vbc~);
+~linear_combinations.jl:42,147~ (wrap ~ga~ for μ* + constraint-correct variance);
+~latent_gaussian_model.jl~ (~latent_index_set_for_vbc~); ~adapter.jl:47~ +
+~latte.jl:122~ (~augment=false~); ~validation.jl~ (cross-pairing error); module
+include + exports.
+
+UNCHANGED (explicitly): ~hyperparameter_logpdf~ (~mode_finding.jl:172~),
+~find_hyperparameter_mode~, all exploration/CCD/grid code,
+~create_weighted_mixtures~, ~marginalize~/~_marginalize_impl~ signatures, the
+augmented ~SimplifiedLaplace~ path, and ~AugmentedLatentModel~.
+
+** Key verified anchors (read this session)
+
+- ~marginalize~ + free default-fallback ~_marginalize_impl~:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/laplace/marginalize.jl:71,104
+- per-θ hook (~ga~ at 74, ~x_star~ at 75, ~log_density~ at 78, ~marginalize~ at 90):
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/inference/inla/exploration/utils.jl:44-96
+- ~conditional_column(ga, i, lsc)~ lsc-reuse form:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/laplace/laplace_cache.jl:205-217
+- LTM fields ~obs_lik.design_matrix~ / ~obs_lik.base_likelihood~:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/model/loghessian_derivatives.jl:344-345
+- ~linear_predictor_marginals(ga, obs_lik) -> (μ_η, v_η, eta_lik)~ reads ~mean(ga)~:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/posterior/accumulators/accumulator_core.jl:120
+- Poisson/Gamma log-normal-MGF derivative infra:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/model/loghessian_derivatives.jl:78-195
+- compact ctor pass-through (augment_latent=false) + ~latent_groups~:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/model/latent_gaussian_model.jl:218,226,288
+- predictor/lincomb path + Woodbury-skip warning:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/posterior/linear_combinations.jl:14-20,42,147
+- augmentation split in inla:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/inference/inla/inference.jl:170-176
+- augment defaults to flip:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/dsl/adapter.jl:47 ;
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/dsl/macro/latte.jl:122
+
+NEW files to create:
+/Users/chelmney/.julia/dev/IntegratedNestedLaplace/src/laplace/vbc.jl
+
+* Part III --- Evaluation
+** Evaluation plan (concrete, measurable)
+
+This section defines the pass/fail gates that govern promotion of compact+VBC to
+default. Each subsection states *what is measured*, *against which reference*,
+*on which quantities*, and *the numeric threshold*. All accuracy numbers reuse
+the existing KS harness (~benchmark/utils/accuracy.jl~: per-parameter KS distance
+vs the reference CDF, bands green ≤ 0.02 / yellow ≤ 0.05 / orange ≤ 0.15 / red >
+0.15, plus the ~1.36/√ESS~ NUTS MC-floor and CI50/90/95 mass errors). All timing
+numbers are warm (post-compile) wall time, the same convention as
+~benchmark/external/rinla/*/rinla_meta.json~ ~elapsed_seconds~.
+
+*** Configurations compared (the matrix)
+
+Every accuracy/efficiency cell is one row of:
+
+| id | latent | marginal method | flag |
+|----+--------+-----------------+------|
+| ~AUG-SLA~ | augmented | ~SimplifiedLaplace()~ | ~augment=true~ (current main default) |
+| ~CPT-GA~ | compact | ~GaussianMarginal()~ | ~augment=false~ (no mean fix — the regression we must beat) |
+| ~CPT-VBC~ | compact | ~VBCMarginal()~ | ~augment=false~ (the new default under test) |
+
+References: ~R-INLA~ (R-INLA reference marginals + ~elapsed_seconds~ in
+~_workdir/~), ~MCMC~ (NUTS chains, where a chain exists), ~ORACLE~ (the
+deterministic 64-node Gauss–Hermite oracle, ~benchmark/oracles/toy_iid_poisson.jl~).
+
+*** A. ACCURACY
+
+**** A1. Paraná Gamma+rw1+SPDE — vs R-INLA on the KS harness (headline)
+
+- *Harness:* ~benchmark/external/rinla/paranaprec/paranaprec_compare.jl~, reference
+  marginals in ~paranaprec/_workdir/~ (~rinla_intercept_marginal.csv~,
+  ~rinla_range_marginal.csv~, ~rinla_stdev_marginal.csv~, ~rinla_rw1_marginals.csv~,
+  ~rinla_field_marginals.csv~). Metric: ~accuracy_against_reference~ → per-block
+  max KS + CI50/90/95 mass error.
+- *Quantities (per-marginal KS, signed gap at argmax, CI mass error):*
+  1. hyperparameters: SPDE range, SPDE marginal stdev, rw1 precision/sd;
+  2. fixed effect: intercept;
+  3. random effects: every rw1 component marginal;
+  4. latent field: a representative subset of SPDE field nodes.
+- *Pass thresholds (the ladder that justifies the default flip):*
+  - *Primary (relative-improvement gate):* for the *mean* of every non-Gaussian-
+    sensitive marginal (intercept, rw1 components, field nodes), the signed
+    KS-argmax gap of ~CPT-VBC~ vs R-INLA must be ≤ that of ~CPT-GA~ and
+    ~within 20%~ of ~AUG-SLA~'s gap. i.e. VBC must close most of the mean bias that
+    dropping the augmented SLA opens up.
+  - *Absolute KS gate:* ~CPT-VBC~ max-KS over all listed quantities ≤ ~0.05~
+    (yellow band or better). The SPDE-field and rw1 mixture marginals may sit in
+    yellow (they get only the through-M propagated mean, no skew beyond the
+    θ-mixture); the *intercept and hyperparameters* must be green (≤ 0.02), since
+    those are in the VBC hub set ~I~.
+  - *Variance fidelity:* CI90 and CI95 mass error of ~CPT-VBC~ within ~±0.03~ of
+    ~AUG-SLA~ — VBC does not touch variance, so this confirms the compact GA
+    selected-inverse variances are already adequate and that ~CPT-VBC~ does not
+    *regress* spread relative to the augmented path.
+  - *Regression floor:* ~CPT-VBC~ must be strictly better than ~CPT-GA~ on the
+    mean of at least the intercept and the rw1 block (else VBC is not earning its
+    cost on this case).
+- *No tolerance relaxation.* If ~CPT-VBC~ cannot hit ≤ 0.05 max-KS on the listed
+  quantities, that is escalated as an accuracy trade-off (per the standing rule),
+  NOT absorbed by widening the band.
+
+**** A2. Low-count Poisson — the mode-vs-mean regime (the method paper's own example)
+
+This is the regime VBC is designed for and the cleanest discriminator: the GA
+mode is most biased for the mean when per-observation counts are small (the
+log-link pushes ~E[e^η] = e^{μ+σ²/2}~ off the mode by ~σ²/2~).
+
+- *Harness:* ~benchmark/scenarios/toy_iid_poisson.jl~ + the exact oracle
+  ~benchmark/oracles/toy_iid_poisson.jl~ (64-node Gauss–Hermite on the conditional
+  × trapezoid over the log-τ grid — a *deterministic* reference, no MC floor).
+- *Construction of the stress grid:* sweep the Poisson rate down into the low-count
+  regime (mean count ∈ {0.3, 1, 3, 10}) so the per-conditional skew, hence the
+  ~σ²/2~ mode→mean gap, ranges from large to negligible. Keep ~τ~ prior fixed.
+- *Quantity:* the latent ~x_i~ marginal means and the per-conditional ~x_i~ KS vs
+  the oracle CDF. (Per the oracle docstring, the PC-precision τ-tail leaves
+  τ-mean/SD undefined, so τ is judged by KS/quantiles only, not by mean.)
+- *Pass thresholds:*
+  - At low count (mean ≤ 1): ~CPT-VBC~ latent-mean absolute error vs oracle ≤
+    ~25%~ of the ~CPT-GA~ error (VBC must remove the bulk of the mode→mean bias);
+    and ~CPT-VBC~ latent KS ≤ ~0.02~ (green) where ~CPT-GA~ is expected orange.
+  - The measured ~CPT-VBC~ mean shift ~Mλ~ on ~x_i~ must match the analytic
+    log-link prediction in sign and to within ~10%~ in magnitude
+    (~≈ σ_i²/2~ at leading order for the per-node correction), confirming the
+    closed-form Poisson coefficient pass (~_vbc_coefficients(::PoissonLikelihood)~)
+    is implemented correctly, not just numerically lucky.
+  - As count grows (mean = 10): ~CPT-VBC~ and ~CPT-GA~ converge — VBC magnitude
+    ~‖Mλ‖∞ → 0~ as skew vanishes (the near-Gaussian edge case, see D2).
+
+**** A3. vs MCMC where feasible
+
+- *Harness:* the NUTS reference chains already stored under ~_workdir/~
+  (e.g. ~additive/_workdir/nuts_chain_*.bin~) and the SBC matrix
+  (~benchmark/sbc/sbc_matrix.jl~) where a Gamma/Poisson non-Gaussian model has a
+  chain.
+- *Quantity:* posterior-MEAN of fixed effects and short random effects (the VBC
+  hub) vs the NUTS posterior mean.
+- *Pass threshold:* ~CPT-VBC~ mean within the NUTS MC-floor envelope — i.e. the
+  KS vs the chain ≤ ~max(0.02, 1.36/√ESS)~ (the harness's own
+  ~posterior_ks_mc_floor~ / ~latent_ks_mc_floor~). VBC means that land below the
+  MC floor are declared "indistinguishable from exact." We do NOT chase a tighter
+  number than the chain's own Monte-Carlo error.
+
+*** B. EFFICIENCY
+
+**** B1. Warm wall-time targets
+
+- *Reference times:* R-INLA Paraná = ~2.21 s~ (measured: ~paranaprec/_workdir/
+  rinla_meta.json~ ~elapsed_seconds = 2.2074~); current Latte augmented = ~~3.5 s~
+  (the standing ~AUG-SLA~ measurement on the same case).
+- *Target:* ~CPT-VBC~ warm end-to-end on Paraná ≤ ~2.3 s~ — i.e. at parity with
+  R-INLA (within ~5%~) and a ≥ ~1.5×~ speedup over ~AUG-SLA~. The speedup comes
+  from dropping the ~n~ near-singular η nodes (latent ~m~ vs ~m+n~,
+  cond ~1e13 → well-conditioned), NOT from cutting accuracy.
+- *VBC overhead budget:* the VBC step itself (per-θ ~vbc_correction~) must add ≤
+  ~10%~ to the ~CPT-GA~ warm time. Measured as ~CPT-VBC − CPT-GA~ warm-time delta
+  divided by ~CPT-GA~. Rationale: the kernel is ~O(m p²)~ with ~p ∈ {1..4}~ on
+  this case, strictly dominated by the GA Cholesky + selected inverse that
+  ~CPT-GA~ already pays.
+- *SPDEtoy (Gaussian) no-regression:* ~CPT-VBC~ warm time == ~CPT-GA~ warm time to
+  within noise (~±3%~) — the ~_is_vbc_correctable~ Gaussian short-circuit must
+  make VBC literally free here, preserving the observed 1.5× speedup over R-INLA
+  on SPDEtoy. Assert ~vbc_correction~ is never entered for a ~NormalLikelihood~.
+
+**** B2. The p-dim correction cost (micro)
+
+- *Harness:* a dedicated micro-benchmark (sibling of
+  ~benchmark/micro/recognized_vs_dag.jl~) timing ~vbc_correction~ in isolation on
+  the Paraná GA at the θ-mode.
+- *Pass thresholds:*
+  - ~vbc_correction~ allocates ~O(p·max(m,n))~, not ~O(m²)~ or ~O(n²)~. Assert the
+    only matrix allocations are ~M~ (m×p), ~M_A = A·M~ (n×p), ~Q_πM~ (m×p), and the
+    ~p×p~ ~Hλ~. Use ~@allocated~ and check the peak scales linearly in ~m~ for
+    fixed ~p~ (run at two mesh resolutions, confirm ~~2×~ alloc for ~~2×~ ~m~,
+    not ~~4×~).
+  - Wall time of ~vbc_correction~ scales as ~O(p²)~ in ~p~ (sweep ~p ∈ {1,2,4,8}~
+    via ~AutoVBCIndexSet.short_dim~; confirm sub-quadratic-to-quadratic growth, not
+    cubic).
+
+**** B3. EXPLICIT no-densification assertions (R3, mechanically checked)
+
+These are *correctness-of-implementation* assertions, run as unit tests, not just
+timing observations:
+
+- *No dense inverse:* assert ~vbc_correction~ never calls ~inv~/~Matrix~ on
+  ~Q_X~ or ~Q_X⁻¹~. Enforced by: (i) a test that constructs ~M~ purely via ~p~
+  ~conditional_column(ga, j, lsc)~ calls and checks ~M~ has exactly ~p~ columns;
+  (ii) an ~@allocated~ ceiling on ~vbc_correction~ that an ~m×m~ inverse would
+  blow through by orders of magnitude on the Paraná mesh.
+- *No dense ~A Q_X⁻¹ Aᵀ~:* assert predictor variances come from
+  ~linear_predictor_marginals(ga, obs_lik)~ (returns only the length-~n~ diagonal
+  ~v_η~), never from materializing the ~n×n~ ~Cov(η)~. Test: monkey-check that the
+  helper's output length is ~n~ and that no ~n×n~ dense array is allocated in the
+  predictor-moments path.
+- *Factor reuse:* assert the ~p~ back-solves use ~linsolve_cache(ga)~ (the existing
+  GA factor), i.e. no second symbolic/numeric factorization of ~Q_X~ inside VBC.
+  Test: count factorizations on the path == the one ~CPT-GA~ already performs.
+- *Selected-inverse reuse:* assert the marginal variance ~σ_j~ reported by
+  ~CPT-VBC~ is byte-identical to ~CPT-GA~'s ~std(ga)~ (VBC touches mean only).
+- *No determinant in the KLD:* assert the shared-covariance KLD path computes no
+  ~logdet~/~det~ of ~Q_X~ or ~Q_π~ (the log-det and trace cancel; only the
+  Mahalanobis term survives). Test: the correction value is invariant to scaling
+  the (cancelled) determinant terms.
+
+*** C. CORRECTNESS
+
+**** C1. VBC mean matches a brute-force full-VB reference
+
+- *Reference:* on a small compact Poisson/Gamma LGM (~m~ ≈ 10–30 so a dense solve
+  is tractable), compute the *full* variational mean correction by directly
+  minimizing ~E_{ψ~N(ψ₀+δ,Q₀⁻¹)}[−log π(y|ψ)] + ½(ψ₀+δ)ᵀQ_π(ψ₀+δ)~ over the
+  full ~m~-vector ~δ~ (Optim, dense). Then compute the rank-~p~ VBC ~μ*~.
+- *Pass thresholds:*
+  - With ~I~ = all indices (~p = m~): ~μ*~ from ~vbc_correction~ equals the full-VB
+    ~ψ₀+δ~ to ~1e-8~ (the low-rank restriction is then no restriction — this
+    validates the λ-solve and the coefficient passes exactly).
+  - With the default low-rank ~I~ (~p ≪ m~): ~μ*~ matches the full-VB solution in
+    the *hub* coordinates ~I~ to ~1e-6~ and recovers ≥ ~90%~ of the full-VB mean
+    shift in the *propagated* (non-hub) coordinates (the joint-improvement
+    guarantee — any reasonable ~I~ gives a similarly-improved joint mean).
+  - Poisson closed-form vs Gauss–Hermite cross-check: ~_vbc_coefficients~ via the
+    closed-form log-normal-MGF branch agrees with the ~n_gh~-node GH branch to
+    ~1e-6~ on the same Poisson model (confirms the two paths compute the same B,C).
+
+**** C2. The Gaussian-conditional base marginals
+
+- ~_marginalize_impl(::VBCMarginal)~ returns ~Normal(μ*_j, σ_j)~ where ~σ_j ==
+  std(ga)[j]~ exactly (variance untouched) and ~μ*_j == mean_override[j]~.
+- ~mean_override~ threading tests: with ~mean_override=μ*~ the base marginals
+  report μ* with σ from the *real* GA (variance bit-identical to a plain
+  ~GaussianMarginal~ run); with ~mean_override=nothing~ the fallback recomputes μ*
+  from the index set; crucially the ~ga~ reaching ~marginalize~ is the *unwrapped*
+  ~WorkspaceGMRF~, so its ~logpdf~/~rrule~/LPM-constraint-correction dispatch is
+  exercised unchanged (a wrapper would have broken these).
+- *μ\* constraint-consistency:* for a constrained component (rw1 sum-to-zero),
+  assert ~A·μ* ≈ e~ to tol — the ~conditional_column~ Woodbury keeps ~Mλ~ in the
+  constraint tangent, so no explicit projection is needed.
+
+**** C3. Predictor lincombs pick up μ*
+
+- *Quantity:* the predictor mean ~η = Aψ~ obtained two ways must agree:
+  (i) ~A · μ*~ computed directly, and (ii) the mean of ~linear_combinations(result,
+  A)~ once μ* is threaded as its mean vector. The *variance* in both comes from
+  ~linear_predictor_marginals(ga, obs_lik)~ on the real GA — assert it equals the
+  plain-GA predictor variance (VBC left it untouched).
+- *Pass threshold:* the two means agree to ~1e-10~ and each equals ~A·μ*~ (NOT
+  ~A·μ~) — i.e. μ* propagates to the predictor path *as a value*, not via a wrapper.
+- *Accumulator consistency:* DIC/WAIC/CPO accumulators take μ* via the
+  ~x_star_vbc~ field for the η location while receiving the *unwrapped* GA; assert
+  they (a) shift in the expected direction vs the mode-based baseline and (b) do
+  not error — their ~::WorkspaceGMRF~ logpdf/rrule paths are unchanged.
+- *Constraint correctness:* on a sum-to-zero-constrained component, predictor
+  variance must come from ~linear_predictor_marginals~ (Woodbury-corrected), NOT
+  ~lincomb_variance~ (which skips the correction). Test against a constrained model
+  where the two differ measurably and assert VBC uses the corrected one.
+
+**** C4. Coexistence — augmented mode unchanged (regression guard)
+
+- *The hard gate for the default flip:* with ~augment=true~, ~CPT-VBC~ code present
+  but dormant, the full ~inla~ output (hyperparameter marginals, latent marginals,
+  predictor marginals, DIC/WAIC) must be *byte-for-byte / within solver tolerance*
+  identical to current ~main~ (~AUG-SLA~). Snapshot current-main outputs on
+  Scotland, Seeds, Epil, Paraná-augmented before the change; assert post-change
+  equality (≤ ~1e-10~ on marginal moments).
+- The VBC branch must be provably not entered when ~augmentation_info !== nothing~
+  (assert the guard; assert ~ga~ is never wrapped).
+- Cross-pairing errors: ~VBCMarginal~ on an augmented model throws a clear
+  ~ArgumentError~ from both ~_marginalize_impl~ and ~validate_inla_inputs~; test the
+  message names the fix ("construct with augment=false").
+
+*** D. EDGE CASES
+
+**** D1. Strong skew — VBC correction is large and right
+
+- *Construct:* the low-count Poisson at mean count 0.3 (A2) and a Gamma with small
+  shape (heavy per-conditional skew).
+- *Assert:* ~‖Mλ‖∞~ is large (the mean shift is a meaningful fraction of σ); the
+  shift has the correct sign (toward the heavy tail / above the mode for log-link);
+  and ~CPT-VBC~ closes ≥ ~75%~ of the ~CPT-GA~→oracle mean gap (A2 threshold). This
+  is the case that must move the most.
+
+**** D2. Near-Gaussian — VBC ≈ 0 (no spurious motion)
+
+- *Construct:* (a) a ~NormalLikelihood~ compact model (SPDEtoy); (b) a high-count
+  Poisson (mean count = 50, conditionals nearly symmetric).
+- *Assert:* (a) ~_is_vbc_correctable~ returns ~false~, VBC is never entered, and
+  ~CPT-VBC~ marginals are *identical* to ~CPT-GA~ (the GA is exact for Gaussian, so
+  μ*=μ by construction); (b) for the high-count Poisson, ~‖Mλ‖∞ / max σ < 0.02~ —
+  VBC does essentially nothing and does not introduce spurious bias. This guards
+  against a kernel that "corrects" where no correction is warranted.
+
+**** D3. Ill-conditioning — the conditioning win is real and VBC is stable
+
+- *Assert (compact conditioning):* the compact GA Hessian ~Q+AᵀDA~ condition
+  number on Paraná is many orders of magnitude below the augmented
+  formulation's ~~1e13~ (measure ~cond~ of both; assert compact ≤ ~1e8~ and ≥ ~1e4×~
+  better than augmented). This is the structural premise of the whole design.
+- *Assert (VBC numerical stability):* the ~p×p~ ~Hλ = Symmetric(M_Aᵀ diag(C) M_A +
+  Mᵀ Q_π M)~ is SPD for the log-concave likelihoods (Poisson/Gamma/Bernoulli/
+  Binomial) — the solve ~Hλ\gλ~ succeeds without pivoting failure; the ~C ≥ 0~
+  clamp in the GH branch is exercised and keeps ~Hλ~ SPD on a deliberately
+  non-convex-outlier datum.
+
+**** D4. Mode-finding warm-start becomes SAFE under compact conditioning
+
+- *The claim under test:* compact ~Q+AᵀDA~ (no ~1e6~ block) makes the existing
+  ~x0~ warm-start seam (~evaluate_at_grid_point(...; x0)~) safe to use across the
+  θ-grid, which the augmented path cannot.
+- *Procedure:* run the compact Paraná θ-grid twice — (i) cold (each grid point's
+  Newton from the default init), (ii) warm (each grid point seeded from a
+  neighbour's *uncorrected* GA mode ~μ(θ)~, never μ*).
+- *Pass thresholds:*
+  - *Safety/identity:* warm and cold produce the same posterior marginals to
+    solver tolerance (≤ ~1e-8~ on marginal moments) — warm-start must not change
+    the answer.
+  - *Convergence:* warm-start strictly reduces total Newton iterations across the
+    grid (assert ≥ ~20%~ fewer), and *never* diverges or hits the iteration cap
+    (the failure mode the augmented ~1e13~ conditioning would risk).
+  - *Negative control:* attempting the same neighbour-seeded warm-start on the
+    augmented path is either gated off or demonstrably less stable (more
+    iterations / occasional cap hits) — documenting *why* warm-start is unlocked
+    only by the compact formulation.
+  - *No feedback bug:* assert the warm-start seed is ~μ(θ)~ (the Newton target),
+    explicitly NOT μ* — a test that perturbs μ* and confirms the GA solve result
+    is unchanged (μ* must never re-enter the GA).
+
+*** Definition of "evaluation passed" (gate for the default flip)
+
+All of: A1 absolute KS gate (≤ 0.05, hub green) AND A1 relative-improvement gate
+(≥ 80% of AUG-SLA mean fix) AND A2 low-count gate (≥ 75% gap closure) AND B1
+(≤ 2.3 s Paraná, ≤ 10% VBC overhead, SPDEtoy no-regression) AND every C
+correctness test AND C4 augmented-unchanged regression AND D1–D4. Any miss on an
+*accuracy* gate is escalated as a trade-off, never absorbed by relaxing a
+threshold.
+
+** Anchors verified this session (for the evaluation harness)
+
+- KS accuracy harness + bands + MC floor + CI mass errors:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/benchmark/utils/accuracy.jl:1-80
+- Paraná R-INLA reference marginals + timing (~elapsed_seconds = 2.2074~):
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/benchmark/external/rinla/paranaprec/_workdir/ ;
+  rinla_meta.json (timing), rinla_intercept_marginal.csv, rinla_range_marginal.csv,
+  rinla_stdev_marginal.csv, rinla_rw1_marginals.csv, rinla_field_marginals.csv ;
+  driver: paranaprec_compare.jl
+- Low-count Poisson exact oracle (64-node GH × log-τ trapezoid, deterministic):
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/benchmark/oracles/toy_iid_poisson.jl ;
+  scenario: /Users/chelmney/.julia/dev/IntegratedNestedLaplace/benchmark/scenarios/toy_iid_poisson.jl
+- SPDEtoy Gaussian no-op case:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/benchmark/external/rinla/spdetoy/
+- NUTS chains for vs-MCMC checks + SBC matrix:
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/benchmark/external/rinla/additive/_workdir/nuts_chain_*.bin ;
+  /Users/chelmney/.julia/dev/IntegratedNestedLaplace/benchmark/sbc/sbc_matrix.jl
+- VBC efficiency/no-densification primitives (per the digested papers):
+  conditional_column lsc-reuse form at src/laplace/laplace_cache.jl:205-217 ;
+  linear_predictor_marginals (constraint-correct η diagonal) at
+  src/posterior/accumulators/accumulator_core.jl:120 ;
+  Poisson/Gamma log-normal-MGF derivatives at src/model/loghessian_derivatives.jl:78-195
