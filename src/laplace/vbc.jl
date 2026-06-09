@@ -4,7 +4,7 @@ using SparseArrays
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields:
     PoissonLikelihood, GammaLikelihood, NormalLikelihood, ObservationLikelihood,
-    LinearlyTransformedLikelihood, linear_predictor_marginals, linsolve_cache,
+    LinearlyTransformedLikelihood, linear_predictor_marginals,
     precision_matrix, pointwise_loglik
 using FastGaussQuadrature: gausshermite
 
@@ -52,16 +52,53 @@ _is_vbc_correctable(lik::LinearlyTransformedLikelihood) = _is_vbc_correctable(li
 _is_vbc_correctable(::NormalLikelihood) = false
 _is_vbc_correctable(::ObservationLikelihood) = true
 
-# Resolve a method's `index_set` to a concrete vector of latent indices.
-# Explicit vectors pass through; `AutoVBCIndexSet` needs the model layout and is
-# resolved by the per-θ hook (model-level), not here.
+# Resolve a method's `index_set` to a concrete vector of latent indices in the
+# bare-kernel path (no model in scope — only `prior_gmrf`). Explicit vectors pass
+# through; `AutoVBCIndexSet` needs the model layout (see `latent_index_set_for_vbc`).
 resolve_vbc_indices(I::AbstractVector{<:Integer}, prior_gmrf) = collect(Int, I)
 resolve_vbc_indices(::AutoVBCIndexSet, prior_gmrf) = throw(
     ArgumentError(
-        "AutoVBCIndexSet must be resolved against the model layout; pass an explicit " *
-            "index vector to vbc_correction/VBCMarginal until the model-level hook lands."
+        "AutoVBCIndexSet must be resolved against the model layout via " *
+            "latent_index_set_for_vbc(model, …); the bare kernel only accepts an " *
+            "explicit index vector."
     )
 )
+
+"""
+    latent_index_set_for_vbc(model, index_set) -> Vector{Int}
+
+Resolve a `VBCMarginal` `index_set` against the model's latent layout into the
+concrete vector of hub indices used by `vbc_correction`. An explicit index vector
+passes through unchanged. An `AutoVBCIndexSet` selects every named latent block
+whose dimension is ≤ `short_dim` — intercepts, small coefficient blocks, and short
+random effects — and excludes large structured blocks (SPDE fields, long spline/RW
+bases), which are corrected implicitly by propagation through `M`.
+
+`model` is anything answering `latent_groups` (a `LatentGaussianModel` or an
+`InferenceResult`).
+"""
+latent_index_set_for_vbc(model, I::AbstractVector{<:Integer}) = collect(Int, I)
+
+function latent_index_set_for_vbc(model, policy::AutoVBCIndexSet)
+    groups = latent_groups(model)
+    isempty(groups) && throw(
+        ArgumentError(
+            "AutoVBCIndexSet needs a named latent layout (a recognized @latte model). " *
+                "For hand-built or DAG-path models, pass an explicit index vector to VBCMarginal."
+        )
+    )
+    I = Int[]
+    for r in values(groups)
+        length(r) <= policy.short_dim && append!(I, r)
+    end
+    isempty(I) && throw(
+        ArgumentError(
+            "AutoVBCIndexSet selected no hub indices (every latent block exceeds " *
+                "short_dim=$(policy.short_dim)). Increase short_dim or pass explicit indices."
+        )
+    )
+    return sort!(I)
+end
 
 """
     _vbc_predictor_moments(ga, obs_lik) -> (η0, S, eta_lik)
@@ -134,12 +171,14 @@ function vbc_correction(ga, obs_lik, prior_gmrf, I::AbstractVector{<:Integer}; n
 
     A = obs_lik.design_matrix
 
-    # (1) p propagation columns M = Q_X⁻¹[:, I] — reuse the GA factor (p back-
-    #     solves). conditional_column carries the WorkspaceGMRF constraint
-    #     (Woodbury) correction, so M's columns lie in the constraint tangent and
-    #     μ* = μ0 + Mλ stays constraint-consistent (μ0 is already KKT-projected).
-    lsc = linsolve_cache(ga)
-    M = reduce(hcat, (conditional_column(ga, j, lsc) for j in I))   # m×p
+    # (1) p propagation columns M = Q_X⁻¹[:, I]. conditional_column dispatches on
+    #     the GA's concrete type and applies the WorkspaceGMRF/ConstrainedGMRF
+    #     Woodbury constraint correction, so M's columns lie in the constraint
+    #     tangent and μ* = μ0 + Mλ stays constraint-consistent (μ0 is already
+    #     KKT-projected). The no-lsc form is required for a constrained
+    #     WorkspaceGMRF — the lsc form routes to the generic AbstractGMRF solve
+    #     and drops the correction — and the workspace already reuses its factor.
+    M = reduce(hcat, (conditional_column(ga, j) for j in I))   # m×p
 
     # (2) predictor mode η0 and std S — constraint-correct selected-inverse path.
     η0, S, eta_lik = _vbc_predictor_moments(ga, obs_lik)

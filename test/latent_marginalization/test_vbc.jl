@@ -1,12 +1,20 @@
 using Test
 using Latte
-using Latte: vbc_correction, _is_vbc_correctable, _vbc_predictor_moments, _marginalize_impl, reported_moments
+using Latte: vbc_correction, _is_vbc_correctable, _vbc_predictor_moments, _marginalize_impl, reported_moments, latent_index_set_for_vbc
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: PoissonObservations
 using Distributions
 using LinearAlgebra
 using SparseArrays
+using OrderedCollections: OrderedDict
 using Random
+
+# A minimal layout-bearing model double for the index-set policy (the resolver is
+# duck-typed on `latent_groups`).
+struct _VBCMockModel
+    groups::OrderedDict{Symbol, UnitRange{Int}}
+end
+Latte.latent_groups(m::_VBCMockModel) = m.groups
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -154,6 +162,30 @@ end
         @test norm(μ_high - collect(mean(high.ga))) < norm(μ_low - collect(mean(low.ga)))
     end
 
+    @testset "constrained GA: μ* preserves the sum-to-zero constraint" begin
+        # The Woodbury-corrected conditional_column keeps M's columns in the
+        # constraint tangent, so μ* = μ0 + Mλ stays sum-to-zero. (The lsc form
+        # would silently drop this on a constrained WorkspaceGMRF.)
+        Random.seed!(31)
+        m = 6
+        n = 12
+        Q = spdiagm(0 => fill(2.0, m), -1 => fill(-0.8, m - 1), 1 => fill(-0.8, m - 1))
+        A_c = ones(1, m)
+        prior_gmrf = ConstrainedGMRF(GMRF(zeros(m), Q), A_c, [0.0])
+        A = _design(n, m)
+        x_true = rand(prior_gmrf)
+        counts = [rand(Poisson(exp(clamp((A * x_true)[i], -3.0, 3.0)))) for i in 1:n]
+        om = LinearlyTransformedObservationModel(ExponentialFamily(Poisson), A)
+        obs_lik = om(PoissonObservations(counts))
+        ga = gaussian_approximation(prior_gmrf, obs_lik)
+
+        μ0 = collect(mean(ga))
+        @test abs(sum(μ0)) < 1.0e-6                  # GA mode respects the constraint
+        μ_star, _ = vbc_correction(ga, obs_lik, prior_gmrf, [1, 2, 3])
+        @test abs(sum(μ_star)) < 1.0e-6              # μ* still respects it
+        @test norm(μ_star - μ0) > 1.0e-4             # and it actually moved
+    end
+
     @testset "Gaussian likelihood → exact no-op" begin
         lgm = _build_lgm(_normal_build(0.3); seed = 5)
         @test _is_vbc_correctable(lgm.obs_lik) == false
@@ -228,4 +260,110 @@ end
         @test μ_marg ≈ 3.0
         @test σ_rep ≈ 2.0
     end
+end
+
+@testset "VBC dispatch & index resolution (Phase 2)" begin
+
+    @testset "public marginalize threads mean_override to VBC" begin
+        lgm = _build_lgm(_poisson_build(); seed = 23)
+        I = [1, 2, 3]
+        idx = [1, 2, 5]
+        μ_star, _ = vbc_correction(lgm.ga, lgm.obs_lik, lgm.prior_gmrf, I)
+        σ = std(lgm.ga)
+
+        res = marginalize(
+            lgm.ga, lgm.obs_lik, 0.0, VBCMarginal(I), idx;
+            prior_gmrf = lgm.prior_gmrf, mean_override = μ_star,
+        )
+        for (k, i) in enumerate(idx)
+            @test mean(res.marginals[k]) ≈ μ_star[i] atol = 1.0e-12
+            @test std(res.marginals[k]) ≈ σ[i] atol = 1.0e-12
+        end
+
+        # mean_override is used verbatim (bypasses recomputation)
+        bogus = collect(mean(lgm.ga)) .+ 1.0
+        res2 = marginalize(
+            lgm.ga, lgm.obs_lik, 0.0, VBCMarginal(I), idx;
+            prior_gmrf = lgm.prior_gmrf, mean_override = bogus,
+        )
+        for (k, i) in enumerate(idx)
+            @test mean(res2.marginals[k]) ≈ bogus[i] atol = 1.0e-12
+        end
+    end
+
+    @testset "mean_override is ignored by non-VBC methods (regression)" begin
+        lgm = _build_lgm(_poisson_build(); seed = 29)
+        idx = [1, 2, 3]
+        bogus = collect(mean(lgm.ga)) .+ 5.0
+
+        a = marginalize(lgm.ga, lgm.obs_lik, 0.0, SimplifiedLaplace(), idx; prior_gmrf = lgm.prior_gmrf)
+        b = marginalize(
+            lgm.ga, lgm.obs_lik, 0.0, SimplifiedLaplace(), idx;
+            prior_gmrf = lgm.prior_gmrf, mean_override = bogus,
+        )
+        for k in eachindex(idx)
+            @test mean(a.marginals[k]) ≈ mean(b.marginals[k]) atol = 1.0e-12
+            @test std(a.marginals[k]) ≈ std(b.marginals[k]) atol = 1.0e-12
+        end
+
+        g1 = marginalize(lgm.ga, lgm.obs_lik, 0.0, GaussianMarginal(), idx)
+        g2 = marginalize(lgm.ga, lgm.obs_lik, 0.0, GaussianMarginal(), idx; mean_override = bogus)
+        for k in eachindex(idx)
+            @test mean(g1.marginals[k]) ≈ mean(g2.marginals[k]) atol = 1.0e-12
+        end
+    end
+
+    @testset "latent_index_set_for_vbc — AutoVBCIndexSet policy" begin
+        groups = OrderedDict(:intercept => 1:1, :β => 2:3, :u => 4:10, :field => 11:410)
+        m = _VBCMockModel(groups)
+        # short_dim=8: intercept(1), β(2), u(7) kept; field(400) excluded
+        @test latent_index_set_for_vbc(m, AutoVBCIndexSet(short_dim = 8)) == collect(1:10)
+        # widening short_dim pulls in the big field block too
+        @test latent_index_set_for_vbc(m, AutoVBCIndexSet(short_dim = 500)) == collect(1:410)
+        # explicit vector passes through unchanged (order preserved)
+        @test latent_index_set_for_vbc(m, [5, 2, 8]) == [5, 2, 8]
+    end
+
+    @testset "latent_index_set_for_vbc — error paths" begin
+        empty_m = _VBCMockModel(OrderedDict{Symbol, UnitRange{Int}}())
+        @test_throws ArgumentError latent_index_set_for_vbc(empty_m, AutoVBCIndexSet())
+        all_big = _VBCMockModel(OrderedDict(:f1 => 1:20, :f2 => 21:50))
+        @test_throws ArgumentError latent_index_set_for_vbc(all_big, AutoVBCIndexSet(short_dim = 8))
+    end
+end
+
+@testset "VBC end-to-end through inla (Phase 3)" begin
+    # A compact Poisson LTM model run through the full inla pipeline: the per-θ
+    # hook computes μ* at each grid point and threads it into the marginals.
+    Random.seed!(101)
+    m = 6
+    n = 18
+    spec = @hyperparams begin
+        (τ ~ Gamma(2, 1), transform = log, space = natural)
+    end
+    # Dense SPD prior so its pattern ⊇ AᵀA (the compact path's precondition for
+    # linear_predictor_marginals / selected inverse; A here couples 6↔1).
+    Qbase = let Qr = Matrix(2.0I, m, m)
+        for i in 1:m, j in (i + 1):m
+            Qr[i, j] = Qr[j, i] = -0.1
+        end
+        sparse(Qr)
+    end
+    latent_func = (; τ, kwargs...) -> (zeros(m), τ .* Qbase)
+    A = _design(n, m)
+    obs_model = LinearlyTransformedObservationModel(ExponentialFamily(Poisson), A)
+    model = LatentGaussianModel(spec, FunctionLatentModel(latent_func, m), obs_model; augment_latent = false)
+
+    x_true = randn(m) .* 0.7
+    y = [rand(Poisson(exp(clamp((A * x_true)[i], -2.0, 3.0)))) for i in 1:n]
+
+    res_g = inla(model, y; progress = false, latent_marginalization_method = GaussianMarginal())
+    res_vbc = inla(model, y; progress = false, latent_marginalization_method = VBCMarginal([1, 2, 3, 4, 5, 6]))
+
+    mg = [mean(res_g.latent_marginals[i]) for i in 1:m]
+    mv = [mean(res_vbc.latent_marginals[i]) for i in 1:m]
+    @test all(isfinite, mv)
+    @test all(std(res_vbc.latent_marginals[i]) > 0 for i in 1:m)
+    # VBC shifts the posterior mean off the Gaussian (GA-mode) marginal
+    @test norm(mv - mg) > 1.0e-3
 end
