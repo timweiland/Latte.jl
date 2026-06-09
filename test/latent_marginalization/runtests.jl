@@ -7,4 +7,5 @@ using Test
     include("test_kld_integration.jl")
     include("test_adaptive_marginal.jl")
     include("test_fixed_tau_quadrature.jl")
+    include("test_vbc.jl")
 end
