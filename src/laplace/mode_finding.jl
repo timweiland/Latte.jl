@@ -171,7 +171,7 @@ This is the INLA approximation to the hyperparameter posterior.
 """
 function hyperparameter_logpdf(
         model::LatentGaussianModel, θ::WorkingHyperparameters, y, ga = nothing;
-        ws, x0 = nothing,
+        ws, x0 = nothing, mode_out = nothing,
     )
     # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
 
@@ -197,6 +197,9 @@ function hyperparameter_logpdf(
     end
 
     x_star = mean(x_G)
+    # Expose the GA mode for callers that warm-start the next solve from it
+    # (mode-finding). Only meaningful on primal (Float64) evaluations.
+    mode_out !== nothing && eltype(x_star) <: AbstractFloat && (mode_out[] = collect(x_star))
 
     log_prior_x = logpdf(latent_prior, x_star)
     log_likelihood = loglik(x_star, obs_lik)
@@ -251,6 +254,7 @@ function find_hyperparameter_mode(
         diff_strategy::DifferentiationStrategy = ADStrategy(),
         mode_init = PriorModeStart(),
         executor::ParallelExecutor = SequentialExecutor(),
+        warm_start::Union{Nothing, Bool} = nothing,
     )
     # Normalize y (Vector{Int} → PoissonObservations, etc.) so direct
     # callers behave the same as inla() / tmb() which pre-wrap via
@@ -259,6 +263,13 @@ function find_hyperparameter_mode(
     # making the gradient zero and BFGS terminate at the starting point.
     y, model, _ = _prepare_for_prediction(model, y)
     spec = model.hyperparameter_spec
+
+    # Warm-start each θ-step's GA Newton solve from the previous step's mode.
+    # Default: on for compact models (well-conditioned ⇒ the GA mode is start-
+    # invariant, so this only saves Newton iterations); off for augmented models,
+    # whose ~1e13 conditioning makes the loosely-converged mode start-dependent
+    # and shifts θ* in the flat (weakly-identified) directions.
+    do_warm = warm_start === nothing ? (model.augmentation_info === nothing) : warm_start
 
     starts = resolve_mode_starts(mode_init, spec)
     n_starts = length(starts)
@@ -288,19 +299,30 @@ function find_hyperparameter_mode(
     function _one_start((i, θ_init), ws)
         points = WorkingHyperparameters[]
         logps = Float64[]
+        # Shared warm-start state: the last primal GA mode, reused as the Newton
+        # seed by both the value and gradient evaluations. Only primal (Float64)
+        # value evals update it; gradient (Dual) evals read it.
+        last_mode = Ref{Union{Nothing, Vector{Float64}}}(nothing)
+        mode_buf = Ref(Float64[])
 
         objective = let _spec = spec, _model = model, _y = y, _ws = ws,
-                _points = points, _logps = logps, _collect = collect_points
+                _points = points, _logps = logps, _collect = collect_points,
+                _warm = do_warm, _last = last_mode, _buf = mode_buf
             function (θ_vec)
                 θ = WorkingHyperparameters(θ_vec, _spec)
                 logpdf_val = 0.0
                 try
-                    logpdf_val = hyperparameter_logpdf(_model, θ, _y; ws = _ws)
+                    logpdf_val = hyperparameter_logpdf(
+                        _model, θ, _y; ws = _ws,
+                        x0 = _warm ? _last[] : nothing,
+                        mode_out = _warm ? _buf : nothing,
+                    )
                 catch e
                     _is_numerical_failure(e) || rethrow(e)
                     return Inf
                 end
                 isfinite(logpdf_val) || return Inf
+                _warm && !isempty(_buf[]) && (_last[] = copy(_buf[]))
                 if _collect
                     push!(_points, WorkingHyperparameters(copy(θ_vec), _spec))
                     push!(_logps, logpdf_val)
@@ -333,6 +355,7 @@ function find_hyperparameter_mode(
 
         result = _run_optimization(
             diff_strategy, objective, model, y, spec, θ_init, ws, method, options,
+            last_mode, do_warm,
         )
         return (
             idx = i,
@@ -399,17 +422,21 @@ function find_hyperparameter_mode(
     end
 end
 
-function _run_optimization(::FiniteDiffStrategy, objective, model, y, spec, θ_init, ws, method, options)
+function _run_optimization(::FiniteDiffStrategy, objective, model, y, spec, θ_init, ws, method, options, last_mode, do_warm)
+    # The passed `objective` already warm-starts (and updates last_mode) on every
+    # primal evaluation, which is all finite differencing does.
     return Optim.optimize(objective, θ_init.θ, method, options)
 end
 
-function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_init, ws, method, options)
+function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_init, ws, method, options, last_mode, do_warm)
     # Clean objective for AD (no side effects, safe for Dual numbers).
     # ws is captured by the closure; AD flows through the numeric values only.
+    # The Dual gradient solve reads the last primal mode as its Newton seed (a
+    # plain Float64 vector, promoted by the solve) but never updates it.
     function objective_clean(θ_vec)
         θ = WorkingHyperparameters(θ_vec, spec)
         logpdf_val = try
-            hyperparameter_logpdf(model, θ, y; ws = ws)
+            hyperparameter_logpdf(model, θ, y; ws = ws, x0 = do_warm ? last_mode[] : nothing)
         catch e
             _is_numerical_failure(e) || rethrow(e)
             oftype(θ_vec[1], -Inf)
