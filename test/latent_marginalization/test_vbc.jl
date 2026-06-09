@@ -133,6 +133,18 @@ end
         @test norm(μ_star - ref.ψ0) > 1.0e-3
     end
 
+    @testset "single-hub (p=1) correction is well-formed" begin
+        # p=1 nearly tripped a scalarization bug (reduce(hcat) collapses to a
+        # vector). M must stay m×1 so Hλ is a 1×1 matrix.
+        lgm = _build_lgm(_poisson_build(); seed = 7)
+        μ_star, λ = vbc_correction(lgm.ga, lgm.obs_lik, lgm.prior_gmrf, [1])
+        @test length(λ) == 1
+        @test all(isfinite, μ_star)
+        ref = _poisson_reference(lgm, [1])
+        λ_ref = _poisson_g_min(ref, lgm.A, lgm.y_raw; iters = 0)
+        @test λ ≈ λ_ref atol = 1.0e-7
+    end
+
     @testset "Poisson μ* is the Newton step of the convex objective g" begin
         lgm = _build_lgm(_poisson_build(); seed = 11)
         I = [1, 2, 3, 4]
@@ -366,4 +378,14 @@ end
     @test all(std(res_vbc.latent_marginals[i]) > 0 for i in 1:m)
     # VBC shifts the posterior mean off the Gaussian (GA-mode) marginal
     @test norm(mv - mg) > 1.0e-3
+
+    # Phase 4: linear_combinations uses the corrected mean μ*. A unit-vector
+    # lincomb must reproduce that latent's (corrected) marginal mean, and the
+    # VBC lincomb must differ from the Gaussian-mode lincomb.
+    e3 = [i == 3 ? 1.0 : 0.0 for i in 1:m]
+    lc_vbc = linear_combinations(res_vbc, e3)
+    lc_g = linear_combinations(res_g, e3)
+    @test mean(lc_vbc) ≈ mean(res_vbc.latent_marginals[3]) atol = 1.0e-5
+    @test mean(lc_g) ≈ mean(res_g.latent_marginals[3]) atol = 1.0e-5
+    @test abs(mean(lc_vbc) - mean(lc_g)) > 1.0e-4
 end

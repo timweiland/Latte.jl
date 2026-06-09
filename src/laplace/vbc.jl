@@ -101,6 +101,20 @@ function latent_index_set_for_vbc(model, policy::AutoVBCIndexSet)
 end
 
 """
+    _corrected_latent_mean(method, ga, obs_lik, prior_gmrf, model) -> Vector{Float64}
+
+Posterior latent mean for a reconstructed grid point: the VBC-corrected μ* when
+`method` is a `VBCMarginal`, otherwise the GA mode `mean(ga)`. Lets consumers that
+rebuild the GA per integration point (linear combinations, sampling, predictor
+marginals) apply the same mean correction the named-latent marginals use.
+"""
+_corrected_latent_mean(method, ga, obs_lik, prior_gmrf, model) = collect(mean(ga))
+function _corrected_latent_mean(method::VBCMarginal, ga, obs_lik, prior_gmrf, model)
+    I = latent_index_set_for_vbc(model, method.index_set)
+    return first(vbc_correction(ga, obs_lik, prior_gmrf, I; n_gh = method.n_gh))
+end
+
+"""
     _vbc_predictor_moments(ga, obs_lik) -> (η0, S, eta_lik)
 
 Predictor mode `η0 = A·μ0 + offset` and marginal std `Sᵢ = √((A Q_X⁻¹ Aᵀ)ᵢᵢ)`,
@@ -178,7 +192,9 @@ function vbc_correction(ga, obs_lik, prior_gmrf, I::AbstractVector{<:Integer}; n
     #     KKT-projected). The no-lsc form is required for a constrained
     #     WorkspaceGMRF — the lsc form routes to the generic AbstractGMRF solve
     #     and drops the correction — and the workspace already reuses its factor.
-    M = reduce(hcat, (conditional_column(ga, j) for j in I))   # m×p
+    #     `stack` keeps M an m×p matrix even for a single hub (p=1), where
+    #     `reduce(hcat, …)` would collapse to a vector and scalarize Hλ.
+    M = stack(conditional_column(ga, j) for j in I)   # m×p
 
     # (2) predictor mode η0 and std S — constraint-correct selected-inverse path.
     η0, S, eta_lik = _vbc_predictor_moments(ga, obs_lik)
