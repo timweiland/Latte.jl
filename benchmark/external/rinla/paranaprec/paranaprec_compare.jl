@@ -107,9 +107,14 @@ function main(args::Vector{String} = ARGS)
     perm = node_to_dof(disc, n_nodes)
 
     use_vbc = "--vbc" in args
+    use_default = "--default" in args   # exercise the resolved out-of-the-box defaults
     compact = use_vbc || ("--compact" in args)   # VBC needs the compact (non-augmented) latent
-    @info "running Latte INLA (Gamma + rw1 + SPDE)" mode = (compact ? "compact (non-augmented)" : "augmented") vbc = use_vbc
-    lgm = parana_model(y, base_matern, A_spde, rw1, A_rw1, p; augment = !compact)
+    mode_str = use_default ? "default (resolved)" : compact ? "compact (non-augmented)" : "augmented"
+    @info "running Latte INLA (Gamma + rw1 + SPDE)" mode = mode_str vbc = use_vbc
+    lgm = use_default ?
+        parana_model(y, base_matern, A_spde, rw1, A_rw1, p) :
+        parana_model(y, base_matern, A_spde, rw1, A_rw1, p; augment = !compact)
+    use_default && @info "resolved defaults" augmented = (lgm.augmentation_info !== nothing) method = typeof(Latte.default_marginalization(lgm))
     accum = (MarginalLogLikelihoodStrategy(),)
 
     if "--profile" in args
@@ -134,7 +139,9 @@ function main(args::Vector{String} = ARGS)
     for a in args
         startswith(a, "--vbc-short=") && (vbc_short = parse(Int, last(split(a, "="))))
     end
-    marg = if use_vbc
+    marg = if use_default
+        nothing   # inla resolves via default_marginalization (→ VBC for this compact LTM)
+    elseif use_vbc
         VBCMarginal(AutoVBCIndexSet(short_dim = vbc_short))
     elseif "--gaussian-marg" in args
         GaussianMarginal()
