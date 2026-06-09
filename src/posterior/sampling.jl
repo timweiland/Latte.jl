@@ -89,6 +89,7 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
     # One-time symbolic factorization, reused for every GA reconstruction
     θ_ref_nt = convert(NamedTuple, convert(NaturalHyperparameters, integration_points[1].θ))
     ws = make_workspace(m.latent_prior; θ_ref_nt...)
+    method = result.options.latent_marginalization_method
 
     # Pre-allocate output matrices. Determine n_hp, n_x from one sample.
     n_hp = length(integration_points[1].θ.θ)
@@ -102,7 +103,9 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
         point = integration_points[idx]
 
         # Reconstruct Gaussian approximation at this θ
-        ga, _, _, θ_natural_nt = _reconstruct_ga(m, y_obs, point.θ, ws)
+        ga, prior_gmrf, obs_lik, θ_natural_nt = _reconstruct_ga(m, y_obs, point.θ, ws)
+        # Center draws at the VBC-corrected mean μ* (zero shift for other methods).
+        x_shift = _corrected_latent_mean(method, ga, obs_lik, prior_gmrf, m) .- mean(ga)
         # Free hyperparameters only — the θ matrix has one column per free hp
         # (θ_natural_nt also carries any fixed values, used below for y).
         θ_natural_vec = collect(convert(NaturalHyperparameters, point.θ))
@@ -110,7 +113,7 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
         for i in findall(==(idx), point_indices)
             θ_mat[i, :] = θ_natural_vec
 
-            x_sample = rand(rng, ga)
+            x_sample = rand(rng, ga) .+ x_shift
             if x_mat === nothing
                 x_mat = Matrix{Float64}(undef, n, length(x_sample))
             end

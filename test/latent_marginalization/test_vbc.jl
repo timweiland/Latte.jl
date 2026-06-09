@@ -388,4 +388,20 @@ end
     @test mean(lc_vbc) ≈ mean(res_vbc.latent_marginals[3]) atol = 1.0e-5
     @test mean(lc_g) ≈ mean(res_g.latent_marginals[3]) atol = 1.0e-5
     @test abs(mean(lc_vbc) - mean(lc_g)) > 1.0e-4
+
+    # Phase 4: posterior samples are centered at μ* (consistent with the
+    # corrected marginals), not the GA mode.
+    Random.seed!(202)
+    samp = rand(res_vbc, 6000)
+    xbar = [sum(@view samp.x[:, i]) / size(samp.x, 1) for i in 1:m]
+    @test xbar ≈ mv atol = 0.04
+
+    # Phase 4: compact observation_marginals computed on demand (lazy), with the
+    # VBC-corrected predictor mean propagating to fitted values.
+    om_vbc = observation_marginals(res_vbc)
+    om_g = observation_marginals(res_g)
+    @test length(om_vbc) == n
+    @test all(isfinite(mean(o)) for o in om_vbc)
+    @test all(mean(o) > 0 for o in om_vbc)          # Poisson fitted rates are positive
+    @test norm([mean(o) for o in om_vbc] - [mean(o) for o in om_g]) > 1.0e-4
 end
