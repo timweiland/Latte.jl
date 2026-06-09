@@ -18,7 +18,9 @@ selecting sensible defaults while supporting advanced customization.
 - `y::AbstractVector`: Observed data
 
 # Keyword Arguments
-- `latent_marginalization_method::MarginalApproximation = SimplifiedLaplace()`: Method for latent marginalization
+- `latent_marginalization_method = nothing`: Method for latent marginalization. `nothing`
+  resolves per model via [`default_marginalization`](@ref) — compact LTM models get the
+  VBC mean correction (`VBCMarginal`), everything else simplified Laplace (`SimplifiedLaplace`).
 - `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = AutoHyperparameterMarginal()`: Method for hyperparameter marginalization (GridSum for D=1, CCD interpolant for D≥2)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
 - `exploration_strategy::ExplorationStrategy = AutoExplorationStrategy()`: Hyperparameter exploration strategy. `AutoExplorationStrategy()` uses grid for D ≤ 2, CCD for D ≥ 3. Can also pass `GridExplorationStrategy(...)` or `CCDExplorationStrategy(...)` directly.
@@ -62,7 +64,7 @@ Each phase shows detailed real-time information about the computation.
 function inla(
         model::LatentGaussianModel,
         y::AbstractVector;
-        latent_marginalization_method = SimplifiedLaplace(),
+        latent_marginalization_method = nothing,
         hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
         exploration_strategy::ExplorationStrategy = AutoExplorationStrategy(),
@@ -82,6 +84,12 @@ function inla(
 
     # Input validation
     validate_inla_inputs(model_pred, y_obs, latent_indices)
+
+    # Resolve the latent-marginalization method from the model: compact LTM models
+    # default to the VBC mean correction, everything else to simplified Laplace.
+    if latent_marginalization_method === nothing
+        latent_marginalization_method = default_marginalization(model_pred)
+    end
 
     accumulators = map(materialize, accumulators)
 

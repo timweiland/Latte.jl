@@ -32,7 +32,7 @@ using Random
     y_obs = [rand(Poisson(exp(η))) for η in η_true]
 
     dppl = hier_poisson(y_obs, X, group)
-    model = latte_from_dppl(dppl; random = (:β, :u))
+    model = latte_from_dppl(dppl; random = (:β, :u), augment = true)
 
     # Full defaults on all three methods — fast-path + Fix 2 eliminated
     # both prior workarounds (the obs-model nested-AD bug and the
