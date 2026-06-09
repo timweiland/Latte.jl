@@ -459,3 +459,37 @@ end
     θ_warm = find_hyperparameter_mode(model, y; warm_start = true)[1]
     @test θ_warm.θ ≈ θ_cold.θ atol = 1.0e-4
 end
+
+@testset "VBC corrects predictive accumulators, not the marginal likelihood" begin
+    # DIC/WAIC/CPO should locate at the VBC-corrected mean μ*; the marginal
+    # likelihood π̃(θ|y) must stay on the GA mode (μ0) — VBC corrects conditional
+    # means, not the θ-weights.
+    Random.seed!(303)
+    m = 6
+    n = 18
+    spec = @hyperparams begin
+        (τ ~ Gamma(2, 1), transform = log, space = natural)
+    end
+    Qbase = let Qr = Matrix(2.0I, m, m)
+        for i in 1:m, j in (i + 1):m
+            Qr[i, j] = Qr[j, i] = -0.1
+        end
+        sparse(Qr)
+    end
+    latent_func = (; τ, kwargs...) -> (zeros(m), τ .* Qbase)
+    A = _design(n, m)
+    obs_model = LinearlyTransformedObservationModel(ExponentialFamily(Poisson), A)
+    model = LatentGaussianModel(spec, FunctionLatentModel(latent_func, m), obs_model; augment_latent = false)
+    x_true = randn(m) .* 0.7
+    y = [rand(Poisson(exp(clamp((A * x_true)[i], -2.0, 3.0)))) for i in 1:n]
+
+    accs = (DICStrategy(), WAICStrategy(), CPOStrategy(), MarginalLogLikelihoodStrategy())
+    res_vbc = inla(model, y; progress = false, accumulators = accs, latent_marginalization_method = VBCMarginal([1, 2, 3, 4, 5, 6]))
+    res_g = inla(model, y; progress = false, accumulators = accs, latent_marginalization_method = GaussianMarginal())
+
+    # The marginal likelihood is identical — VBC does not touch the θ-weights.
+    @test res_vbc.accumulators[4].log_marginal_likelihood ≈ res_g.accumulators[4].log_marginal_likelihood atol = 1.0e-8
+    # The predictive metrics are finite and DO move (corrected predictor location).
+    @test isfinite(res_vbc.accumulators[1].DIC) && isfinite(res_vbc.accumulators[2].WAIC)
+    @test !isapprox(res_vbc.accumulators[1].DIC, res_g.accumulators[1].DIC; atol = 1.0e-6)
+end
