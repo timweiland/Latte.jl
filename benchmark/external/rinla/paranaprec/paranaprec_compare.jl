@@ -106,8 +106,9 @@ function main(args::Vector{String} = ARGS)
     rw1 = RWModel{1}(n_groups; scale_model = true)   # match R-INLA's scale.model=TRUE (PC prior on marginal SD)
     perm = node_to_dof(disc, n_nodes)
 
-    @info "running Latte INLA (Gamma + rw1 + SPDE)"
-    lgm = parana_model(y, base_matern, A_spde, rw1, A_rw1, p)
+    compact = "--compact" in args
+    @info "running Latte INLA (Gamma + rw1 + SPDE)" mode = (compact ? "compact (non-augmented)" : "augmented")
+    lgm = parana_model(y, base_matern, A_spde, rw1, A_rw1, p; augment = !compact)
     accum = (MarginalLogLikelihoodStrategy(),)
 
     if "--profile" in args
