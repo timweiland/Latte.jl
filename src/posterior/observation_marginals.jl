@@ -1,11 +1,12 @@
-using GaussianMarkovRandomFields: ExponentialFamily, LinkFunction
+using GaussianMarkovRandomFields: ExponentialFamily, LinkFunction, LinearlyTransformedObservationModel
 
 export observation_marginals
 
-# Peel Latte-side observation-model wrappers that carry per-site data but
-# leave the link function on the inner ExponentialFamily.
+# Peel Latte-side observation-model wrappers that carry per-site data or a design
+# matrix but leave the link function on the inner ExponentialFamily.
 _unwrap_to_exponential_family(m::ExponentialFamily) = m
 _unwrap_to_exponential_family(m::BinomialTrialsObservationModel) = _unwrap_to_exponential_family(m.base)
+_unwrap_to_exponential_family(m::LinearlyTransformedObservationModel) = _unwrap_to_exponential_family(m.base_model)
 _unwrap_to_exponential_family(m) = m
 
 """
@@ -89,13 +90,20 @@ function observation_marginals(
         rtol::Real = 1.0e-3,
         atol::Real = 1.0e-6
     )
-    # Check that augmentation was used
-    if result.linear_predictor_marginals === nothing
-        error(
-            "observation_marginals requires an augmented latent model with linear predictor marginals. " *
-                "Ensure the model was created with LinearlyTransformedObservationModel and augmentation " *
-                "was not disabled (augment_latent=false)."
-        )
+    # Linear-predictor marginals. Augmented models carry them as the η-block of
+    # the latent marginals (a stored view). Compact models don't materialize η, so
+    # compute the predictor marginals on demand (mean A·μ* — VBC-corrected when
+    # applicable — with the constraint-correct selected-inverse variance).
+    lpm = result.linear_predictor_marginals
+    if lpm === nothing
+        if result.model.observation_model isa LinearlyTransformedObservationModel
+            lpm = _predictor_marginals_compact(result)
+        else
+            error(
+                "observation_marginals requires a LinearlyTransformedObservationModel " *
+                    "(η = A·x). Got observation model of type $(typeof(result.model.observation_model))."
+            )
+        end
     end
 
     # Extract observation model, peeling Latte-side wrappers
@@ -122,11 +130,11 @@ function observation_marginals(
     bijector = get_bijector(link)
 
     # Transform each linear predictor marginal to observation space
-    n_obs = length(result.linear_predictor_marginals)
+    n_obs = length(lpm)
     obs_marginals = Vector{TransformedWeightedMixture}(undef, n_obs)
 
     for i in 1:n_obs
-        η_marginal = result.linear_predictor_marginals[i]
+        η_marginal = lpm[i]
         obs_marginals[i] = TransformedWeightedMixture(
             η_marginal, bijector;
             rtol = rtol, atol = atol
@@ -134,4 +142,39 @@ function observation_marginals(
     end
 
     return obs_marginals
+end
+
+# Compact-mode linear-predictor marginals, computed on demand (the compact latent
+# never materializes η). One WeightedMixture per observation: per integration
+# point, η ~ Normal(A·μ* , √vη) with the corrected mean (μ* = μ0 under non-VBC
+# methods) carrying the LTM offset via μ_η, and the constraint-correct selected-
+# inverse variance vη from `linear_predictor_marginals` (NOT lincomb_variance).
+function _predictor_marginals_compact(result::INLAResult)
+    model = result.model
+    y_obs = _get_y_obs(result)
+    method = result.options.latent_marginalization_method
+    exploration = result.exploration
+
+    weights = _integration_weights(exploration)
+    points = exploration.grid_points[exploration.integration_indices]
+    θ_ref_nt = convert(NamedTuple, convert(NaturalHyperparameters, points[1].θ))
+    ws = make_workspace(model.latent_prior; θ_ref_nt...)
+
+    n_pts = length(points)
+    A = model.observation_model.design_matrix
+    n_obs = size(A, 1)
+    components = [Vector{Normal{Float64}}(undef, n_pts) for _ in 1:n_obs]
+
+    for (j, point) in enumerate(points)
+        ga, prior_gmrf, obs_lik, _ = _reconstruct_ga(model, y_obs, point.θ, ws)
+        μ_star = _corrected_latent_mean(method, ga, obs_lik, prior_gmrf, model)
+        μ_η, v_η, _ = GaussianMarkovRandomFields.linear_predictor_marginals(ga, obs_lik)
+        # μ_η = A·μ0 + offset; add A·(μ* − μ0) to get the offset-aware A·μ* + offset.
+        η_mean = μ_η .+ A * (μ_star .- collect(mean(ga)))
+        for i in 1:n_obs
+            components[i][j] = Normal(η_mean[i], sqrt(max(v_η[i], 0.0)))
+        end
+    end
+
+    return [WeightedMixture(components[i], weights) for i in 1:n_obs]
 end
