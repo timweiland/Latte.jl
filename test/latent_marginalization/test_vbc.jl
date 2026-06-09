@@ -2,7 +2,7 @@ using Test
 using Latte
 using Latte: vbc_correction, _is_vbc_correctable, _vbc_predictor_moments, _marginalize_impl, reported_moments, latent_index_set_for_vbc
 using GaussianMarkovRandomFields
-using GaussianMarkovRandomFields: PoissonObservations
+using GaussianMarkovRandomFields: PoissonObservations, ObservationLikelihood
 using Distributions
 using LinearAlgebra
 using SparseArrays
@@ -217,6 +217,25 @@ end
         @test λ7 ≈ λ21 atol = 1.0e-4
     end
 
+    @testset "Gamma closed-form coefficients == Gauss–Hermite" begin
+        # The Gamma closed form (φ(1−y·e^{−η₀+S²/2}), φ·y·e^{−η₀+S²/2}) must match
+        # the general GH coefficient pass — GH is the trusted reference.
+        Random.seed!(71)
+        n = 14
+        y = abs.(randn(n)) .+ 0.3                       # positive Gamma responses
+        gamma_lik = ExponentialFamily(Gamma)(y; phi = 2.5)
+        η0 = 0.5 .* randn(n)
+        S = 0.2 .+ 0.3 .* rand(n)
+        Bc, Cc = Latte._vbc_coefficients(gamma_lik, η0, S)                 # closed form (dispatch)
+        Bgh, Cgh = invoke(
+            Latte._vbc_coefficients,
+            Tuple{ObservationLikelihood, Any, Any}, gamma_lik, η0, S; n_gh = 64,
+        )                                                                  # forced GH
+        @test Bc ≈ Bgh rtol = 1.0e-4
+        @test Cc ≈ Cgh rtol = 1.0e-4
+        @test all(Cc .> 0)                              # C = φ·y·e^{…} > 0
+    end
+
     @testset "mean_override path: corrected mean, variance untouched" begin
         lgm = _build_lgm(_poisson_build(); seed = 13)
         I = [1, 2, 3]
@@ -336,11 +355,19 @@ end
         @test latent_index_set_for_vbc(m, [5, 2, 8]) == [5, 2, 8]
     end
 
-    @testset "latent_index_set_for_vbc — error paths" begin
+    @testset "latent_index_set_for_vbc — empty layout + pure-field fallback" begin
+        # No named layout (hand-built / DAG) → empty; default_marginalization then
+        # picks a non-VBC method.
         empty_m = _VBCMockModel(OrderedDict{Symbol, UnitRange{Int}}())
-        @test_throws ArgumentError latent_index_set_for_vbc(empty_m, AutoVBCIndexSet())
+        @test isempty(latent_index_set_for_vbc(empty_m, AutoVBCIndexSet()))
+        # Pure field (every block > short_dim) → anchor on evenly-spaced nodes of
+        # the largest block, so VBC still runs (correction propagates via M).
         all_big = _VBCMockModel(OrderedDict(:f1 => 1:20, :f2 => 21:50))
-        @test_throws ArgumentError latent_index_set_for_vbc(all_big, AutoVBCIndexSet(short_dim = 8))
+        hubs = latent_index_set_for_vbc(all_big, AutoVBCIndexSet(short_dim = 8))
+        @test length(hubs) == 8
+        @test allunique(hubs) && hubs == sort(hubs)
+        @test all(21 .<= hubs .<= 50)               # largest block (f2) is anchored
+        @test first(hubs) == 21 && last(hubs) == 50  # spans it end-to-end
     end
 end
 
