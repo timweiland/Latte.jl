@@ -102,7 +102,7 @@ function Random.rand(rng::AbstractRNG, result::INLAResult, n::Int; include_y::Bo
         point = integration_points[idx]
 
         # Reconstruct Gaussian approximation at this θ
-        ga, θ_natural_nt = _reconstruct_ga(m, y_obs, point.θ, ws)
+        ga, _, _, θ_natural_nt = _reconstruct_ga(m, y_obs, point.θ, ws)
         # Free hyperparameters only — the θ matrix has one column per free hp
         # (θ_natural_nt also carries any fixed values, used below for y).
         θ_natural_vec = collect(convert(NaturalHyperparameters, point.θ))
