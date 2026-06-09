@@ -75,7 +75,7 @@ using Random
                 for i in 1:n
         ]
 
-        lgm_fast = latte_from_dppl(hier_poisson(y_obs, X, group); random = (:β, :u))
+        lgm_fast = latte_from_dppl(hier_poisson(y_obs, X, group); random = (:β, :u), augment = true)
         lgm_ad = latte_from_dppl(
             hier_poisson(y_obs, X, group);
             random = (:β, :u), force_ad_obs_model = true,
@@ -184,7 +184,7 @@ using Random
         Random.seed!(101)
         n = 8
         y_obs = randn(n) .+ 1.2
-        lgm_fast = latte_from_dppl(linoffset(y_obs, n); random = (:x,))
+        lgm_fast = latte_from_dppl(linoffset(y_obs, n); random = (:x,), augment = true)
         lgm_ad = latte_from_dppl(linoffset(y_obs, n); random = (:x,), force_ad_obs_model = true)
 
         # Fast path: offset folded into the augmented prior mean (not an AD

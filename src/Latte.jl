@@ -65,6 +65,7 @@ include("laplace/laplace_cache.jl")
 include("laplace/laplace_marginal.jl")
 include("laplace/simplified_laplace.jl")
 include("laplace/marginalize.jl")
+include("laplace/vbc.jl")
 
 # ─── INLA inference (grid / CCD over θ) ──────────────────────────────────────
 include("inference/inla/exploration/adaptive_hessian.jl")

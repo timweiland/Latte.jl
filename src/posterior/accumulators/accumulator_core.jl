@@ -100,10 +100,10 @@ components (component order matches the composite's layout).
 """
 function _gather_pointwise_samples(
         ga, obs_lik;
-        n_nodes::Int, n_samples::Int, fallback::Symbol,
+        n_nodes::Int, n_samples::Int, fallback::Symbol, latent_mean_override = nothing,
     )
     if _supports_lpm(obs_lik)
-        return _gh_pointwise(ga, obs_lik, n_nodes)
+        return _gh_pointwise(ga, obs_lik, n_nodes; latent_mean_override = latent_mean_override)
     end
     if obs_lik isa GaussianMarkovRandomFields.CompositeLikelihood
         return _mixed_pointwise(ga, obs_lik, n_nodes, n_samples, fallback)
@@ -116,8 +116,15 @@ end
 # Analytic path. When the stripped η-likelihood is Normal-IdentityLink,
 # emit per-obs `NormalIdentityClosedForm` records (accumulators use the
 # closed-form integrals). Otherwise fall back to Gauss-Hermite samples.
-function _gh_pointwise(ga, obs_lik, n_nodes::Int)
+# Shift a predictor mean μ_η = A·μ0 to A·μ* for a VBC latent-mean override (the
+# offset is already in μ_η; the variance is untouched — VBC corrects only the
+# mean). No-op when `override` is nothing (non-VBC accumulator runs).
+_apply_vbc_predictor_shift(μ_η, ga, obs_lik, override) =
+    override === nothing ? μ_η : μ_η .+ obs_lik.design_matrix * (override .- mean(ga))
+
+function _gh_pointwise(ga, obs_lik, n_nodes::Int; latent_mean_override = nothing)
     μ_η, v_η, eta_lik = GaussianMarkovRandomFields.linear_predictor_marginals(ga, obs_lik)
+    μ_η = _apply_vbc_predictor_shift(μ_η, ga, obs_lik, latent_mean_override)
     return _from_eta_marginals(μ_η, v_η, eta_lik, n_nodes), eta_lik
 end
 
