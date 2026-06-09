@@ -64,6 +64,10 @@ Compute marginal approximations for specified latent variables.
   strategies ignore it. `nothing` (default) means "treat the model as
   un-augmented" — appropriate for direct callers and tests that don't
   go through `inla()`.
+- `mean_override`: When supplied (a length-`length(mean(ga))` vector),
+  `VBCMarginal` uses it as the corrected latent mean μ* rather than
+  recomputing the per-θ correction; all other methods ignore it. Used by
+  the per-θ INLA hook, which computes μ* once per grid point.
 
 # Returns
 `MarginalResult` containing marginal distributions and computation time.
@@ -74,6 +78,7 @@ function marginalize(
         indices::AbstractVector{<:Integer} = collect(1:length(mean(ga)));
         prior_gmrf = nothing,
         augmentation_info = nothing,
+        mean_override = nothing,
     )
     μ_ga = mean(ga)
     σ_ga = std(ga)
@@ -90,6 +95,7 @@ function marginalize(
     marginals = _marginalize_impl(
         ga, obs_lik, log_prior_θ, method, indices, prior_gmrf;
         augmentation_info = augmentation_info,
+        mean_override = mean_override,
     )
 
     kld_values = _compute_kld_values(method, marginals, indices, μ_ga, σ_ga)
@@ -98,12 +104,13 @@ function marginalize(
     return MarginalResult(indices, marginals, method, computation_time, kld_values)
 end
 
-# Default fallback: methods that don't care about augmentation_info just
-# discard it. Only `SimplifiedLaplace` (and any future method that needs
-# augmented-coordinate awareness) overrides this.
+# Default fallback: methods that don't care about augmentation_info / mean_override
+# just discard them. Only `SimplifiedLaplace` (augmentation) and `VBCMarginal`
+# (mean_override) read these kwargs.
 function _marginalize_impl(
         ga, obs_lik, log_prior_θ, method, indices, prior_gmrf;
         augmentation_info = nothing,
+        mean_override = nothing,
     )
     return _marginalize_impl(ga, obs_lik, log_prior_θ, method, indices, prior_gmrf)
 end

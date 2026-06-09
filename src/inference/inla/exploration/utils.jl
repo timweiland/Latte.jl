@@ -83,6 +83,26 @@ function evaluate_at_grid_point(
 
         marginal_result = nothing
         if compute_marginals
+            # VBC (compact mode): compute the per-θ mean correction μ* ONCE here
+            # from the resolved hub set and thread it in as `mean_override`, so the
+            # marginal builder uses it without recomputing. π̃(θ|y) above stays on
+            # the GA mode (x_star) — VBC corrects only the conditional mean.
+            mean_override = nothing
+            if marginalization_method isa VBCMarginal
+                model.augmentation_info === nothing || throw(
+                    ArgumentError(
+                        "VBCMarginal requires a compact (non-augmented) model; " *
+                            "build it with augment=false, or use SimplifiedLaplace()."
+                    )
+                )
+                hub_I = latent_index_set_for_vbc(model, marginalization_method.index_set)
+                mean_override = first(
+                    vbc_correction(
+                        ga, obs_lik, prior_gmrf, hub_I;
+                        n_gh = marginalization_method.n_gh,
+                    )
+                )
+            end
             # Reuse the GA for marginalization. Pass `augmentation_info`
             # through so SLA can apply its base-coordinate-equivalent
             # correction; non-augmented models pass `nothing` and the
@@ -92,6 +112,7 @@ function evaluate_at_grid_point(
                 log_prior_θ, marginalization_method, marginalization_indices;
                 prior_gmrf = prior_gmrf,
                 augmentation_info = model.augmentation_info,
+                mean_override = mean_override,
             )
         end
 
