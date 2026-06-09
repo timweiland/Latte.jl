@@ -43,21 +43,14 @@ function StatsBase.predict(result::INLAResult, new_df)
             )
         )
     end
-    if result.augmentation_info === nothing
-        throw(
-            ArgumentError(
-                "predict requires an augmented model (from formula interface). " *
-                    "Use linear_combinations(result, A) instead."
-            )
-        )
-    end
 
     random_terms = result.options.formula_random_terms
     fixed_terms = result.options.formula_fixed_terms
 
-    # Get the base CombinedModel from the augmented latent prior
-    base_model = result.model.latent_prior.base_model
-    components = base_model.components
+    # Recognized base components, ordered to match the formula terms. Augmented
+    # models nest them under the AugmentedLatentModel; compact models under the
+    # pattern-augmentation wrapper.
+    components = _predict_base_components(result.model.latent_prior)
 
     # Build prediction projection blocks for each random term
     A_blocks = SparseMatrixCSC{Float64, Int}[]
@@ -78,14 +71,24 @@ function StatsBase.predict(result::INLAResult, new_df)
         push!(A_blocks, sparse(hcat(fixed_cols...)))
     end
 
-    # Combine into prediction design matrix for base latent field
+    # Prediction design matrix over the base latent field.
     A_pred = hcat(A_blocks...)
 
-    # Pad with zeros for the η (linear predictor) columns in the augmented field
-    # Augmented field structure: [η₁...η_n_obs; x_base₁...x_base_n_base]
-    n_obs = result.augmentation_info.n_linear_predictors
-    n_pred = size(A_pred, 1)
-    A_full = hcat(spzeros(n_pred, n_obs), A_pred)
+    # Augmented field is [η₁...η_n_obs; x_base...] — pad the η-block with zeros.
+    # Compact field IS the base, so A_pred already addresses the latent directly.
+    A_full = if result.augmentation_info === nothing
+        A_pred
+    else
+        n_obs = result.augmentation_info.n_linear_predictors
+        hcat(spzeros(size(A_pred, 1), n_obs), A_pred)
+    end
 
     return linear_combinations(result, A_full)
+end
+
+# Ordered base components for the formula terms, for augmented and compact LGMs.
+function _predict_base_components(lp)
+    base = lp isa AugmentedLatentModel ? lp.base_model :
+        lp isa _PatternAugmentedLatentModel ? lp.inner : lp
+    return base isa GaussianMarkovRandomFields.CombinedModel ? base.components : [base]
 end
