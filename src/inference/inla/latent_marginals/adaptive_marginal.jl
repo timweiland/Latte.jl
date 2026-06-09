@@ -77,6 +77,7 @@ function _marginalize_impl(
         ga, obs_lik::NormalLikelihood, log_prior_θ::Real,
         method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf;
         augmentation_info = nothing,
+        mean_override = nothing,
     )
     return _marginalize_impl(ga, obs_lik, log_prior_θ, GaussianMarginal(), indices, prior_gmrf)
 end
@@ -85,6 +86,7 @@ function _marginalize_impl(
         ga, obs_lik::LinearlyTransformedLikelihood{<:NormalLikelihood}, log_prior_θ::Real,
         method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf;
         augmentation_info = nothing,
+        mean_override = nothing,
     )
     return _marginalize_impl(ga, obs_lik, log_prior_θ, GaussianMarginal(), indices, prior_gmrf)
 end
@@ -102,6 +104,7 @@ function _marginalize_impl(
         ga, obs_lik, log_prior_θ::Real,
         method::AdaptiveMarginal, indices::AbstractVector{<:Integer}, prior_gmrf;
         augmentation_info = nothing,
+        mean_override = nothing,
     )
     if isempty(indices)
         return ContinuousUnivariateDistribution[]

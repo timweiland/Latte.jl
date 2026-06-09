@@ -27,7 +27,7 @@ using OrderedCollections: OrderedDict
         group = rand(1:G, n)
         y = [rand(Poisson(exp(X[i, :] ⋅ [0.3, 0.5]))) for i in 1:n]
 
-        lgm = latte_from_dppl(m(y, X, group, G); random = (:β, :u))
+        lgm = latte_from_dppl(m(y, X, group, G); random = (:β, :u), augment = true)
 
         layout = latent_groups(lgm)
         @test layout isa OrderedDict{Symbol, UnitRange{Int}}

@@ -16,12 +16,20 @@ struct PredictionInfo
     n_latent::Int
     observed_indices::Vector{Int}
     prediction_indices::Vector{Int}
+    # Compact (non-augmented) LTM models don't materialize η as latent positions:
+    # `*_indices` are then OBSERVATION-row indices into this full design matrix,
+    # and prediction goes through A_missing·μ*. `nothing` for augmented models,
+    # where `*_indices` index the η-block of the latent field directly.
+    design_matrix::Union{Nothing, AbstractMatrix}
 end
 
-function PredictionInfo(n_latent::Int, observed_mask::AbstractVector{Bool})
+PredictionInfo(n_latent::Int, observed_indices::Vector{Int}, prediction_indices::Vector{Int}) =
+    PredictionInfo(n_latent, observed_indices, prediction_indices, nothing)
+
+function PredictionInfo(n_latent::Int, observed_mask::AbstractVector{Bool}; design_matrix = nothing)
     observed_indices = findall(observed_mask)
     prediction_indices = findall(.!observed_mask)
-    return PredictionInfo(n_latent, observed_indices, prediction_indices)
+    return PredictionInfo(n_latent, observed_indices, prediction_indices, design_matrix)
 end
 
 function Base.show(io::IO, info::PredictionInfo)
@@ -140,6 +148,28 @@ function _prepare_for_prediction(model::LatentGaussianModel, y::AbstractVector)
         return y_obs, model_processed, prediction_info
     end
 
+    if model.observation_model isa LinearlyTransformedObservationModel
+        # Compact LTM (η = A·ψ): fit on the observed rows of A, then predict the
+        # missing rows from A_missing·μ* (see predicted_marginals). The full A is
+        # stored so the missing/observed obs rows can be reconstructed; the latent
+        # ψ itself is unchanged (all columns kept).
+        A_full = model.observation_model.design_matrix
+        observed_indices = findall(observed_mask)
+        prediction_info = PredictionInfo(n_latent, observed_mask; design_matrix = A_full)
+
+        off = model.observation_model.offset
+        new_obs_model = LinearlyTransformedObservationModel(
+            model.observation_model.base_model, A_full[observed_indices, :];
+            offset = off === nothing ? nothing : off[observed_indices],
+        )
+        y_obs = _extract_observed(y, observed_mask, model.observation_model.base_model)
+
+        model_processed = LatentGaussianModel(
+            model.hyperparameter_spec, model.latent_prior, new_obs_model, nothing,
+        )
+        return y_obs, model_processed, prediction_info
+    end
+
     observed_indices = findall(observed_mask)
     prediction_info = PredictionInfo(n_latent, observed_mask)
 
@@ -190,10 +220,16 @@ These marginals represent the posterior distribution of the latent field at
 locations without observations, informed by the GMRF prior (spatial/temporal correlation).
 """
 function predicted_marginals(result::INLAResult)
-    if result.prediction_info === nothing
+    info = result.prediction_info
+    if info === nothing
         throw(ArgumentError("No prediction was requested. Pass y with missing values to enable prediction."))
     end
-    return result.latent_marginals[result.prediction_info.prediction_indices]
+    if info.design_matrix !== nothing
+        # Compact LTM: the predictors aren't latent, so build the missing obs'
+        # η = A_missing·μ* marginals (μ*-corrected mean + GA variance) via lincombs.
+        return linear_combinations(result, info.design_matrix[info.prediction_indices, :])
+    end
+    return result.latent_marginals[info.prediction_indices]
 end
 
 """
@@ -202,8 +238,12 @@ end
 Extract marginals for observed indices (where `y` was not `missing`).
 """
 function observed_marginals(result::INLAResult)
-    if result.prediction_info === nothing
+    info = result.prediction_info
+    if info === nothing
         return result.latent_marginals
     end
-    return result.latent_marginals[result.prediction_info.observed_indices]
+    if info.design_matrix !== nothing
+        return linear_combinations(result, info.design_matrix[info.observed_indices, :])
+    end
+    return result.latent_marginals[info.observed_indices]
 end

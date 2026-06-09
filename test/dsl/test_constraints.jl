@@ -35,7 +35,7 @@ import GaussianMarkovRandomFields: constraints
         n = 8
         y_obs = rand(Poisson(1.0), n)
 
-        lgm = latte_from_dppl(m(y_obs, n); random = (:u,))
+        lgm = latte_from_dppl(m(y_obs, n); random = (:u,), augment = true)
 
         # The augmented latent prior must carry the constraint. Augmentation
         # prepends `n` η-positions before the base latent, so the constraint
@@ -71,7 +71,7 @@ import GaussianMarkovRandomFields: constraints
         u_true .-= sum(u_true) / n
         y_obs = rand.(Poisson.(exp.(u_true)))
 
-        lgm = latte_from_dppl(m(y_obs, n); random = (:u,))
+        lgm = latte_from_dppl(m(y_obs, n); random = (:u,), augment = true)
 
         # Materialise prior + likelihood at τ=1 and run the GA directly.
         y_norm = Latte._normalize_observations(y_obs, lgm.observation_model)
@@ -105,7 +105,7 @@ import GaussianMarkovRandomFields: constraints
         u_true .-= sum(u_true) / n
         y_obs = rand.(Poisson.(exp.(u_true)))
 
-        lgm = latte_from_dppl(m(y_obs, n); random = (:u,))
+        lgm = latte_from_dppl(m(y_obs, n); random = (:u,), augment = true)
         result = tmb(lgm, y_obs)
 
         # Augmented LGM: latent = [η₁…η_n; u₁…u_n]; constraint sits on u.
@@ -138,7 +138,7 @@ import GaussianMarkovRandomFields: constraints
         hospital_idx = 1:H |> collect
 
         lgm = latte_from_dppl(
-            surg(r, n_trials, hospital_idx, H); random = (:β, :u),
+            surg(r, n_trials, hospital_idx, H); random = (:β, :u), augment = true,
         )
 
         # FiniteDiffStrategy avoids ForwardDiff.Dual propagation through

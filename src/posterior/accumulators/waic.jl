@@ -88,12 +88,13 @@ struct WAICPointSummary
     expected_log_ll::Vector{Float64}
 end
 
-function compute_point_summary(acc::WAICAccumulator; ga, obs_lik, kwargs...)
+function compute_point_summary(acc::WAICAccumulator; ga, obs_lik, x_star_vbc = nothing, kwargs...)
     samples, _ = _gather_pointwise_samples(
         ga, obs_lik;
         n_nodes = acc.cfg.n_nodes,
         n_samples = acc.cfg.n_samples,
         fallback = acc.cfg.fallback,
+        latent_mean_override = x_star_vbc,
     )
     pairs = _waic_aggregate.(samples)
     return WAICPointSummary(first.(pairs), last.(pairs))

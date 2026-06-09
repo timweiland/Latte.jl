@@ -92,6 +92,7 @@ function _marginalize_impl(
         ga, obs_lik, log_prior_θ::Real,
         ::SimplifiedLaplace, indices::Vector{Int}, prior_gmrf;
         augmentation_info = nothing,
+        mean_override = nothing,
     )
     μ = mean(ga)
     Σ = selected_covariance(ga)
