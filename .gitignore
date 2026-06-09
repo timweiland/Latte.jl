@@ -4,4 +4,8 @@
 /Manifest.toml
 /docs/Manifest.toml
 /docs/build/
+# Generated tutorial outputs (sources live in docs/src/literate-tutorials/);
+# only the hand-written landing page is tracked.
+/docs/src/tutorials/*
+!/docs/src/tutorials/index.md
 .agent-archive
