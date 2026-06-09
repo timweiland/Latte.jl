@@ -152,4 +152,31 @@ using Ferrite, FerriteGmsh, Gmsh, LibGEOS
             @test !isnan(mean(m))
         end
     end
+
+    @testset "predict under compact (augment=false) → VBC" begin
+        # The compact formula path: pattern-augmentation lets the GA build
+        # (Q ⊇ AᵀA) and the named layout makes default_marginalization resolve to
+        # VBC. predict then uses the corrected mean via linear_combinations.
+        Random.seed!(77)
+        groups = repeat(1:4, 12)
+        ge = [0.6, -0.4, 0.2, 0.7]
+        y = [rand(Poisson(exp(0.5 + ge[g]))) for g in groups]
+        df = DataFrame(y = y, group = groups)
+        iid = IID()
+        f = @formula(y ~ 1 + iid(group))
+        hp = @hyperparams begin
+            (τ_iid ~ Gamma(2, 1), transform = log, space = natural)
+        end
+
+        result = inla(f, hp, df; family = Poisson, progress = false, diff_strategy = FiniteDiffStrategy(), augment = false)
+        @test result.augmentation_info === nothing                          # compact
+        @test Latte.default_marginalization(result.model) isa VBCMarginal   # layout ⇒ VBC fires
+        @test !isempty(latent_groups(result.model))                         # named layout populated
+
+        pred_marginals = predict(result, DataFrame(group = [1, 2, 3]))
+        @test length(pred_marginals) == 3
+        for m in pred_marginals
+            @test isfinite(mean(m)) && std(m) > 0
+        end
+    end
 end
