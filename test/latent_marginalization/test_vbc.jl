@@ -145,6 +145,32 @@ end
         @test λ ≈ λ_ref atol = 1.0e-7
     end
 
+    @testset "accuracy: μ* tracks the true posterior mean (low-count mode-vs-mean)" begin
+        # The core VBC claim. Low-count Poisson ⇒ a strong mode≠mean gap.
+        # Importance-sample the true conditional posterior mean (GA proposal,
+        # weights = true joint / GA) and confirm μ* is far closer to it than the
+        # GA mode μ0 — VBC corrects exactly the mode→mean error.
+        lgm = _build_lgm(_poisson_build(-1.0); seed = 88, ρ = 0.6)
+        μ0 = collect(mean(lgm.ga))
+        μ_star, _ = vbc_correction(lgm.ga, lgm.obs_lik, lgm.prior_gmrf, collect(1:lgm.m))
+
+        Random.seed!(2024)
+        nS = 80_000
+        X = [rand(lgm.ga) for _ in 1:nS]
+        lw = [
+            logpdf(lgm.prior_gmrf, x) +
+                sum(GaussianMarkovRandomFields.pointwise_loglik(x, lgm.obs_lik)) -
+                logpdf(lgm.ga, x) for x in X
+        ]
+        w = exp.(lw .- maximum(lw))
+        w ./= sum(w)
+        true_mean = sum(w[s] .* X[s] for s in 1:nS)
+
+        @test 1 / sum(abs2, w) > 0.3 * nS                              # reliable IS (high ESS)
+        @test norm(μ0 - true_mean) > 0.05                              # a real mode-vs-mean gap exists
+        @test norm(μ_star - true_mean) < 0.5 * norm(μ0 - true_mean)    # VBC closes most of it
+    end
+
     @testset "Poisson μ* is the Newton step of the convex objective g" begin
         lgm = _build_lgm(_poisson_build(); seed = 11)
         I = [1, 2, 3, 4]
