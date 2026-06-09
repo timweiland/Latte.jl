@@ -4,8 +4,8 @@ using SparseArrays
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields:
     PoissonLikelihood, GammaLikelihood, NormalLikelihood, ObservationLikelihood,
-    LinearlyTransformedLikelihood, linear_predictor_marginals,
-    precision_matrix, pointwise_loglik
+    LinearlyTransformedLikelihood, LinearlyTransformedObservationModel,
+    linear_predictor_marginals, precision_matrix, pointwise_loglik
 using FastGaussQuadrature: gausshermite
 
 export VBCMarginal, AutoVBCIndexSet
@@ -44,6 +44,32 @@ struct VBCMarginal{I} <: MarginalApproximation
 end
 VBCMarginal(index_set = AutoVBCIndexSet(); n_gh::Int = 7) =
     VBCMarginal{typeof(index_set)}(index_set, n_gh)
+
+"""
+    default_marginalization(model) -> MarginalApproximation
+
+The latent-marginalization method `inla` uses when none is given. A compact
+(`augmentation_info === nothing`) model with a linear-predictor likelihood
+(`LinearlyTransformedObservationModel`) gets the low-rank Variational Bayes mean
+correction (`VBCMarginal`); everything else keeps the simplified Laplace skew
+correction (`SimplifiedLaplace`), which the augmented path relies on.
+"""
+function default_marginalization(model)
+    (
+        model.augmentation_info === nothing &&
+            model.observation_model isa LinearlyTransformedObservationModel
+    ) || return SimplifiedLaplace()
+    # VBC needs a sensible low-rank hub set. Models that are purely a large
+    # structured block (a long RW/AR field, a big IID effect — no short fixed-
+    # effect block) have none, so fall back to the simplified Laplace skew
+    # correction rather than a no-op or an error.
+    hubs = try
+        latent_index_set_for_vbc(model, AutoVBCIndexSet())
+    catch
+        Int[]
+    end
+    return isempty(hubs) ? SimplifiedLaplace() : VBCMarginal()
+end
 
 # Whether the likelihood family has a non-Gaussian skew the mean correction can
 # capture. The Gaussian likelihood's GA mode is already the exact conditional

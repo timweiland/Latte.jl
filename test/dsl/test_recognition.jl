@@ -51,7 +51,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
             end
         end
 
-        lgm = rw_poisson(y_obs)
+        lgm = rw_poisson(y_obs; augment = true)
         @test lgm isa Latte.LatentGaussianModel
 
         # Recognition: latent prior is a RoutedLatentModel wrapping the
@@ -70,7 +70,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
                 y[i] ~ Poisson(exp(x[i]); check_args = false)
             end
         end
-        ref = latte_from_dppl(rw_poisson_dppl(y_obs); random = (:x,))
+        ref = latte_from_dppl(rw_poisson_dppl(y_obs); random = (:x,), augment = true)
 
         # `latent_components` exposes the recognized concrete prior keyed by
         # latent symbol; the DAG path is type-erased so it returns `nothing`.
@@ -114,7 +114,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
             end
         end
 
-        lgm = gam(y_obs, X)
+        lgm = gam(y_obs, X; augment = true)
         @test lgm isa Latte.LatentGaussianModel
 
         # Multi-component recognition: the latent is a RoutedLatentModel
@@ -137,7 +137,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
                 y[i] ~ Poisson(exp(dot(view(X, i, :), β) + x[i]); check_args = false)
             end
         end
-        ref = latte_from_dppl(gam_dppl(y_obs, X); random = (:β, :x))
+        ref = latte_from_dppl(gam_dppl(y_obs, X); random = (:β, :x), augment = true)
 
         # Multi-component: ordered mapping in body order, each entry the
         # concrete inner model unwrapped from the CombinedModel.
@@ -175,7 +175,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
             end
         end
 
-        lgm = custom_model(y_obs)
+        lgm = custom_model(y_obs; augment = true)
         @test lgm isa Latte.LatentGaussianModel
 
         base = lgm.latent_prior isa Latte.AugmentedLatentModel ?
@@ -190,7 +190,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
                 y[i] ~ Poisson(exp(z[i]); check_args = false)
             end
         end
-        ref = latte_from_dppl(custom_dppl(y_obs); random = (:z,))
+        ref = latte_from_dppl(custom_dppl(y_obs); random = (:z,), augment = true)
 
         comps = latent_components(lgm)
         @test collect(keys(comps)) == [:z]
@@ -233,7 +233,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
             end
         end
 
-        lgm = gam_mvn(y_obs, X)
+        lgm = gam_mvn(y_obs, X; augment = true)
         base = lgm.latent_prior isa Latte.AugmentedLatentModel ?
             lgm.latent_prior.base_model : lgm.latent_prior
         @test base isa Latte.RoutedLatentModel
@@ -256,7 +256,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
                 y[i] ~ Poisson(exp(dot(view(X, i, :), β) + x[i]); check_args = false)
             end
         end
-        ref = latte_from_dppl(gam_mvn_dppl(y_obs, X); random = (:β, :x))
+        ref = latte_from_dppl(gam_mvn_dppl(y_obs, X); random = (:β, :x), augment = true)
         @test latent_components(ref) === nothing
 
         inla_rec = inla(lgm, y_obs; progress = false)
@@ -314,7 +314,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
             end
         end
 
-        lgm = rw_via_arg(y_obs, base)
+        lgm = rw_via_arg(y_obs, base; augment = true)
         b = lgm.latent_prior isa Latte.AugmentedLatentModel ?
             lgm.latent_prior.base_model : lgm.latent_prior
         @test b isa Latte.RoutedLatentModel
@@ -331,7 +331,7 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
                 y[i] ~ Poisson(exp(x[i]); check_args = false)
             end
         end
-        ref = latte_from_dppl(rw_via_arg_dppl(y_obs, base); random = (:x,))
+        ref = latte_from_dppl(rw_via_arg_dppl(y_obs, base); random = (:x,), augment = true)
         @test latent_components(ref) === nothing
 
         inla_rec = inla(lgm, y_obs; progress = false)
