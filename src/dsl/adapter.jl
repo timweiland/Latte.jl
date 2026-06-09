@@ -48,7 +48,7 @@ function latte_from_dppl(
         dppl_model;
         random::Union{Symbol, Tuple},
         force_ad_obs_model::Bool = false,
-        augment::Bool = true,
+        augment::Bool = false,
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
         lift_spec = nothing,
@@ -79,7 +79,7 @@ function _assemble_lgm(
         dppl_model, latent_override;
         random::Union{Symbol, Tuple},
         force_ad_obs_model::Bool = false,
-        augment::Bool = true,
+        augment::Bool = false,
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
         lift_spec = nothing,

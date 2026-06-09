@@ -30,7 +30,7 @@ using Random
         u_true = randn(G) ./ 2
         y_obs = [rand(Poisson(exp(X[i, :] ⋅ β_true + u_true[group[i]]))) for i in 1:n]
 
-        lgm = latte_from_dppl(m_poisson(y_obs, X, group); random = (:β, :u))
+        lgm = latte_from_dppl(m_poisson(y_obs, X, group); random = (:β, :u), augment = true)
         @test lgm.observation_model isa ExponentialFamily{Poisson, LogLink}
         @test lgm.augmentation_info !== nothing
     end
@@ -56,7 +56,7 @@ using Random
                 for i in 1:n
         ]
 
-        lgm = latte_from_dppl(m_bernoulli(y_obs, X, group); random = (:β, :u))
+        lgm = latte_from_dppl(m_bernoulli(y_obs, X, group); random = (:β, :u), augment = true)
         @test lgm.observation_model isa ExponentialFamily{Bernoulli, LogitLink}
     end
 
@@ -83,7 +83,7 @@ using Random
         ]
 
         lgm = latte_from_dppl(
-            m_binomial(y_obs, X, group, trials); random = (:β, :u),
+            m_binomial(y_obs, X, group, trials); random = (:β, :u), augment = true,
         )
         # Augmented fast path stores the BinomialTrials wrapper (carrying the
         # per-site trial counts) as the observation model; the inner base is
@@ -133,7 +133,7 @@ using Random
                 for i in 1:n
         ]
 
-        lgm = latte_from_dppl(poisson_with_exposure(y_obs, X, log_exposure); random = (:β,))
+        lgm = latte_from_dppl(poisson_with_exposure(y_obs, X, log_exposure); random = (:β,), augment = true)
         # Fast path with a non-zero offset puts it on the LTM (η = A·x + b);
         # LGM's auto-augmentation absorbs that offset into the augmented prior
         # mean, leaving the base ExponentialFamily as the observation model.
@@ -157,7 +157,7 @@ using Random
         β_true = [0.3, 0.5]
         y_obs = [rand(Poisson(exp(X[i, :] ⋅ β_true))) for i in 1:n]
 
-        lgm_aug = latte_from_dppl(poisson_glm(y_obs, X); random = (:β,))
+        lgm_aug = latte_from_dppl(poisson_glm(y_obs, X); random = (:β,), augment = true)
         lgm_noaug = latte_from_dppl(poisson_glm(y_obs, X); random = (:β,), augment = false)
 
         # Augmented: latent_dim = n + p (η + x_base)
@@ -208,7 +208,7 @@ using Random
                 for i in 1:n
         ]
 
-        lgm = latte_from_dppl(m_nb(y_obs, X, group); random = (:β, :u))
+        lgm = latte_from_dppl(m_nb(y_obs, X, group); random = (:β, :u), augment = true)
         @test lgm.observation_model isa ExponentialFamily{NegativeBinomial, LogLink}
         @test lgm.augmentation_info !== nothing
     end
@@ -239,7 +239,7 @@ using Random
                 for i in 1:n
         ]
 
-        lgm = latte_from_dppl(m_gamma(y_obs, X, group); random = (:β, :u))
+        lgm = latte_from_dppl(m_gamma(y_obs, X, group); random = (:β, :u), augment = true)
         @test lgm.observation_model isa ExponentialFamily{Gamma, LogLink}
         @test lgm.augmentation_info !== nothing
     end

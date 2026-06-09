@@ -106,9 +106,15 @@ function main(args::Vector{String} = ARGS)
     rw1 = RWModel{1}(n_groups; scale_model = true)   # match R-INLA's scale.model=TRUE (PC prior on marginal SD)
     perm = node_to_dof(disc, n_nodes)
 
-    compact = "--compact" in args
-    @info "running Latte INLA (Gamma + rw1 + SPDE)" mode = (compact ? "compact (non-augmented)" : "augmented")
-    lgm = parana_model(y, base_matern, A_spde, rw1, A_rw1, p; augment = !compact)
+    use_vbc = "--vbc" in args
+    use_default = "--default" in args   # exercise the resolved out-of-the-box defaults
+    compact = use_vbc || ("--compact" in args)   # VBC needs the compact (non-augmented) latent
+    mode_str = use_default ? "default (resolved)" : compact ? "compact (non-augmented)" : "augmented"
+    @info "running Latte INLA (Gamma + rw1 + SPDE)" mode = mode_str vbc = use_vbc
+    lgm = use_default ?
+        parana_model(y, base_matern, A_spde, rw1, A_rw1, p) :
+        parana_model(y, base_matern, A_spde, rw1, A_rw1, p; augment = !compact)
+    use_default && @info "resolved defaults" augmented = (lgm.augmentation_info !== nothing) method = typeof(Latte.default_marginalization(lgm))
     accum = (MarginalLogLikelihoodStrategy(),)
 
     if "--profile" in args
@@ -129,7 +135,19 @@ function main(args::Vector{String} = ARGS)
         @info "PROFILE flat → /tmp/parana_prof_flat.txt"
         return nothing
     end
-    marg = "--gaussian-marg" in args ? GaussianMarginal() : SimplifiedLaplace()
+    vbc_short = 8
+    for a in args
+        startswith(a, "--vbc-short=") && (vbc_short = parse(Int, last(split(a, "="))))
+    end
+    marg = if use_default
+        nothing   # inla resolves via default_marginalization (→ VBC for this compact LTM)
+    elseif use_vbc
+        VBCMarginal(AutoVBCIndexSet(short_dim = vbc_short))
+    elseif "--gaussian-marg" in args
+        GaussianMarginal()
+    else
+        SimplifiedLaplace()
+    end
     t_cold = @elapsed result = inla(lgm, y; progress = false, accumulators = accum, latent_marginalization_method = marg)
     n_warm = "--quick" in args ? 1 : 3
     warm = median([(@elapsed inla(lgm, y; progress = false, accumulators = accum, latent_marginalization_method = marg)) for _ in 1:n_warm])

@@ -37,7 +37,7 @@ using GaussianMarkovRandomFields: precision_matrix
     dppl = hier_poisson(y_obs, X, group)
 
     @testset "Adapter produces a LatentGaussianModel" begin
-        model = latte_from_dppl(dppl; random = (:β, :u))
+        model = latte_from_dppl(dppl; random = (:β, :u), augment = true)
         @test model isa LatentGaussianModel
         @test keys(model.hyperparameter_spec.free) == (:τ_u,)
         # Fast path triggers LGM auto-augmentation → latent = [η; β; u],

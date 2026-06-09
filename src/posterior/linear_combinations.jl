@@ -31,20 +31,21 @@ lincomb_variance(q::Distributions.AbstractMvNormal, a::AbstractVector) =
     dot(a, Distributions.cov(q) * a)
 
 """
-    _reconstruct_ga(model, y_obs, θ) -> (ga, θ_natural_nt)
+    _reconstruct_ga(model, y_obs, θ, ws) -> (ga, prior_gmrf, obs_lik, θ_natural_nt)
 
 Reconstruct the Gaussian approximation at hyperparameter configuration `θ`.
 
 Converts θ to natural space, builds the prior GMRF and observation likelihood,
-and returns the Gaussian approximation along with the natural-space NamedTuple.
-Used by `linear_combinations` and `rand(::INLAResult)`.
+and returns the Gaussian approximation along with the prior GMRF, the materialized
+observation likelihood (both needed for a VBC mean correction), and the
+natural-space NamedTuple. Used by `linear_combinations` and `rand(::INLAResult)`.
 """
 function _reconstruct_ga(model, y_obs, θ, ws)
     θ_natural = convert(NaturalHyperparameters, θ)
     θ_natural_nt = convert(NamedTuple, θ_natural)
     prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
     obs_lik = model.observation_model(y_obs; θ_natural_nt...)
-    return gaussian_approximation(prior_gmrf, obs_lik), θ_natural_nt
+    return gaussian_approximation(prior_gmrf, obs_lik), prior_gmrf, obs_lik, θ_natural_nt
 end
 
 """
@@ -137,9 +138,12 @@ function linear_combinations(result::INLAResult, A::AbstractMatrix)
     # For each linear combination, collect Normal components across integration points
     components = [Vector{Normal{Float64}}(undef, n_points) for _ in 1:m]
 
+    method = result.options.latent_marginalization_method
     for (j, point) in enumerate(integration_points)
-        ga, _ = _reconstruct_ga(model, y_obs, point.θ, ws)
-        μ = mean(ga)
+        ga, prior_gmrf, obs_lik, _ = _reconstruct_ga(model, y_obs, point.θ, ws)
+        # μ* under VBC (so lincomb means match the corrected latent marginals),
+        # else the GA mode. Variance is always the GA's (VBC leaves it untouched).
+        μ = _corrected_latent_mean(method, ga, obs_lik, prior_gmrf, model)
 
         # Posterior variance of each linear functional aₖᵀx via a factor solve.
         for k in 1:m

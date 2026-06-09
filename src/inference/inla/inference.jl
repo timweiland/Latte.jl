@@ -18,7 +18,9 @@ selecting sensible defaults while supporting advanced customization.
 - `y::AbstractVector`: Observed data
 
 # Keyword Arguments
-- `latent_marginalization_method::MarginalApproximation = SimplifiedLaplace()`: Method for latent marginalization
+- `latent_marginalization_method = nothing`: Method for latent marginalization. `nothing`
+  resolves per model via [`default_marginalization`](@ref) — compact LTM models get the
+  VBC mean correction (`VBCMarginal`), everything else simplified Laplace (`SimplifiedLaplace`).
 - `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = AutoHyperparameterMarginal()`: Method for hyperparameter marginalization (GridSum for D=1, CCD interpolant for D≥2)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
 - `exploration_strategy::ExplorationStrategy = AutoExplorationStrategy()`: Hyperparameter exploration strategy. `AutoExplorationStrategy()` uses grid for D ≤ 2, CCD for D ≥ 3. Can also pass `GridExplorationStrategy(...)` or `CCDExplorationStrategy(...)` directly.
@@ -62,7 +64,7 @@ Each phase shows detailed real-time information about the computation.
 function inla(
         model::LatentGaussianModel,
         y::AbstractVector;
-        latent_marginalization_method = SimplifiedLaplace(),
+        latent_marginalization_method = nothing,
         hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
         exploration_strategy::ExplorationStrategy = AutoExplorationStrategy(),
@@ -82,6 +84,12 @@ function inla(
 
     # Input validation
     validate_inla_inputs(model_pred, y_obs, latent_indices)
+
+    # Resolve the latent-marginalization method from the model: compact LTM models
+    # default to the VBC mean correction, everything else to simplified Laplace.
+    if latent_marginalization_method === nothing
+        latent_marginalization_method = default_marginalization(model_pred)
+    end
 
     accumulators = map(materialize, accumulators)
 
@@ -251,6 +259,7 @@ function inla(
         family,
         trials = :n,
         exposure = nothing,
+        augment::Bool = true,
         kwargs...
     )
     # Parse formula terms upfront — needed both for build_formula_components and
@@ -263,7 +272,7 @@ function inla(
 
     _, y, obs_model, latent_model = build_formula_components(formula, df; family, trials, exposure)
     _validate_formula_hyperparameters(latent_model, obs_model, hyperparam_spec)
-    model = LatentGaussianModel(hyperparam_spec, latent_model, obs_model)
+    model = _build_formula_lgm(hyperparam_spec, latent_model, obs_model, augment)
     result = inla(model, y; kwargs...)
 
     # Attach formula metadata for predict()
@@ -274,6 +283,40 @@ function inla(
             formula_fixed_terms = fixed_terms,
         )
     )
+end
+
+# Build the LGM for a formula model. Augmented (default) is the historical path
+# (LTM auto-augmentation / base constructor). Compact (augment=false) on an LTM
+# model pattern-augments the latent so the GA's precision pre-includes AᵀA
+# (Q ⊇ AᵀA, required by the compact Gaussian approximation) and attaches a named
+# layout so VBC's AutoVBCIndexSet can resolve hub blocks (else it would fall back
+# to GaussianMarginal). Non-LTM models can't augment either way.
+function _build_formula_lgm(spec, latent_model, obs_model, augment::Bool)
+    if augment || !(obs_model isa LinearlyTransformedObservationModel)
+        return LatentGaussianModel(spec, latent_model, obs_model)
+    end
+    A = _extract_design_matrix(obs_model)
+    latent_aug = _PatternAugmentedLatentModel(latent_model, _bool_AtA_pattern(A))
+    return LatentGaussianModel(
+        spec, latent_aug, obs_model;
+        augment_latent = false, latent_layout = _formula_latent_layout(latent_model),
+    )
+end
+
+# Named layout (component → latent range) for a compact formula model, so VBC can
+# pick hub blocks. Names are positional; the augmented path carries no layout, so
+# this only adds (never changes) named-access behaviour.
+function _formula_latent_layout(latent_model)
+    comps = latent_model isa GaussianMarkovRandomFields.CombinedModel ?
+        latent_model.components : [latent_model]
+    layout = OrderedDict{Symbol, UnitRange{Int}}()
+    off = 0
+    for (i, c) in enumerate(comps)
+        d = length(c)
+        layout[Symbol("component_", i)] = (off + 1):(off + d)
+        off += d
+    end
+    return layout
 end
 
 """Reconstruct an INLAResult with extra fields merged into options."""
