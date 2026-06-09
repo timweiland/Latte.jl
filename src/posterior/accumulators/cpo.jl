@@ -115,12 +115,13 @@ struct CPOPointSummary
     pareto_k::Vector{Float64}
 end
 
-function compute_point_summary(acc::CPOAccumulator; ga, obs_lik, kwargs...)
+function compute_point_summary(acc::CPOAccumulator; ga, obs_lik, x_star_vbc = nothing, kwargs...)
     samples, eta_lik = _gather_pointwise_samples(
         ga, obs_lik;
         n_nodes = acc.cfg.n_nodes,
         n_samples = acc.cfg.n_samples,
         fallback = acc.cfg.fallback,
+        latent_mean_override = x_star_vbc,
     )
 
     # CPO: per-obs PSIS-smoothed inverse expectation.
@@ -135,7 +136,7 @@ function compute_point_summary(acc::CPOAccumulator; ga, obs_lik, kwargs...)
     # gather went through MC (those don't have a clean per-obs CDF
     # without storing η alongside log_lik).
     pit_exp = if acc.pit_active && _all_analytic_pit_supported(obs_lik, eta_lik)
-        _analytic_pit(ga, obs_lik, acc.cfg.n_nodes)
+        _analytic_pit(ga, obs_lik, acc.cfg.n_nodes; latent_mean_override = x_star_vbc)
     else
         acc.pit_active = false
         Float64[]
@@ -156,8 +157,9 @@ _eta_lik_has_cdf(lik::GaussianMarkovRandomFields.CompositeLikelihood) =
 
 # Analytic PIT: `E_η[F(y_i | η)]` via 1-D Gauss-Hermite over each obs's
 # η-marginal. Mirrors the gather's GH layout.
-function _analytic_pit(ga, obs_lik, n_nodes::Int)
+function _analytic_pit(ga, obs_lik, n_nodes::Int; latent_mean_override = nothing)
     μ_η, v_η, eta_lik = GaussianMarkovRandomFields.linear_predictor_marginals(ga, obs_lik)
+    μ_η = _apply_vbc_predictor_shift(μ_η, ga, obs_lik, latent_mean_override)
     nodes, weights = gausshermite(n_nodes)
     scaled_w = weights ./ sqrt(π)
     σ_η = sqrt.(v_η)

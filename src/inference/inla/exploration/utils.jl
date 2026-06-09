@@ -61,6 +61,7 @@ function evaluate_at_grid_point(
             obs_loglikelihoods = nothing,
             total_loglikelihood = -Inf,
             obs_lik = nothing,
+            x_star_vbc = nothing,
         )
     end
 
@@ -74,47 +75,41 @@ function evaluate_at_grid_point(
         ga = gaussian_approximation(prior_gmrf, obs_lik; x0 = x0)
         x_star = mean(ga)
 
-        # Compute log posterior density using the pre-computed GA
-        log_density = hyperparameter_logpdf(model, θ, y, ga; ws = ws)
-
-        # Compute per-observation log-likelihoods
-        obs_loglikelihoods = pointwise_loglik(x_star, obs_lik)
-        total_loglikelihood = sum(obs_loglikelihoods)
-
-        marginal_result = nothing
-        if compute_marginals
-            # VBC (compact mode): compute the per-θ mean correction μ* ONCE here
-            # from the resolved hub set and thread it in as `mean_override`, so the
-            # marginal builder uses it without recomputing. π̃(θ|y) above stays on
-            # the GA mode (x_star) — VBC corrects only the conditional mean.
-            mean_override = nothing
-            if marginalization_method isa VBCMarginal
-                model.augmentation_info === nothing || throw(
-                    ArgumentError(
-                        "VBCMarginal requires a compact (non-augmented) model; " *
-                            "build it with augment=false, or use SimplifiedLaplace()."
-                    )
+        # VBC (compact mode): the corrected latent mean μ*, computed once. It is the
+        # predictive point estimate (feeds obs-loglik → DIC and, via x_star_vbc, the
+        # WAIC/CPO predictor location) and is threaded into the marginal builder.
+        # π̃(θ|y) below stays on the GA mode x_star (μ0) — VBC corrects only the mean.
+        x_star_vbc = nothing
+        if marginalization_method isa VBCMarginal
+            model.augmentation_info === nothing || throw(
+                ArgumentError(
+                    "VBCMarginal requires a compact (non-augmented) model; " *
+                        "build it with augment=false, or use SimplifiedLaplace()."
                 )
-                hub_I = latent_index_set_for_vbc(model, marginalization_method.index_set)
-                mean_override = first(
-                    vbc_correction(
-                        ga, obs_lik, prior_gmrf, hub_I;
-                        n_gh = marginalization_method.n_gh,
-                    )
-                )
-            end
-            # Reuse the GA for marginalization. Pass `augmentation_info`
-            # through so SLA can apply its base-coordinate-equivalent
-            # correction; non-augmented models pass `nothing` and the
-            # marginalization path falls back to vanilla SLA.
-            marginal_result = marginalize(
-                ga, obs_lik,
-                log_prior_θ, marginalization_method, marginalization_indices;
-                prior_gmrf = prior_gmrf,
-                augmentation_info = model.augmentation_info,
-                mean_override = mean_override,
+            )
+            hub_I = latent_index_set_for_vbc(model, marginalization_method.index_set)
+            x_star_vbc = first(
+                vbc_correction(ga, obs_lik, prior_gmrf, hub_I; n_gh = marginalization_method.n_gh)
             )
         end
+
+        # Compute log posterior density (π̃(θ|y)) at the GA mode.
+        log_density = hyperparameter_logpdf(model, θ, y, ga; ws = ws)
+
+        # Per-observation log-likelihoods at the predictive point estimate
+        # (μ* under VBC, else the GA mode); feeds DIC via total_loglikelihood.
+        loglik_point = x_star_vbc === nothing ? x_star : x_star_vbc
+        obs_loglikelihoods = pointwise_loglik(loglik_point, obs_lik)
+        total_loglikelihood = sum(obs_loglikelihoods)
+
+        # Reuse the GA for marginalization; mean_override carries μ* for VBC and is
+        # ignored by every other method.
+        marginal_result = compute_marginals ?
+            marginalize(
+                ga, obs_lik, log_prior_θ, marginalization_method, marginalization_indices;
+                prior_gmrf = prior_gmrf, augmentation_info = model.augmentation_info,
+                mean_override = x_star_vbc,
+            ) : nothing
 
         return (
             log_density = log_density,
@@ -124,6 +119,7 @@ function evaluate_at_grid_point(
             obs_loglikelihoods = obs_loglikelihoods,
             total_loglikelihood = total_loglikelihood,
             obs_lik = obs_lik,
+            x_star_vbc = x_star_vbc,
         )
     catch e
         if e isa PosDefException || e isa LinearAlgebra.ZeroPivotException ||
@@ -137,6 +133,7 @@ function evaluate_at_grid_point(
                 obs_loglikelihoods = nothing,
                 total_loglikelihood = -Inf,
                 obs_lik = nothing,
+                x_star_vbc = nothing,
             )
         else
             rethrow(e)
