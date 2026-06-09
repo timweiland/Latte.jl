@@ -119,7 +119,7 @@ macro latte(modeldef)
     return quote
         $(esc(expanded_inner))
         $(lift_emit)
-        function $(esc(fname))(args...; likelihood_hessian_pattern = :auto, augment = true, kwargs...)
+        function $(esc(fname))(args...; likelihood_hessian_pattern = :auto, augment = false, kwargs...)
             dppl = $(esc(inner_name))(args...; kwargs...)
             return $(@__MODULE__)._build_lgm_from_latte(
                 dppl, $rand_q, $fixed_q, $obs_q, $posargs_q, args;
@@ -282,7 +282,7 @@ function _build_lgm_from_latte(
         lift_spec = nothing,
         recognition = nothing,
         likelihood_hessian_pattern = :auto,
-        augment::Bool = true,
+        augment::Bool = false,
     )
     random_syms = Tuple(unique(r[1] for r in random_records))
     hp_names = Tuple(unique(r[1] for r in fixed_records))
