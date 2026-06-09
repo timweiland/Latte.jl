@@ -51,24 +51,22 @@ VBCMarginal(index_set = AutoVBCIndexSet(); n_gh::Int = 7) =
 The latent-marginalization method `inla` uses when none is given. A compact
 (`augmentation_info === nothing`) model with a linear-predictor likelihood
 (`LinearlyTransformedObservationModel`) gets the low-rank Variational Bayes mean
-correction (`VBCMarginal`); everything else keeps the simplified Laplace skew
-correction (`SimplifiedLaplace`), which the augmented path relies on.
+correction (`VBCMarginal`). Augmented models keep the simplified Laplace skew
+correction (`SimplifiedLaplace`), which the augmented path relies on. A compact
+model with no resolvable hub set (no named layout — hand-built / DAG-path) falls
+back to `GaussianMarginal`, *not* compact `SimplifiedLaplace`: the latter routes
+onto the slower, less accurate non-diagonal AD path, and the GA mode is already
+accurate for the smooth fields this case typically arises from.
 """
 function default_marginalization(model)
     (
         model.augmentation_info === nothing &&
             model.observation_model isa LinearlyTransformedObservationModel
     ) || return SimplifiedLaplace()
-    # VBC needs a sensible low-rank hub set. Models that are purely a large
-    # structured block (a long RW/AR field, a big IID effect — no short fixed-
-    # effect block) have none, so fall back to the simplified Laplace skew
-    # correction rather than a no-op or an error.
-    hubs = try
-        latent_index_set_for_vbc(model, AutoVBCIndexSet())
-    catch
-        Int[]
-    end
-    return isempty(hubs) ? SimplifiedLaplace() : VBCMarginal()
+    isempty(latent_index_set_for_vbc(model, AutoVBCIndexSet())) || return VBCMarginal()
+    @info "VBC default: no resolvable latent hub set (no named layout) — using " *
+        "GaussianMarginal. Pass VBCMarginal([indices...]) or SimplifiedLaplace() to override." maxlog = 1
+    return GaussianMarginal()
 end
 
 # Whether the likelihood family has a non-Gaussian skew the mean correction can
@@ -97,8 +95,14 @@ Resolve a `VBCMarginal` `index_set` against the model's latent layout into the
 concrete vector of hub indices used by `vbc_correction`. An explicit index vector
 passes through unchanged. An `AutoVBCIndexSet` selects every named latent block
 whose dimension is ≤ `short_dim` — intercepts, small coefficient blocks, and short
-random effects — and excludes large structured blocks (SPDE fields, long spline/RW
-bases), which are corrected implicitly by propagation through `M`.
+random effects — large structured blocks (SPDE fields, long spline/RW bases) are
+otherwise corrected implicitly by propagation through `M`. If *no* block is small
+(e.g. a pure Matérn-SPDE field with no fixed effects), it anchors on a spread-out
+subset of the largest block instead — the correction still propagates to the whole
+block via `M`, so VBC keeps running rather than degrading to a different method.
+
+Returns an empty vector when the model has no named layout (hand-built / DAG-path);
+the caller (`default_marginalization`) then picks a non-VBC method.
 
 `model` is anything answering `latent_groups` (a `LatentGaussianModel` or an
 `InferenceResult`).
@@ -107,22 +111,20 @@ latent_index_set_for_vbc(model, I::AbstractVector{<:Integer}) = collect(Int, I)
 
 function latent_index_set_for_vbc(model, policy::AutoVBCIndexSet)
     groups = latent_groups(model)
-    isempty(groups) && throw(
-        ArgumentError(
-            "AutoVBCIndexSet needs a named latent layout (a recognized @latte model). " *
-                "For hand-built or DAG-path models, pass an explicit index vector to VBCMarginal."
-        )
-    )
+    isempty(groups) && return Int[]
     I = Int[]
     for r in values(groups)
         length(r) <= policy.short_dim && append!(I, r)
     end
-    isempty(I) && throw(
-        ArgumentError(
-            "AutoVBCIndexSet selected no hub indices (every latent block exceeds " *
-                "short_dim=$(policy.short_dim)). Increase short_dim or pass explicit indices."
-        )
-    )
+    if isempty(I)
+        # No small/fixed-effect block (pure field): anchor VBC on a spread-out
+        # subset of the largest block. The mean correction propagates to the whole
+        # block through M = Q_X⁻¹[:,I], so any reasonable hub set works; evenly
+        # spaced nodes give well-separated anchors.
+        biggest = argmax(length, values(groups))
+        k = min(policy.short_dim, length(biggest))
+        I = unique(round.(Int, range(first(biggest), last(biggest); length = k)))
+    end
     return sort!(I)
 end
 
@@ -163,6 +165,14 @@ end
 function _vbc_coefficients(lik::PoissonLikelihood, η0, S; kwargs...)
     Eexp = @. exp(η0 + S^2 / 2)
     return (Eexp .- lik.y, Eexp)
+end
+
+# Gamma, log link (shape/dispersion φ): −loglik(η) = φ(η + y·e^{−η}) + const, so the
+# Gaussian expectation closes via the k=−1 log-normal MGF E[e^{−η}] = e^{−m+S²/2}.
+# B = φ(1 − y·E[e^{−η}]), C = φ·y·E[e^{−η}] (B + C = φ).
+function _vbc_coefficients(lik::GammaLikelihood, η0, S; kwargs...)
+    Eneg = @. exp(-η0 + S^2 / 2)
+    return (lik.phi .* (1 .- lik.y .* Eneg), lik.phi .* lik.y .* Eneg)
 end
 
 # Gaussian: no-op (GA mode exact). Reached only defensively — vbc_correction
