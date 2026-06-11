@@ -201,16 +201,25 @@ function hyperparameter_logpdf(
     # (mode-finding). Only meaningful on primal (Float64) evaluations.
     mode_out !== nothing && eltype(x_star) <: AbstractFloat && (mode_out[] = collect(x_star))
 
+    # Evaluate the Gaussian (posterior) term FIRST. `latent_prior` and `x_G` share
+    # one GMRFWorkspace, which holds a single numeric factorization. The Gaussian
+    # approximation leaves that workspace factorized at Q_post and (via the GMRFs
+    # forward-mode GA) tags x_G as its owner, so `logpdf(x_G, x_star)` reuses the
+    # factor instead of refactorizing. Evaluating `logpdf(latent_prior, ...)` first
+    # would reload Q_prior into the workspace and clobber that factor, forcing
+    # `logpdf(x_G, ...)` to redo the Q_post factorization — one extra factorization
+    # per hyperparameter gradient. (The marginal likelihood is a sum, so the term
+    # order is otherwise immaterial.)
+    gaussian_logpdf = logpdf(x_G, x_star)
+    if !isfinite(gaussian_logpdf)
+        return -Inf
+    end
+
     log_prior_x = logpdf(latent_prior, x_star)
     log_likelihood = loglik(x_star, obs_lik)
 
     joint_logpdf = log_prior_θ + log_prior_x + log_likelihood
     if !isfinite(joint_logpdf)
-        return -Inf
-    end
-
-    gaussian_logpdf = logpdf(x_G, x_star)
-    if !isfinite(gaussian_logpdf)
         return -Inf
     end
 
