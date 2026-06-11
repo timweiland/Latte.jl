@@ -111,6 +111,28 @@ using LinearAlgebra
         @test BLAS.get_num_threads() == blas_before
     end
 
+    @testset "ThreadedExecutor work-stealing: order + completion under uneven load" begin
+        if Threads.nthreads() > 1
+            ex = ThreadedExecutor(nworkers = 4)
+            n = 60
+            completed = Int[]
+            cb_lock = ReentrantLock()
+            # Uneven per-item cost so a static batch barrier would idle the fast
+            # workers on each window's slow tail; work-stealing keeps them busy.
+            result = pmap_executor(
+                1:n, ex;
+                on_complete = c -> lock(() -> push!(completed, c), cb_lock),
+            ) do x
+                sleep(iszero(x % 7) ? 0.01 : 0.0)
+                return x^2
+            end
+            @test result == [x^2 for x in 1:n]          # results in xs order
+            @test sort(completed) == collect(1:n)        # on_complete fired once per item
+        else
+            @info "Skipping work-stealing test: only 1 Julia thread available"
+        end
+    end
+
     @testset "Sequential and Threaded produce identical results" begin
         seq = SequentialExecutor()
         thr = ThreadedExecutor(nworkers = 2)
