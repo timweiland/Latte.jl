@@ -9,17 +9,22 @@ function _grid_tail_exceeded(mode_logpdf::Real, log_density::Real, max_log_drop:
 end
 
 """
-    explore_half_axis_by_steps(model, y, transform, mode_logpdf, dim, direction, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators)
+    explore_half_axis_by_steps(model, y, transform, mode_logpdf, dim, direction, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators, ws; x0)
 
-Explores one direction along a dimension using integer step indices.
-Returns a list of (key, GridPoint) tuples where key is an integer coordinate tuple.
+Walk one direction along one reparameterized axis by integer step indices until
+the log-density drops more than `max_log_drop` below the mode.
+
+Pure: returns a list of `(key, GridPoint, summaries)` tuples (key = integer
+coordinate tuple). `summaries` is the per-accumulator `compute_point_summary`
+output (thread-safe) for integration points with finite density, else `nothing`;
+the stateful `accumulate!` is deferred to a serial pass in the caller so the
+half-axes can be walked concurrently without racing on accumulator state.
 """
 function explore_half_axis_by_steps(
         model, y, transform::ReparameterizationTransform, mode_logpdf,
         dim::Int, direction::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
-        marginalization_method, marginalization_indices, accumulators::Tuple,
-        accumulator_call_keys::Vector, ws;
-        x0 = nothing, progress_callback = nothing,
+        marginalization_method, marginalization_indices, accumulators::Tuple, ws;
+        x0 = nothing,
     )
     n_dim = length(transform.θ_star)
     keyed_points = []
@@ -30,8 +35,7 @@ function explore_half_axis_by_steps(
         key_vec[dim] = direction * step_count
         key = Tuple(key_vec)
 
-        z_vec = evaluation_step_z .* collect(key)
-        θ_test = transform(z_vec)  # Returns WorkingHyperparameters directly
+        θ_test = transform(evaluation_step_z .* collect(key))  # WorkingHyperparameters
 
         is_integration_point = (step_count % interpolation_subdivisions == 0)
 
@@ -43,81 +47,22 @@ function explore_half_axis_by_steps(
             marginalization_indices = marginalization_indices,
         )
 
-        # Per-step status update so the user sees the axis walk progress.
-        # Bar position isn't advanced mid-axis — the per-dim completion
-        # callback in the outer loop owns the fractional progress.
-        progress_callback === nothing || progress_callback(
-            status = "Exploring axis",
-            dim = dim, total_dims = n_dim,
-            direction = direction > 0 ? "+" : "-",
-            step = step_count,
-            log_density_drop = round(mode_logpdf - result.log_density; digits = 2),
-        )
-
         if _grid_tail_exceeded(mode_logpdf, result.log_density, max_log_drop)
             break
         end
 
         point = GridPoint(θ_test, result.log_density, result.marginal_result)
 
-        # Call accumulators eagerly and record the grid key for ordering
-        if is_integration_point && !isempty(accumulators) && isfinite(result.log_density)
-            for acc in accumulators
-                summary = compute_point_summary(acc; result...)
-                if summary !== nothing
-                    accumulate!(acc, summary; is_mode = false)
-                end
-            end
-            push!(accumulator_call_keys, key)
-        end
+        # Pure: compute the (thread-safe) per-accumulator summaries now, but defer
+        # the stateful `accumulate!`/key-recording to the caller's serial pass.
+        summaries = (is_integration_point && !isempty(accumulators) && isfinite(result.log_density)) ?
+            map(acc -> compute_point_summary(acc; result...), accumulators) : nothing
 
-        push!(keyed_points, (key, point))
+        push!(keyed_points, (key, point, summaries))
         step_count += 1
     end
 
     return keyed_points
-end
-
-"""
-    explore_dimension_and_build_lookup(model, y, transform, mode_logpdf, dim, evaluation_step_z, max_log_drop, interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators)
-
-Explore a single dimension and build lookup table for integer-based grid coordinates.
-Calls explore_half_axis_by_steps for both directions and collects results.
-
-Returns (point_lookup, step_range) where:
-- point_lookup: Dictionary mapping integer tuple keys to GridPoint objects
-- step_range: Range of integer steps found for this dimension
-"""
-function explore_dimension_and_build_lookup(
-        model, y, transform::ReparameterizationTransform, mode_logpdf,
-        dim::Int, evaluation_step_z::Float64, max_log_drop::Float64, interpolation_subdivisions::Int,
-        marginalization_method, marginalization_indices, accumulators::Tuple,
-        accumulator_call_keys::Vector, ws;
-        x0 = nothing, progress_callback = nothing,
-    )
-    # Call our helper function for both directions
-    pos_points = explore_half_axis_by_steps(
-        model, y, transform, mode_logpdf,
-        dim, 1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
-        marginalization_method, marginalization_indices, accumulators,
-        accumulator_call_keys, ws; x0 = x0, progress_callback = progress_callback,
-    )
-    neg_points = explore_half_axis_by_steps(
-        model, y, transform, mode_logpdf,
-        dim, -1, evaluation_step_z, max_log_drop, interpolation_subdivisions,
-        marginalization_method, marginalization_indices, accumulators,
-        accumulator_call_keys, ws; x0 = x0, progress_callback = progress_callback,
-    )
-
-    # Return a dictionary for fast, safe lookups
-    point_lookup = Dict(vcat(pos_points, neg_points))
-
-    # And the range of integer steps it found for this dimension
-    step_indices = [p[1][dim] for p in vcat(pos_points, neg_points)]
-    push!(step_indices, 0) # Include the mode
-    step_range = minimum(step_indices):maximum(step_indices)
-
-    return point_lookup, step_range
 end
 
 """
@@ -189,8 +134,9 @@ function explore_hyperparameter_posterior(
     # moves across the grid) without changing the converged per-θ marginals.
     x0_seed = nothing
 
-    # Steps 2-3: mode-point evaluation + on-axis exploration are both
-    # sequential. Hold a single workspace for the whole stretch.
+    # Step 2: mode-point evaluation (serial — captures the warm-start seed x0_seed
+    # and the mode log-density that the axis walks key off). The exploration
+    # phase's bar budget: axis walk → 0..30%, off-axis eval → 30..95%, assembly → 95..100%.
     mode_point = with_workspace(pool) do ws
         progress_callback(status = "Evaluating mode point", mode = θ_star)
         mode_result = evaluate_at_grid_point(
@@ -218,34 +164,57 @@ function explore_hyperparameter_posterior(
         end
 
         point_lookup[mode_key] = mp
-
-        # Sub-allocation of the exploration phase's bar budget:
-        #   axis exploration → 0..30% within phase,
-        #   off-axis eval    → 30..95% within phase,
-        #   assembly         → 95..100% within phase.
-        progress_callback(
-            status = "Starting axis exploration", dimensions = n_dim, progress = 0.0,
-        )
-        for d in 1:n_dim
-            progress_callback(
-                status = "Exploring axis", current_dimension = d, total_dimensions = n_dim,
-                progress = 0.3 * (d - 1) / n_dim,
-            )
-            axis_points, axis_range = explore_dimension_and_build_lookup(
-                model, y, transform, mode_log_density, d, evaluation_step_z, max_log_drop,
-                interpolation_subdivisions, marginalization_method, marginalization_indices, accumulators,
-                accumulator_call_keys, ws;
-                x0 = x0_seed, progress_callback = progress_callback,
-            )
-            merge!(point_lookup, axis_points)
-            step_ranges_per_dim[d] = axis_range
-            progress_callback(
-                status = "Axis explored", dim = d, total_dims = n_dim,
-                progress = 0.3 * d / n_dim,
-            )
-        end
-
         mp
+    end
+
+    # Step 3: on-axis exploration. The 2·n_dim half-axes are mutually independent
+    # (each walk is internally serial via the density stop test, but they don't
+    # interact), so dispatch them through the executor on per-task workspaces,
+    # warm-started from the mode. `explore_half_axis_by_steps` is pure; we merge
+    # its points, derive the per-dim step ranges, and run the deferred accumulation
+    # serially below.
+    progress_callback(status = "Starting axis exploration", dimensions = n_dim, progress = 0.0)
+    axis_units = [(d, dir) for d in 1:n_dim for dir in (1, -1)]
+    n_axis = length(axis_units)
+    axis_results = pmap_executor(
+        axis_units, executor, pool;
+        on_complete = function (done)
+            return progress_callback(
+                status = "Exploring axes", axes_explored = done, total_axes = n_axis,
+                progress = 0.3 * done / n_axis,
+            )
+        end,
+    ) do unit, ws
+        explore_half_axis_by_steps(
+            model, y, transform, mode_log_density, unit[1], unit[2],
+            evaluation_step_z, max_log_drop, interpolation_subdivisions,
+            marginalization_method, marginalization_indices, accumulators, ws; x0 = x0_seed,
+        )
+    end
+
+    for halfaxis in axis_results, (key, point, _) in halfaxis
+        point_lookup[key] = point
+    end
+    for d in 1:n_dim
+        lo = 0
+        hi = 0
+        for halfaxis in axis_results, (key, _, _) in halfaxis
+            s = key[d]
+            s < lo && (lo = s)
+            s > hi && (hi = s)
+        end
+        step_ranges_per_dim[d] = lo:hi
+    end
+    # Deferred accumulation in a deterministic (unit, step) order — the
+    # accumulator_reorder pass later remaps these calls to grid order, so the
+    # call order is free as long as keys are pushed alongside the accumulate! calls.
+    for halfaxis in axis_results, (key, _, summaries) in halfaxis
+        if summaries !== nothing
+            for (acc, summary) in zip(accumulators, summaries)
+                summary !== nothing && accumulate!(acc, summary; is_mode = false)
+            end
+            push!(accumulator_call_keys, key)
+        end
     end
 
     # Step 4: Build the full grid by evaluating off-axis points
