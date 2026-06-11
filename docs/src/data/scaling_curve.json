@@ -1,0 +1,53 @@
+{
+    "julia_threads": 10,
+    "levels": [
+        {
+            "rinla_serial": 2.102,
+            "latte_threaded": 0.206284208,
+            "rinla_parallel": 3.032,
+            "m": 400,
+            "latte_serial": 0.267924208,
+            "level": 1,
+            "n": 529
+        },
+        {
+            "rinla_serial": 4.036,
+            "latte_threaded": 0.737142917,
+            "rinla_parallel": 2.928,
+            "m": 1225,
+            "latte_serial": 0.945618958,
+            "level": 2,
+            "n": 1778
+        },
+        {
+            "rinla_serial": 7.751,
+            "latte_threaded": 2.715470917,
+            "rinla_parallel": 4.033,
+            "m": 3025,
+            "latte_serial": 3.07379225,
+            "level": 3,
+            "n": 3878
+        },
+        {
+            "rinla_serial": 19.575,
+            "latte_threaded": 6.038640333,
+            "rinla_parallel": 8.445,
+            "m": 8100,
+            "latte_serial": 7.545240875,
+            "level": 4,
+            "n": 9980
+        },
+        {
+            "rinla_serial": 60.824,
+            "latte_threaded": 19.554292,
+            "rinla_parallel": 25.276,
+            "m": 19600,
+            "latte_serial": 25.332965375,
+            "level": 5,
+            "n": 23704
+        }
+    ],
+    "caveat": "One workstation, one benchmark family. Latte threaded = 10 Julia threads; R-INLA parallel = num.threads \"10:1\". PARDISO unavailable on this machine, so R-INLA's inner sparse solves run serial taucs — with PARDISO its parallel times could tighten at large n.",
+    "inla_version": "25.6.7",
+    "generated_at": "2026-06-12T00:28:57.315"
+}
