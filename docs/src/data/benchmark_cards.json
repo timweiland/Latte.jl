@@ -3,9 +3,9 @@
         "scenario": "Binomial GLMM · IID plate",
         "timing": {
             "rinla": 2.863,
-            "cold": 6.34,
-            "warm": 0.0047,
-            "speedup": 606.6
+            "cold": 6.9,
+            "warm": 0.0048,
+            "speedup": 595.2
         },
         "marginals": [
             {
@@ -823,9 +823,9 @@
         "scenario": "Poisson + Besag · log-offset",
         "timing": {
             "rinla": 2.83,
-            "cold": 9.08,
-            "warm": 0.0283,
-            "speedup": 99.9
+            "cold": 8.88,
+            "warm": 0.0095,
+            "speedup": 298.9
         },
         "marginals": [
             {
@@ -1643,9 +1643,9 @@
         "scenario": "Normal + RW2 · 1912–1971",
         "timing": {
             "rinla": 1.582,
-            "cold": 8.86,
-            "warm": 0.0338,
-            "speedup": 46.8
+            "cold": 8.76,
+            "warm": 0.0282,
+            "speedup": 56.2
         },
         "marginals": [
             {
@@ -2837,9 +2837,9 @@
         "scenario": "Binomial + RW2 · 366 days",
         "timing": {
             "rinla": 1.509,
-            "cold": 9.69,
-            "warm": 0.0827,
-            "speedup": 18.2
+            "cold": 10.05,
+            "warm": 0.0758,
+            "speedup": 19.9
         },
         "marginals": [
             {
@@ -3601,9 +3601,9 @@
                 14,
                 33,
                 35,
-                35,
-                36,
-                54,
+                34,
+                38,
+                53,
                 30,
                 33,
                 47,
@@ -3657,9 +3657,9 @@
         "scenario": "Poisson + IID · 59 subjects",
         "timing": {
             "rinla": 1.879,
-            "cold": 7.1,
-            "warm": 0.197,
-            "speedup": 9.5
+            "cold": 7.52,
+            "warm": 0.1288,
+            "speedup": 14.6
         },
         "marginals": [
             {
@@ -4851,9 +4851,9 @@
         "scenario": "Gaussian + Matérn SPDE",
         "timing": {
             "rinla": 2.356,
-            "cold": 12.02,
-            "warm": 2.0397,
-            "speedup": 1.2
+            "cold": 9.43,
+            "warm": 1.689,
+            "speedup": 1.4
         },
         "marginals": [
             {
@@ -6419,9 +6419,9 @@
         "scenario": "Gamma + RW1 + Matérn SPDE",
         "timing": {
             "rinla": 2.207,
-            "cold": 11.61,
-            "warm": 1.1613,
-            "speedup": 1.9
+            "cold": 11.87,
+            "warm": 0.7445,
+            "speedup": 3
         },
         "marginals": [
             {
