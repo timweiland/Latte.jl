@@ -71,19 +71,30 @@ function pmap_executor(f, xs, executor::ThreadedExecutor; on_complete = nothing)
     old_blas = BLAS.get_num_threads()
     BLAS.set_num_threads(1)
     try
-        nw = executor.nworkers
+        # Persistent work-stealing pool: `nw` long-lived tasks each pull the next
+        # item index off a shared atomic counter until `xs` is exhausted. No
+        # inter-batch fetch barrier, so a worker that finishes early immediately
+        # grabs the next item instead of idling on a slow batch tail. Results are
+        # written by index, preserving `xs` order. `on_complete` fires under a
+        # lock with a monotonic completion count (1..n), keeping ProgressMeter
+        # calls serialized.
         results = Vector{Any}(undef, n)
-        for batch_start in 1:nw:n
-            batch_end = min(batch_start + nw - 1, n)
-            tasks = map(batch_start:batch_end) do i
-                Threads.@spawn f(xs[i])
-            end
-            for (j, task) in enumerate(tasks)
-                idx = batch_start + j - 1
-                results[idx] = fetch(task)
-                on_complete === nothing || on_complete(idx)
+        next = Threads.Atomic{Int}(1)
+        done = Threads.Atomic{Int}(0)
+        cb_lock = ReentrantLock()
+        nw = min(executor.nworkers, n)
+        workers = map(1:nw) do _
+            Threads.@spawn while true
+                i = Threads.atomic_add!(next, 1)
+                i > n && break
+                results[i] = f(xs[i])
+                if on_complete !== nothing
+                    c = Threads.atomic_add!(done, 1) + 1
+                    lock(() -> on_complete(c), cb_lock)
+                end
             end
         end
+        foreach(fetch, workers)
         return results
     finally
         BLAS.set_num_threads(old_blas)
@@ -127,21 +138,31 @@ function pmap_executor(
     old_blas = BLAS.get_num_threads()
     BLAS.set_num_threads(1)
     try
-        nw = executor.nworkers
+        # Work-stealing pool (see the non-pool variant above). Each of the `nw`
+        # workers checks out ONE workspace via `with_workspace` and reuses it
+        # across every item it processes — fewer pool round-trips and better
+        # factor/symbolic reuse than the per-item checkout of a batched loop. The
+        # pool is sized `_pool_size(executor) == nworkers`, so all workers check
+        # out concurrently without blocking.
         results = Vector{Any}(undef, n)
-        for batch_start in 1:nw:n
-            batch_end = min(batch_start + nw - 1, n)
-            tasks = map(batch_start:batch_end) do i
-                Threads.@spawn with_workspace(pool) do ws
-                    f(xs[i], ws)
+        next = Threads.Atomic{Int}(1)
+        done = Threads.Atomic{Int}(0)
+        cb_lock = ReentrantLock()
+        nw = min(executor.nworkers, n)
+        workers = map(1:nw) do _
+            Threads.@spawn with_workspace(pool) do ws
+                while true
+                    i = Threads.atomic_add!(next, 1)
+                    i > n && break
+                    results[i] = f(xs[i], ws)
+                    if on_complete !== nothing
+                        c = Threads.atomic_add!(done, 1) + 1
+                        lock(() -> on_complete(c), cb_lock)
+                    end
                 end
             end
-            for (j, task) in enumerate(tasks)
-                idx = batch_start + j - 1
-                results[idx] = fetch(task)
-                on_complete === nothing || on_complete(idx)
-            end
         end
+        foreach(fetch, workers)
         return results
     finally
         BLAS.set_num_threads(old_blas)
