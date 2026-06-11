@@ -1,0 +1,138 @@
+#+TITLE: Scaling benchmark + fair MCMC baseline — scope
+#+AUTHOR: Tim Weiland
+#+DATE: 2026-06-10
+#+STARTUP: overview
+
+* Goal
+
+Convert the speed story from "competitive with R-INLA (with an overhead asterisk)"
+into "scales where it counts." A single headline figure: *fit time vs latent
+dimension n*, on one model, across three engines — Latte INLA, R-INLA, and
+Turing NUTS — on the SAME discretization.
+
+What it answers:
+- Kills the "your 100–600× wins are just R-INLA's fixed per-call overhead"
+  rebuttal: at n=10^5 the per-call overhead is noise, so any remaining gap is
+  real compute.
+- Makes the "structure, not sampling" thesis visual: sparse-GMRF scaling vs the
+  wall NUTS hits as dimension grows.
+- Honestly stress-tests Latte's own implementation at scale (finding a ceiling
+  is a pre-release win, not a loss).
+
+* Model
+
+*Spatial Poisson GLMM with a Matérn-SPDE field on a refinable shared mesh.*
+Reuses the spdetoy infrastructure (R-INLA builds the mesh + SPDE precision;
+Latte rebuilds the identical FEM discretization; Turing takes the same precision
+matrix). Non-Gaussian on purpose — it's a *real* INLA problem (per-θ mode
+finding), and it's exactly the regime where NUTS suffers.
+
+- Latent: Matérn field `u ~ N(0, Q(κ,τ)^-1)`, n = mesh nodes (the scaling knob).
+- Linear predictor: `η_i = β + u_i` (+ optional covariate).
+- Likelihood: `y_i ~ Poisson(exp(η_i))`, simulated from a field draw (known
+  truth; clean scaling; no real-data quirks).
+- Same Q across all three engines (shared mesh) → an apples-to-apples comparison.
+
+Rationale for Poisson over Gaussian: a Gaussian field + Gaussian obs is conjugate
+("just kriging") — cleaner curve but a skeptic dismisses it. Poisson is the
+honest "real INLA" case and the strongest MCMC contrast. (A Gaussian variant
+could be added later as the pure-linear-algebra lower bound.)
+
+* n-grid (latent dimension)
+
+| n        | Latte INLA | R-INLA            | Turing NUTS                  |
+|----------+------------+-------------------+------------------------------|
+| 1e3      | ✓          | ✓                 | ✓                            |
+| 3e3      | ✓          | ✓                 | ✓                            |
+| 1e4      | ✓          | ✓                 | ✓ (likely the last feasible) |
+| 3e4      | ✓          | ✓                 | cap (wall-clock budget)      |
+| 1e5      | ✓          | ✓ (or its ceiling)| —                            |
+| 3e5/1e6  | ✓ if feasible | —              | —                            |
+
+Each engine runs out to where it stays practical; the figure shows the curves
+*diverging* and where each one stops. Observations scale with the field
+(fixed spatial density), so the likelihood grows with n too.
+
+* Per-engine protocol
+
+- *Latte INLA*: warm = median of k fits in a hot process; cold reported
+  separately (Julia compile, amortized in a real workflow). Compact + VBC default.
+- *R-INLA*: `cpu.used[["Total"]]` (internal solver time, excludes R startup);
+  `int.strategy="grid"` to match Latte; `scale.model=TRUE` for the field so the
+  hyperparameters are comparable (see [[file:benchmark][project_benchmark_scalemodel_hyperparam]]).
+  Stop running it at the n where it becomes impractical (memory or >~few min).
+- *Turing NUTS*: the fair protocol below.
+
+At every n, also record the *cross-engine KS* between the field/hyperparameter
+marginals (Latte vs R-INLA vs NUTS where available). This guards against "Latte
+is fast because it's computing something easier/worse" — the speed comparison is
+only fair if all three target the same posterior, which the KS confirms.
+
+* Fair MCMC baseline — "as long as it needs, no shorter, no longer"
+
+The crux. NUTS must run to a *target accuracy*, not a fixed iteration count:
+under-running flatters its speed (fast but wrong); over-running penalizes it.
+
+** Parameterization
+- *Non-centered / whitened* GMRF latent: sample `z ~ N(0, I)`, set `u = L^-T z`
+  with `Q = L Lᵀ`. Essential — NUTS will not mix on a centered high-dim GMRF
+  (cf. the AR1 "banana" / non-centered requirement already noted in the
+  HMC-Laplace work). Hyperparameters (κ/τ, β) sampled jointly.
+- NUTS with `target_accept = 0.8`, dense or diagonal mass as adapted.
+
+** Accuracy target (the stopping criterion)
+Run until, for *every* parameter (all n latent + hyperparameters):
+- bulk-ESS ≥ 400 AND tail-ESS ≥ 400 (Vehtari et al. 2021 — ~400 gives stable
+  quantile estimates), and
+- rank-normalized split-R̂ < 1.01, across ≥ 4 chains.
+
+Target ESS = 400 is the "trustworthy posterior" bar; we sanity-check that the
+target-ESS marginals match a one-off long gold run (so the bar is genuinely
+"accurate enough," not arbitrary). Bump to 1000 only if 400 proves noisy.
+
+** Measuring "the time NUTS needs"
+Don't adaptively stop (noisy). Instead:
+1. Run a generous budget (4 chains) that comfortably *exceeds* the target ESS.
+2. Separate the two costs: warmup/adaptation time `T_warm` (fixed, produces no
+   usable draws) and post-warmup sampling rate `ESS_min/sec` (for the
+   slowest-mixing parameter).
+3. Report *time-to-target* = `T_warm + target_ESS / (ESS_min/sec)`.
+This is the principled "wall-clock NUTS needs for accurate results" — it neither
+rewards under-sampling nor punishes over-sampling, and it's reproducible.
+
+** Infeasibility cliff
+Impose a per-n wall-clock budget (e.g. 30 min/chain). If NUTS can't reach the
+target ESS within budget, mark it "infeasible at this n" — that *is* the result
+(the point where sampling stops being an option while INLA sails on).
+
+* Accuracy-at-scale guard
+
+At each n, KS(Latte field marginals, R-INLA), and KS(Latte, NUTS) where NUTS ran.
+Expect all small (the same posterior). If KS drifts at large n, that's a real
+finding about the approximation at scale — surface it, don't hide it.
+
+* Outputs
+
+- One log-log figure: median fit time vs n, three curves (Latte / R-INLA / NUTS),
+  with NUTS's feasibility cliff marked and Latte continuing to large n. This is
+  the headline.
+- A short companion: KS-vs-n (accuracy held while scaling) so the speed plot
+  isn't read as "fast because sloppy."
+- Lands as a new "Scaling" section on the benchmarks page (replacing the current
+  "Coming next" stub for scaling) + a scatter is not needed here.
+
+* Open decisions (need a call)
+
+1. *Likelihood*: Poisson primary (recommended) vs Gaussian primary (cleaner curve,
+   weaker pitch). Could do both (Poisson headline + Gaussian as the LA lower bound).
+2. *ESS target*: 400 (recommended, standard) vs 1000 (stricter, ~2.5× longer NUTS).
+3. *Top n*: how far to push Latte alone — 1e5 (safe) vs 1e6 (ambitious, may hit
+   memory/time on this machine).
+4. *Mesh vs lattice*: shared FEM mesh (reuses spdetoy, native R-INLA SPDE) vs a
+   regular lattice GMRF (exactly reproducible in all three, simpler Turing setup).
+   Mesh is more "real"; lattice is cleaner to scale + replicate. Leaning mesh.
+
+* Connections
+  - Backs the Compute! talk's "structure, not sampling" spine ([[project_compute_paris_talk]]).
+  - Hyperparameter scale alignment: [[project_benchmark_scalemodel_hyperparam]].
+  - Extends spdetoy's shared-mesh infrastructure to a refinable mesh.
