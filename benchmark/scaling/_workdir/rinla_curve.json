@@ -1,0 +1,35 @@
+{
+  "inla_version": "25.6.7",
+  "levels": [
+    {
+      "level": 1,
+      "n": 529,
+      "parallel_s": 3.032,
+      "serial_s": 2.102
+    },
+    {
+      "level": 2,
+      "n": 1778,
+      "parallel_s": 2.928,
+      "serial_s": 4.036
+    },
+    {
+      "level": 3,
+      "n": 3878,
+      "parallel_s": 4.033,
+      "serial_s": 7.751
+    },
+    {
+      "level": 4,
+      "n": 9980,
+      "parallel_s": 8.445,
+      "serial_s": 19.575
+    },
+    {
+      "level": 5,
+      "n": 23704,
+      "parallel_s": 25.276,
+      "serial_s": 60.824
+    }
+  ]
+}
