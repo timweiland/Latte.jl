@@ -93,6 +93,21 @@ function evaluate_at_grid_point(
             )
         end
 
+        # Marginalize BEFORE the log-density. `vbc_correction` above leaves the GA
+        # workspace holding the Q_post selected inverse, which `marginalize`'s
+        # `std(ga)` reuses for free. `hyperparameter_logpdf` below refactorizes the
+        # workspace to Q_prior (for the prior log-det), clobbering that selinv — so
+        # computing it first would force `marginalize` to recompute the selinv (one
+        # extra Takahashi recursion per integration point). The marginal-likelihood
+        # is a sum, so the term order is otherwise immaterial.
+        # mean_override carries μ* for VBC and is ignored by every other method.
+        marginal_result = compute_marginals ?
+            marginalize(
+                ga, obs_lik, log_prior_θ, marginalization_method, marginalization_indices;
+                prior_gmrf = prior_gmrf, augmentation_info = model.augmentation_info,
+                mean_override = x_star_vbc,
+            ) : nothing
+
         # Compute log posterior density (π̃(θ|y)) at the GA mode.
         log_density = hyperparameter_logpdf(model, θ, y, ga; ws = ws)
 
@@ -101,15 +116,6 @@ function evaluate_at_grid_point(
         loglik_point = x_star_vbc === nothing ? x_star : x_star_vbc
         obs_loglikelihoods = pointwise_loglik(loglik_point, obs_lik)
         total_loglikelihood = sum(obs_loglikelihoods)
-
-        # Reuse the GA for marginalization; mean_override carries μ* for VBC and is
-        # ignored by every other method.
-        marginal_result = compute_marginals ?
-            marginalize(
-                ga, obs_lik, log_prior_θ, marginalization_method, marginalization_indices;
-                prior_gmrf = prior_gmrf, augmentation_info = model.augmentation_info,
-                mean_override = x_star_vbc,
-            ) : nothing
 
         return (
             log_density = log_density,
