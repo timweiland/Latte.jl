@@ -72,7 +72,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,  # Smaller subset for testing
-            (), NTuple{2, Int}[], ws
+            (), ws
         )
 
         @test length(keyed_points) > 0
@@ -80,7 +80,7 @@ end
         @test all(p -> p[2] isa GridPoint, keyed_points)  # Values are GridPoints
 
         # Check that keys are properly structured for dimension 1, positive direction
-        for (key, point) in keyed_points
+        for (key, point, _) in keyed_points
             @test key[1] > 0  # First dimension should be positive
             @test key[2] == 0  # Second dimension should be zero
         end
@@ -92,13 +92,13 @@ end
             model, y_test, transform, mode_logpdf,
             1, -1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[], ws
+            (), ws
         )
 
         @test length(keyed_points) > 0
 
         # Check that keys are properly structured for dimension 1, negative direction
-        for (key, point) in keyed_points
+        for (key, point, _) in keyed_points
             @test key[1] < 0  # First dimension should be negative
             @test key[2] == 0  # Second dimension should be zero
         end
@@ -110,7 +110,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[], ws
+            (), ws
         )
 
         if length(keyed_points) > 1
@@ -129,7 +129,7 @@ end
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 0.5, 2,  # Small max_log_drop
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[], ws
+            (), ws
         )
 
         # Should stop earlier with smaller max_log_drop
@@ -145,11 +145,11 @@ end
             model, y_test, transform, mode_logpdf,
             1, 1, 0.5, 2.0, 2,  # interpolation_subdivisions = 2
             GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[], ws
+            (), ws
         )
 
         # Check that marginal results are computed for integration points
-        for (key, point) in keyed_points
+        for (key, point, _) in keyed_points
             step_count = key[1]  # For dimension 1, positive direction
             is_integration_point = (step_count % 2 == 0)
 
@@ -157,80 +157,6 @@ end
                 @test point.marginal_result !== nothing
             end
         end
-    end
-end
-
-@testset "explore_dimension_and_build_lookup Tests" begin
-    model, k = create_test_model(50)
-
-    # Generate stable test data using the working example method
-    y_test, θ_true = generate_stable_test_data(model, k)
-
-    # Find the actual mode
-    θ_mode, _, _ = find_hyperparameter_mode(model, y_test)
-
-    # One workspace reused across the testset
-    θ_mode_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_mode))
-    ws = make_workspace(model.latent_prior; θ_mode_nt...)
-    pool = make_workspace_pool(model.latent_prior; size = 1, θ_mode_nt...)
-
-    # Create transformation (pass WorkingHyperparameters directly)
-    transform = compute_reparameterization(model, y_test, θ_mode; pool = pool)
-    mode_logpdf = hyperparameter_logpdf(model, θ_mode, y_test; ws = ws)
-
-    @testset "Basic Dimension Exploration" begin
-        point_lookup, step_range = Latte.explore_dimension_and_build_lookup(
-            model, y_test, transform, mode_logpdf,
-            1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[], ws
-        )
-
-        @test point_lookup isa Dict
-        @test step_range isa UnitRange{Int}
-        @test length(point_lookup) > 0
-
-        # Check that the range includes both positive and negative steps
-        @test minimum(step_range) <= 0
-        @test maximum(step_range) >= 0
-    end
-
-    @testset "Lookup Table Structure" begin
-        point_lookup, step_range = Latte.explore_dimension_and_build_lookup(
-            model, y_test, transform, mode_logpdf,
-            1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[], ws
-        )
-
-        # Check that all keys in the lookup table have the right structure
-        for (key, point) in point_lookup
-            @test key isa NTuple{2, Int}  # 2D hyperparameter space
-            @test point isa GridPoint
-            @test key[2] == 0  # Second dimension should be zero for axis exploration
-        end
-
-        # Check that step_range covers the actual steps found
-        step_indices = [key[1] for key in keys(point_lookup)]
-        @test minimum(step_indices) >= minimum(step_range)
-        @test maximum(step_indices) <= maximum(step_range)
-    end
-
-    @testset "Symmetry Check" begin
-        # Test that exploration finds points in both directions
-        point_lookup, step_range = Latte.explore_dimension_and_build_lookup(
-            model, y_test, transform, mode_logpdf,
-            1, 0.5, 2.0, 2,
-            GaussianMarginal(), 1:5,
-            (), NTuple{2, Int}[], ws
-        )
-
-        step_indices = [key[1] for key in keys(point_lookup)]
-        has_positive = any(s > 0 for s in step_indices)
-        has_negative = any(s < 0 for s in step_indices)
-
-        @test has_positive  # Should find positive steps
-        @test has_negative  # Should find negative steps
     end
 end
 
