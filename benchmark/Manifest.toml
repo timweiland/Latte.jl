@@ -862,7 +862,7 @@ version = "0.2.0"
 
 [[deps.GaussianMarkovRandomFields]]
 deps = ["AMD", "ChainRulesCore", "CliqueTrees", "DataStructures", "DifferentiationInterface", "Distributions", "Graphs", "LinearAlgebra", "LinearMaps", "LinearSolve", "NearestNeighbors", "Random", "SelectedInversion", "SparseArrays", "SpecialFunctions", "Statistics", "StatsFuns"]
-git-tree-sha1 = "94cc49986774b46fffcdd374d708b99e0b6ccf8b"
+git-tree-sha1 = "31977958db0708809864c4114d52d6042532537b"
 repo-rev = "main"
 repo-url = "https://github.com/timweiland/GaussianMarkovRandomFields.jl.git"
 uuid = "d5f06795-35bb-4323-9f0b-405ef76cfc5b"
@@ -2000,9 +2000,9 @@ version = "3.1.0"
 
 [[deps.SelectedInversion]]
 deps = ["LinearAlgebra", "PrecompileTools", "SparseArrays"]
-git-tree-sha1 = "0b8e206acff5286d6c5123e91043a113125be71f"
+git-tree-sha1 = "ef0ac21d1ce92807afe47aa76118094affd30f33"
 uuid = "043bf095-3f01-458a-9f1c-8cf4448fe908"
-version = "0.1.8"
+version = "0.2.1"
 
     [deps.SelectedInversion.extensions]
     SelectedInversionLDLFactorizations = ["LDLFactorizations"]
