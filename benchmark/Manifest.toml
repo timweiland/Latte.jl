@@ -2,7 +2,7 @@
 
 julia_version = "1.10.10"
 manifest_format = "2.0"
-project_hash = "01ff2f0d47fe6b93f577f21e891bc44ec66366c2"
+project_hash = "8aafa15c121533dc659595cf9d323818c4445523"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -758,9 +758,9 @@ version = "1.8.0"
 
 [[deps.FiniteDiff]]
 deps = ["ArrayInterface", "LinearAlgebra", "Setfield"]
-git-tree-sha1 = "73e879af0e767bd6dfade7c5b09d7b05657a8284"
+git-tree-sha1 = "f7017a4f337f8df189fcce98e32b67a1298a2115"
 uuid = "6a86dc24-6348-571c-b903-95158fe2bd41"
-version = "2.30.0"
+version = "2.31.0"
 
     [deps.FiniteDiff.extensions]
     FiniteDiffBandedMatricesExt = "BandedMatrices"
@@ -862,7 +862,9 @@ version = "0.2.0"
 
 [[deps.GaussianMarkovRandomFields]]
 deps = ["AMD", "ChainRulesCore", "CliqueTrees", "DataStructures", "DifferentiationInterface", "Distributions", "Graphs", "LinearAlgebra", "LinearMaps", "LinearSolve", "NearestNeighbors", "Random", "SelectedInversion", "SparseArrays", "SpecialFunctions", "Statistics", "StatsFuns"]
-path = "/Users/chelmney/.julia/dev/GaussianMarkovRandomFields"
+git-tree-sha1 = "94cc49986774b46fffcdd374d708b99e0b6ccf8b"
+repo-rev = "main"
+repo-url = "https://github.com/timweiland/GaussianMarkovRandomFields.jl.git"
 uuid = "d5f06795-35bb-4323-9f0b-405ef76cfc5b"
 version = "0.11.0"
 
