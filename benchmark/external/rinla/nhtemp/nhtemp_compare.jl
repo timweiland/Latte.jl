@@ -14,7 +14,7 @@ Pkg.activate(joinpath(@__DIR__, "..", "..", ".."))
 using CSV
 using DataFrames
 using Distributions
-using DynamicPPL: @model
+using DynamicPPL          # full module: the @latte macro's expansion references it
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: RWModel, LatentModel
 using JSON3
@@ -31,6 +31,10 @@ GaussianMarkovRandomFields.precision_matrix(m::RW2SumOnly; kwargs...) =
     GaussianMarkovRandomFields.precision_matrix(m.inner; kwargs...)
 GaussianMarkovRandomFields.mean(m::RW2SumOnly; kwargs...) =
     GaussianMarkovRandomFields.mean(m.inner; kwargs...)
+GaussianMarkovRandomFields.model_name(m::RW2SumOnly) =
+    GaussianMarkovRandomFields.model_name(m.inner)
+GaussianMarkovRandomFields.hyperparameters(m::RW2SumOnly) =
+    GaussianMarkovRandomFields.hyperparameters(m.inner)
 function GaussianMarkovRandomFields.constraints(m::RW2SumOnly; kwargs...)
     n = m.inner.n
     return (ones(1, n), zeros(1))
@@ -46,7 +50,7 @@ end
 const NHTEMP_CSV = joinpath(@__DIR__, "nhtemp_data.csv")
 const WORKDIR = joinpath(@__DIR__, "_workdir")
 
-@model function nhtemp_model(y, n, M)
+@latte function nhtemp_model(y, n, M)
     τ_x ~ PCPrior.Precision(1.0, α = 0.01)
     σ ~ PCPrior.Sigma(1.0, α = 0.01)
     fixed ~ MvNormal(zeros(1), 100.0 * I(1))
@@ -101,12 +105,15 @@ function main(args::Vector{String} = ARGS)
     data = load_nhtemp()
     @info "nhtemp dataset" n = data.n mean_y = round(mean(data.y), digits = 2)
 
-    @info "running Latte INLA (simplified.laplace)"
-    dppl = nhtemp_model(data.y, data.n, RW2SumOnly(data.n))
-    lgm = latte_from_dppl(dppl; random = (:fixed, :x))
+    # Default: the @latte macro builds a compact LGM and inla resolves the VBC
+    # mean correction. `--augmented` opts into the legacy augmented + SLA mode.
+    augmented = "--augmented" in args
+    marg = augmented ? SimplifiedLaplace() : nothing   # nothing ⇒ resolve (→ VBC, compact LTM)
+    @info "running Latte INLA" mode = (augmented ? "augmented + simplified.laplace (legacy)" : "compact + VBC (default)")
+    lgm = nhtemp_model(data.y, data.n, RW2SumOnly(data.n); augment = augmented)
     t_latte_cold = @elapsed result = inla(
         lgm, data.y;
-        latent_marginalization_method = SimplifiedLaplace(),
+        latent_marginalization_method = marg,
         progress = false,
     )
     warm_times = Float64[]
@@ -114,13 +121,13 @@ function main(args::Vector{String} = ARGS)
         push!(
             warm_times, @elapsed inla(
                 lgm, data.y;
-                latent_marginalization_method = SimplifiedLaplace(),
+                latent_marginalization_method = marg,
                 progress = false,
             )
         )
     end
     t_latte_warm = median(warm_times)
-    @info "Latte done" cold = round(t_latte_cold, digits = 2) warm_median = round(t_latte_warm, digits = 3)
+    @info "Latte done" cold = round(t_latte_cold, digits = 2) warm_median = round(t_latte_warm, digits = 3) augmented resolved = string(typeof(augmented ? SimplifiedLaplace() : Latte.default_marginalization(lgm)).name.name)
     latte_fixed = _user_marginals(result, :fixed)
     latte_x = _user_marginals(result, :x)
 
