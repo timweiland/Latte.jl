@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import benchmarkData from '../data/benchmark_results.json'
+import BenchScatter from './BenchScatter.vue'
+import BenchCard from './BenchCard.vue'
 
 type ReceiptRow = {
   label: string
@@ -31,111 +33,7 @@ const liveExternal: Receipt[] = (benchmarkData.receipts as any[]).map(r => ({
   live: true,
 }))
 
-const internal: Receipt[] = [
-  {
-    comparability: 'internal',
-    title: 'BYM disease mapping',
-    scenario: 'Spatial Poisson · Besag + IID',
-    rows: [
-      { label: 'INLA', value: 'pending' },
-      { label: 'TMB', value: 'pending' },
-      { label: 'HMC-Laplace', value: 'pending' },
-      { label: 'NUTS (reference)', value: 'pending' },
-    ],
-    notes: 'agreement vs NUTS · pending',
-  },
-  {
-    comparability: 'internal',
-    title: 'AR1 Poisson',
-    scenario: 'Temporal counts · RW1 latent',
-    rows: [
-      { label: 'INLA', value: 'pending' },
-      { label: 'TMB', value: 'pending' },
-      { label: 'HMC-Laplace', value: 'pending' },
-      { label: 'NUTS (reference)', value: 'pending' },
-    ],
-    notes: 'agreement vs NUTS · pending',
-  },
-  {
-    comparability: 'internal',
-    title: 'Separable space-time',
-    scenario: 'Kronecker prior · Poisson likelihood',
-    rows: [
-      { label: 'INLA', value: 'pending' },
-      { label: 'TMB', value: 'pending' },
-      { label: 'HMC-Laplace', value: 'pending' },
-    ],
-    notes: 'NUTS infeasible at this scale · pending sims',
-  },
-]
-
-const external: Receipt[] = [
-  ...liveExternal,
-  {
-    comparability: 'pending',
-    title: 'Matérn SPDE on a mesh',
-    scenario: 'Latte INLA vs R-INLA SPDE',
-    rows: [
-      { label: 'Latte INLA', value: 'pending' },
-      { label: 'R-INLA SPDE', value: 'pending', muted: true },
-    ],
-    notes: 'R-INLA SPDE has 15 years of optimization Latte hasn\'t matched yet',
-  },
-  {
-    comparability: 'analogue',
-    title: 'Hierarchical Poisson GLMM',
-    scenario: 'Latte INLA vs brms / glmmTMB',
-    rows: [
-      { label: 'Latte INLA', value: 'pending' },
-      { label: 'brms (NUTS)', value: 'pending', muted: true },
-      { label: 'glmmTMB (MLE)', value: 'pending', muted: true },
-    ],
-    notes: 'glmmTMB is frequentist · MLE baseline only',
-  },
-]
-
-const scaling: Receipt[] = [
-  {
-    comparability: 'internal',
-    title: 'Spatial GLMM · scaling in n',
-    scenario: 'INLA / TMB / HMC-Laplace, n ∈ {100, 1k, 10k}',
-    rows: [
-      { label: 'n = 100', value: 'pending' },
-      { label: 'n = 1 000', value: 'pending' },
-      { label: 'n = 10 000', value: 'pending' },
-    ],
-    notes: 'cold + warm reported separately',
-  },
-  {
-    comparability: 'internal',
-    title: 'Hyperparameter dim',
-    scenario: 'INLA grid cost as |θ| grows',
-    rows: [
-      { label: '|θ| = 2', value: 'pending' },
-      { label: '|θ| = 4', value: 'pending' },
-      { label: '|θ| = 6 (CCD)', value: 'pending' },
-    ],
-    notes: 'guidance: prefer TMB / HMC-Laplace above |θ| ~ 5',
-  },
-]
-
-const sections: { title: string; lede: string; receipts: Receipt[] }[] = [
-  {
-    title: 'Internal cross-engine',
-    lede: 'The same DPPL @model runs under INLA, TMB, and HMC-Laplace. Posterior agreement and wall-clock cost for each, on representative scenarios.',
-    receipts: internal,
-  },
-  {
-    title: 'Reference comparisons',
-    lede: 'External packages on the same scenarios. Each receipt is labelled for how comparable the targets are: identical posterior, analogue, or MLE baseline.',
-    receipts: external,
-  },
-  {
-    title: 'Scaling regimes',
-    lede: 'Fit time across data size, latent dimension, and hyperparameter count. Helps decide when to switch engines.',
-    receipts: scaling,
-  },
-]
+const external: Receipt[] = [...liveExternal]
 
 const comparabilityLabel: Record<Receipt['comparability'], string> = {
   internal: 'INTERNAL',
@@ -152,93 +50,35 @@ const comparabilityLabel: Record<Receipt['comparability'], string> = {
     <div class="container">
       <header class="bench-hero">
         <div class="bench-eyebrow">BENCHMARKS</div>
-        <h1>Choosing an<br/><em>inference path.</em></h1>
+        <h1>Benchmarks.</h1>
         <p class="bench-lede">
-          Wall-clock cost and posterior agreement for each inference
-          strategy, on representative latent Gaussian models. Use the
-          numbers to pick a workflow.
+          How Latte's INLA fits compare on the same models, against an
+          identical likelihood and prior — so the only difference is the
+          approximation. Accuracy is the <strong>KS</strong> distance between
+          the two engines' marginals (0 = identical, reported max / median per
+          block); speed is warm-fit wall-clock (cold includes Julia's first-run
+          compilation). Every figure links to a runnable script in
+          <code>benchmark/</code>, versions and hardware recorded.
         </p>
       </header>
 
-      <section class="how-to-read">
-        <h2>How to read the receipts</h2>
-        <div class="how-grid">
-          <div>
-            <div class="how-tag">COLD vs WARM</div>
-            <p>"Cold" includes Julia's first-run compilation. "Warm" is the second-run onward. Both are reported.</p>
-          </div>
-          <div>
-            <div class="how-tag">AGREEMENT</div>
-            <p>For posterior comparisons: median absolute difference in posterior means and SDs against the reference (long NUTS where feasible).</p>
-          </div>
-          <div>
-            <div class="how-tag">COMPARABILITY</div>
-            <p>Each external comparison carries a label: <code>same posterior</code> means identical likelihood + prior; <code>analogue</code> means similar but not identical; <code>MLE baseline</code> means the comparison is frequentist.</p>
-          </div>
-          <div>
-            <div class="how-tag">REPRODUCIBILITY</div>
-            <p>Every receipt links to its script in the <code>benchmark/</code> directory. Versions, hardware, and run policy are recorded with each result.</p>
-          </div>
-        </div>
-      </section>
-
-      <section v-for="sec in sections" :key="sec.title" class="bench-section">
+      <section class="bench-section">
         <header class="bench-section-head">
-          <h2>{{ sec.title }}</h2>
-          <p>{{ sec.lede }}</p>
+          <h2>Comparison against R-INLA</h2>
         </header>
-        <div class="receipt-grid">
-          <article v-for="r in sec.receipts" :key="r.title" class="receipt">
-            <div class="stamp" v-if="!r.live">PREVIEW</div>
-            <div class="stamp live" v-else>LIVE</div>
-            <div class="head">
-              <div class="name">{{ r.title }}</div>
-              <div class="sub">{{ r.scenario }}</div>
-              <div class="comparability-label">{{ comparabilityLabel[r.comparability] }}</div>
-            </div>
-            <hr/>
-            <div v-for="row in r.rows" :key="row.label"
-                 class="row" :class="{ muted: row.muted }">
-              <span>{{ row.label }}</span><span>{{ row.value }}</span>
-            </div>
-            <hr v-if="r.notes"/>
-            <div v-if="r.notes" class="notes">{{ r.notes }}</div>
-          </article>
-        </div>
+        <BenchScatter />
+        <BenchCard />
       </section>
 
       <section class="bench-section">
         <header class="bench-section-head">
-          <h2>Workflow cost</h2>
+          <h2>Coming next</h2>
           <p>
-            Lines of model code, post-processing burden, and number of
-            packages required to express a model. Published alongside
-            wall-clock time so the same-<code>@model</code>-three-engines
-            claim is measurable.
+            Cross-engine comparisons — the same model under INLA, TMB, and
+            HMC-Laplace — plus scaling in <em>n</em> and hyperparameter
+            dimension. Scripts land in <code>benchmark/</code> as they're run.
           </p>
         </header>
-        <div class="placeholder-card">
-          <div class="placeholder-title">Coming with v0.1</div>
-          <div class="placeholder-body">
-            Receipts comparing model definition + post-processing line counts
-            across packages on identical scenarios. Forthcoming alongside
-            the wall-clock benchmarks above.
-          </div>
-        </div>
-      </section>
-
-      <section class="bench-section">
-        <header class="bench-section-head">
-          <h2>Where Latte loses</h2>
-          <p>Things Latte does worse than the alternatives, roughly ranked.</p>
-        </header>
-        <ul class="loses-list">
-          <li><strong>Cold-start latency.</strong> Julia's first-run compilation costs hundreds of ms to seconds. R-INLA pays this once at package load and we pay it per-fit.</li>
-          <li><strong>Matérn SPDE maturity.</strong> R-INLA's SPDE pipeline has 15 years of optimization. Latte's SPDE story (via GaussianMarkovRandomFields.jl) is sound but younger.</li>
-          <li><strong>Joint multi-likelihood models.</strong> R-INLA supports multi-response joint models out of the box; Latte doesn't yet.</li>
-          <li><strong>Hyperparameter scaling.</strong> Latte's INLA grid exploration becomes expensive above |θ| ≈ 5. Use <code>:hmc_laplace</code> there.</li>
-          <li><strong>Documentation depth.</strong> Pre-release. Tutorials cover the major model classes; reference depth is still building.</li>
-        </ul>
       </section>
 
       <section class="bench-section">

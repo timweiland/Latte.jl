@@ -146,14 +146,14 @@ function main(args::Vector{String} = ARGS)
     # Gaussian observations ⇒ the latent posterior is exactly Gaussian, so
     # GaussianMarginal() is exact and avoids the (unnecessary, slow) spline
     # augmentation the SimplifiedLaplace default would add.
-    do_augment = !("--no-augment" in args)
+    augmented = "--augmented" in args
     # R-INLA (as called) computes neither DIC/WAIC/CPO; Latte's default does. For a
     # fair comparison (and to test the lever), --lean-accum keeps only the marginal
     # likelihood INLA needs.
     accum = "--lean-accum" in args ? (MarginalLogLikelihoodStrategy(),) :
         (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy())
-    @info "running Latte INLA (GaussianMarginal — exact for Gaussian obs)" augment = do_augment accumulators = length(accum)
-    lgm = spdetoy_model(data.y, base_matern, A_obs, p; augment = do_augment)
+    @info "running Latte INLA (GaussianMarginal — exact for Gaussian obs)" augment = augmented accumulators = length(accum)
+    lgm = spdetoy_model(data.y, base_matern, A_obs, p; augment = augmented)
 
     # --inspect: what LatentGaussianModel did @latte construct? Recognized
     # sparse latent + conjugate obs (fast path) vs an AD-closure fallback?

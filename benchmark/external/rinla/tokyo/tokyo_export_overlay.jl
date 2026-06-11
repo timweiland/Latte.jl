@@ -40,13 +40,14 @@ end
 function export_overlay()
     data = load_tokyo()
     M = RW2SumOnly(data.n)
-    dppl = tokyo_model(data.y, data.n_trials, M)
-    lgm = latte_from_dppl(dppl; random = (:x,))
+    # @latte builds a compact LGM (augment=false default); inla resolves the VBC
+    # mean correction — the same default path the Benchmarks page reports.
+    lgm = tokyo_model(data.y, data.n_trials, M)
 
     # Latte run is only for the (deterministic) marginal curves. The displayed
     # timings come from the canonical result.json so they match the Benchmarks page.
     @info "running Latte INLA (for marginals)"
-    result = inla(lgm, data.y; latent_marginalization_method = SimplifiedLaplace(), progress = false)
+    result = inla(lgm, data.y; progress = false)
     latte_x = _user_x_marginals(result)
 
     rinla_marg = CSV.read(joinpath(WORKDIR, "rinla_x_marginals.csv"), DataFrame)

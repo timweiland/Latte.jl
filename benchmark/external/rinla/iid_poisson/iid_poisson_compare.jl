@@ -10,7 +10,7 @@ Pkg.activate(joinpath(@__DIR__, "..", "..", ".."))
 using CSV
 using DataFrames
 using Distributions
-using DynamicPPL: @model
+using DynamicPPL          # full module: the @latte macro's expansion references it
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: IIDModel
 using JSON3
@@ -23,7 +23,7 @@ const WORKDIR = joinpath(@__DIR__, "_workdir")
 const N = 50
 const SEED = UInt64(0x0badcafe)
 
-@model function iid_poisson_model(y, n)
+@latte function iid_poisson_model(y, n)
     τ ~ PCPrior.Precision(1.0, α = 0.01)
     x ~ IIDModel(n)(τ = τ)
     for i in eachindex(y)
@@ -72,16 +72,18 @@ function main(args::Vector{String} = ARGS)
     data = generate_data(N, SEED)
     @info "IID Poisson dataset" n = data.n sum_y = sum(data.y) mean_y = mean(data.y)
 
-    @info "running Latte INLA (simplified.laplace)"
-    dppl = iid_poisson_model(data.y, data.n)
-    lgm = latte_from_dppl(dppl; random = (:x,))
+    # Default: the @latte macro builds a compact LGM and inla resolves the VBC
+    # mean correction. `--augmented` opts into the legacy augmented + SLA mode.
+    augmented = "--augmented" in args
+    marg = augmented ? SimplifiedLaplace() : nothing   # nothing ⇒ resolve (→ VBC, compact LTM)
+    @info "running Latte INLA" mode = (augmented ? "augmented + simplified.laplace (legacy)" : "compact + VBC (default)")
+    lgm = iid_poisson_model(data.y, data.n; augment = augmented)
     t_latte = @elapsed result = inla(
         lgm, data.y;
-        latent_marginalization_method = SimplifiedLaplace(),
-        diff_strategy = FiniteDiffStrategy(),
+        latent_marginalization_method = marg,
         progress = false,
     )
-    @info "Latte done" elapsed = round(t_latte, digits = 2)
+    @info "Latte done" elapsed = round(t_latte, digits = 2) augmented resolved = string(typeof(augmented ? SimplifiedLaplace() : Latte.default_marginalization(lgm)).name.name)
     latte_x = _user_x_marginals(result)
 
     rinla_marker = joinpath(WORKDIR, "rinla_x_marginals.csv")
