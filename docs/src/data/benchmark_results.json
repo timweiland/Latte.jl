@@ -6,7 +6,7 @@
             "summary": {
                 "ks_max": 0.0335,
                 "ks_median": 0.0248,
-                "speedup": 606.58
+                "speedup": 595.24
             },
             "rows": [
                 {
@@ -28,12 +28,12 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "606.6x",
+                    "value": "595.2x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "6.34 s",
+                    "value": "6.90 s",
                     "muted": true
                 }
             ],
@@ -45,41 +45,41 @@
             "scenario": "Poisson + Besag · 56 districts · log-offset",
             "comparability": "same posterior",
             "summary": {
-                "ks_max": 0.0244,
-                "ks_median": 0.011,
-                "speedup": 108.88
+                "ks_max": 0.0157,
+                "ks_median": 0.0068,
+                "speedup": 298.88
             },
             "rows": [
                 {
                     "label": "fixed (α, β) KS (max / median)",
-                    "value": "0.008 / 0.008"
+                    "value": "0.005 / 0.005"
                 },
                 {
                     "label": "district u_i KS (max / median)",
-                    "value": "0.024 / 0.011"
+                    "value": "0.016 / 0.007"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "14 ms"
+                    "value": "9 ms"
                 },
                 {
                     "label": "R-INLA",
-                    "value": "1.49 s",
+                    "value": "2.83 s",
                     "muted": true
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "108.9x",
+                    "value": "298.9x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "8.62 s",
+                    "value": "8.88 s",
                     "muted": true
                 }
             ],
             "id": "scotland",
-            "notes": "fixed-effects max KS 0.008; spatial RE max 0.024 / median 0.011",
+            "notes": "fixed-effects max KS 0.005; spatial RE max 0.016 / median 0.007",
             "title": "Scottish lip cancer"
         },
         {
@@ -88,7 +88,7 @@
             "summary": {
                 "ks_max": 0.1231,
                 "ks_median": 0.0485,
-                "speedup": 46.84
+                "speedup": 56.17
             },
             "rows": [
                 {
@@ -101,7 +101,7 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "34 ms"
+                    "value": "28 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -110,12 +110,12 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "46.8x",
+                    "value": "56.2x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "8.86 s",
+                    "value": "8.76 s",
                     "muted": true
                 }
             ],
@@ -129,7 +129,7 @@
             "summary": {
                 "ks_max": 0.0746,
                 "ks_median": 0.0402,
-                "speedup": 18.24
+                "speedup": 19.91
             },
             "rows": [
                 {
@@ -138,7 +138,7 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "83 ms"
+                    "value": "76 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -147,12 +147,12 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "18.2x",
+                    "value": "19.9x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "9.69 s",
+                    "value": "10.0 s",
                     "muted": true
                 }
             ],
@@ -166,7 +166,7 @@
             "summary": {
                 "ks_max": 0.0613,
                 "ks_median": 0.0178,
-                "speedup": 9.54
+                "speedup": 14.59
             },
             "rows": [
                 {
@@ -179,7 +179,7 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "197 ms"
+                    "value": "129 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -188,12 +188,12 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "9.5x",
+                    "value": "14.6x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "7.10 s",
+                    "value": "7.52 s",
                     "muted": true
                 }
             ],
@@ -207,7 +207,7 @@
             "summary": {
                 "ks_max": 0.0276,
                 "ks_median": 0.0175,
-                "speedup": 1.16
+                "speedup": 1.4
             },
             "rows": [
                 {
@@ -220,7 +220,7 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "2.04 s"
+                    "value": "1.69 s"
                 },
                 {
                     "label": "R-INLA",
@@ -229,12 +229,12 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "1.2x",
+                    "value": "1.4x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "12.0 s",
+                    "value": "9.43 s",
                     "muted": true
                 }
             ],
@@ -248,7 +248,7 @@
             "summary": {
                 "ks_max": 0.1066,
                 "ks_median": 0.1048,
-                "speedup": 1.9
+                "speedup": 2.96
             },
             "rows": [
                 {
@@ -265,7 +265,7 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "1.16 s"
+                    "value": "745 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -274,12 +274,12 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "1.9x",
+                    "value": "3.0x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "11.6 s",
+                    "value": "11.9 s",
                     "muted": true
                 }
             ],
@@ -288,5 +288,5 @@
             "title": "Paraná precipitation"
         }
     ],
-    "generated_at": "2026-06-10T10:01:45.220"
+    "generated_at": "2026-06-12T00:29:03.569"
 }
