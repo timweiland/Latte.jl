@@ -1,0 +1,32 @@
+[
+  {
+    "level": 1,
+    "m_obs": 400,
+    "max_edge": 0.1,
+    "n_nodes": 529
+  },
+  {
+    "level": 2,
+    "m_obs": 1225,
+    "max_edge": 0.055,
+    "n_nodes": 1778
+  },
+  {
+    "level": 3,
+    "m_obs": 3025,
+    "max_edge": 0.032,
+    "n_nodes": 3878
+  },
+  {
+    "level": 4,
+    "m_obs": 8100,
+    "max_edge": 0.018,
+    "n_nodes": 9980
+  },
+  {
+    "level": 5,
+    "m_obs": 19600,
+    "max_edge": 0.011,
+    "n_nodes": 23704
+  }
+]
