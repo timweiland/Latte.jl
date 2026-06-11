@@ -63,6 +63,20 @@ function _max_field(arr, name)
     return maximum(Float64, arr)
 end
 
+# Numeric summary for the at-a-glance accuracy×speed scatter: warm speedup plus
+# the KS spread of the benchmark's primary latent-marginal block (median =
+# typical agreement, max = worst single component).
+function _summary(r, ks_vec)
+    v = sort(collect(Float64, ks_vec))
+    sp = round(Float64(r.t_rinla) / Float64(r.t_latte_warm), digits = 2)
+    isempty(v) && return Dict("speedup" => sp)
+    return Dict(
+        "speedup" => sp,
+        "ks_median" => round(v[div(length(v), 2) + 1], digits = 4),
+        "ks_max" => round(maximum(v), digits = 4),
+    )
+end
+
 function _format_seeds(r)
     rows = [
         _ks_summary(Float64.(r.ks_fixed), "fixed (α, β1, β2, β12)"),
@@ -166,16 +180,76 @@ function _format_tokyo(r)
     )
 end
 
+function _format_spdetoy(r)
+    hp = (Float64(r.ks_intercept), Float64(r.ks_sigma_obs), Float64(r.ks_range), Float64(r.ks_stdev))
+    rows = [
+        _ks_summary(Float64.(r.ks_field), "SPDE field node"),
+        Dict(
+            "label" => "hyperpar KS (β / obs SD / range / field SD)",
+            "value" => @sprintf("%.3f / %.3f / %.3f / %.3f", hp...),
+        ),
+        _common_timing_rows(r)...,
+    ]
+    return Dict(
+        "id" => "spdetoy",
+        "title" => "SPDEtoy",
+        "scenario" => "Gaussian + Matérn SPDE · 200 obs · 1680-node shared mesh",
+        "comparability" => "same posterior",
+        "rows" => rows,
+        "notes" => @sprintf(
+            "field max %.3f / median %.3f over 1680 nodes; every hyperparameter KS ≤ %.3f",
+            Float64(r.ks_field_max), Float64(r.ks_field_median), maximum(hp),
+        ),
+    )
+end
+
+function _format_paranaprec(r)
+    rw1 = sort(collect(Float64, r.ks_rw1))
+    rw1_med = rw1[div(length(rw1), 2) + 1]
+    rows = [
+        _ks_summary(Float64.(r.ks_field), "SPDE field node"),
+        Dict("label" => "RW1 node KS (max / median)", "value" => @sprintf("%.3f / %.3f", maximum(rw1), rw1_med)),
+        Dict(
+            "label" => "hyperpar KS (β / range / field SD / RW1 SD)",
+            "value" => @sprintf(
+                "%.3f / %.3f / %.3f / %.3f",
+                Float64(r.ks_intercept), Float64(r.ks_range), Float64(r.ks_stdev), Float64(r.ks_rw1_sd),
+            ),
+        ),
+        _common_timing_rows(r)...,
+    ]
+    return Dict(
+        "id" => "paranaprec",
+        "title" => "Paraná precipitation",
+        "scenario" => "Gamma + RW1 + Matérn SPDE · 616 obs · 407-node mesh",
+        "comparability" => "same posterior",
+        "rows" => rows,
+        "notes" => @sprintf(
+            "RW1 and intercept agree closely; SPDE field KS ~%.2f is the weakly-identified-field floor (variance- not mean-limited)",
+            Float64(r.ks_field_median),
+        ),
+    )
+end
+
 const FORMATTERS = Dict(
     "seeds" => _format_seeds,
     "scotland" => _format_scotland,
     "nhtemp" => _format_nhtemp,
     "epil" => _format_epil,
     "tokyo_rainfall" => _format_tokyo,
+    "spdetoy" => _format_spdetoy,
+    "paranaprec" => _format_paranaprec,
 )
 
 # Ordering for the receipts on the page (smallest → biggest, roughly).
-const RECEIPT_ORDER = ["seeds", "scotland", "nhtemp", "tokyo_rainfall", "epil"]
+const RECEIPT_ORDER = ["seeds", "scotland", "nhtemp", "tokyo_rainfall", "epil", "spdetoy", "paranaprec"]
+
+# Primary latent-marginal KS block per scenario — drives the scatter's y-spread.
+const PRIMARY_KS = Dict(
+    "seeds" => :ks_b, "scotland" => :ks_u, "nhtemp" => :ks_x,
+    "tokyo_rainfall" => :ks_x, "epil" => :ks_subj,
+    "spdetoy" => :ks_field, "paranaprec" => :ks_field,
+)
 
 function _scenario_dirs()
     isdir(RINLA_DIR) || return String[]
@@ -195,7 +269,12 @@ function main()
         sid = String(r.scenario)
         fmt = get(FORMATTERS, sid, nothing)
         fmt === nothing && continue
-        push!(receipts, fmt(r))
+        receipt = fmt(r)
+        ksf = get(PRIMARY_KS, sid, nothing)
+        if ksf !== nothing && haskey(r, ksf)
+            receipt["summary"] = _summary(r, r[ksf])
+        end
+        push!(receipts, receipt)
     end
 
     # Stable, curated order; unknown receipts (none today) go last alphabetically.

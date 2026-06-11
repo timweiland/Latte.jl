@@ -3,18 +3,23 @@
         {
             "scenario": "Binomial GLMM · 21 plates · IID RE",
             "comparability": "same posterior",
+            "summary": {
+                "ks_max": 0.0335,
+                "ks_median": 0.0248,
+                "speedup": 606.58
+            },
             "rows": [
                 {
                     "label": "fixed (α, β1, β2, β12) KS (max / median)",
-                    "value": "0.016 / 0.016"
+                    "value": "0.015 / 0.015"
                 },
                 {
                     "label": "plate b_i KS (max / median)",
-                    "value": "0.033 / 0.024"
+                    "value": "0.034 / 0.025"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "9 ms"
+                    "value": "5 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -23,34 +28,39 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "312.9x",
+                    "value": "606.6x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "6.20 s",
+                    "value": "6.34 s",
                     "muted": true
                 }
             ],
             "id": "seeds",
-            "notes": "fixed-effects max KS 0.016; plate REs max 0.033 / median 0.024",
+            "notes": "fixed-effects max KS 0.015; plate REs max 0.034 / median 0.025",
             "title": "Crowder seeds"
         },
         {
             "scenario": "Poisson + Besag · 56 districts · log-offset",
             "comparability": "same posterior",
+            "summary": {
+                "ks_max": 0.0244,
+                "ks_median": 0.011,
+                "speedup": 108.88
+            },
             "rows": [
                 {
                     "label": "fixed (α, β) KS (max / median)",
-                    "value": "0.007 / 0.007"
+                    "value": "0.008 / 0.008"
                 },
                 {
                     "label": "district u_i KS (max / median)",
-                    "value": "0.049 / 0.027"
+                    "value": "0.024 / 0.011"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "61 ms"
+                    "value": "14 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -59,26 +69,31 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "24.3x",
+                    "value": "108.9x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "9.52 s",
+                    "value": "8.62 s",
                     "muted": true
                 }
             ],
             "id": "scotland",
-            "notes": "fixed-effects max KS 0.007; spatial RE max 0.049 / median 0.027",
+            "notes": "fixed-effects max KS 0.008; spatial RE max 0.024 / median 0.011",
             "title": "Scottish lip cancer"
         },
         {
             "scenario": "Normal + RW2 · 60 years · 1912–1971",
             "comparability": "same posterior",
+            "summary": {
+                "ks_max": 0.1231,
+                "ks_median": 0.0485,
+                "speedup": 46.84
+            },
             "rows": [
                 {
                     "label": "intercept α KS",
-                    "value": "0.029"
+                    "value": "0.027"
                 },
                 {
                     "label": "x_t (RW2) KS (max / median)",
@@ -86,7 +101,7 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "144 ms"
+                    "value": "34 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -95,30 +110,35 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "11.0x",
+                    "value": "46.8x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "9.91 s",
+                    "value": "8.86 s",
                     "muted": true
                 }
             ],
             "id": "nhtemp",
-            "notes": "α KS 0.029; RW2 max 0.123 / median 0.049",
+            "notes": "α KS 0.027; RW2 max 0.123 / median 0.049",
             "title": "New Haven temperature"
         },
         {
             "scenario": "Binomial + RW2 · 366 days",
             "comparability": "same posterior",
+            "summary": {
+                "ks_max": 0.0746,
+                "ks_median": 0.0402,
+                "speedup": 18.24
+            },
             "rows": [
                 {
                     "label": "x_t (366-day RW2) KS (max / median)",
-                    "value": "0.069 / 0.038"
+                    "value": "0.075 / 0.040"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "507 ms"
+                    "value": "83 ms"
                 },
                 {
                     "label": "R-INLA",
@@ -127,22 +147,27 @@
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "3.0x",
+                    "value": "18.2x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "9.01 s",
+                    "value": "9.69 s",
                     "muted": true
                 }
             ],
             "id": "tokyo_rainfall",
-            "notes": "x_t max KS 0.069 / median 0.038",
+            "notes": "x_t max KS 0.075 / median 0.040",
             "title": "Tokyo rainfall"
         },
         {
             "scenario": "Poisson + IID×IID · 59 subj × 4 visits",
             "comparability": "same posterior",
+            "summary": {
+                "ks_max": 0.0613,
+                "ks_median": 0.0178,
+                "speedup": 9.54
+            },
             "rows": [
                 {
                     "label": "fixed (6 effects) KS (max / median)",
@@ -150,15 +175,101 @@
                 },
                 {
                     "label": "subject b_i KS (max / median)",
-                    "value": "0.046 / 0.020"
+                    "value": "0.061 / 0.018"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "989 ms"
+                    "value": "197 ms"
                 },
                 {
                     "label": "R-INLA",
                     "value": "1.88 s",
+                    "muted": true
+                },
+                {
+                    "label": "speedup (warm)",
+                    "value": "9.5x",
+                    "muted": true
+                },
+                {
+                    "label": "Latte INLA · cold",
+                    "value": "7.10 s",
+                    "muted": true
+                }
+            ],
+            "id": "epil",
+            "notes": "fixed max 0.005; subject RE max 0.061 / median 0.018",
+            "title": "Epil (BUGS)"
+        },
+        {
+            "scenario": "Gaussian + Matérn SPDE · 200 obs · 1680-node shared mesh",
+            "comparability": "same posterior",
+            "summary": {
+                "ks_max": 0.0276,
+                "ks_median": 0.0175,
+                "speedup": 1.16
+            },
+            "rows": [
+                {
+                    "label": "SPDE field node KS (max / median)",
+                    "value": "0.028 / 0.018"
+                },
+                {
+                    "label": "hyperpar KS (β / obs SD / range / field SD)",
+                    "value": "0.028 / 0.049 / 0.054 / 0.053"
+                },
+                {
+                    "label": "Latte INLA · warm",
+                    "value": "2.04 s"
+                },
+                {
+                    "label": "R-INLA",
+                    "value": "2.36 s",
+                    "muted": true
+                },
+                {
+                    "label": "speedup (warm)",
+                    "value": "1.2x",
+                    "muted": true
+                },
+                {
+                    "label": "Latte INLA · cold",
+                    "value": "12.0 s",
+                    "muted": true
+                }
+            ],
+            "id": "spdetoy",
+            "notes": "field max 0.028 / median 0.018 over 1680 nodes; every hyperparameter KS ≤ 0.054",
+            "title": "SPDEtoy"
+        },
+        {
+            "scenario": "Gamma + RW1 + Matérn SPDE · 616 obs · 407-node mesh",
+            "comparability": "same posterior",
+            "summary": {
+                "ks_max": 0.1066,
+                "ks_median": 0.1048,
+                "speedup": 1.9
+            },
+            "rows": [
+                {
+                    "label": "SPDE field node KS (max / median)",
+                    "value": "0.107 / 0.105"
+                },
+                {
+                    "label": "RW1 node KS (max / median)",
+                    "value": "0.057 / 0.029"
+                },
+                {
+                    "label": "hyperpar KS (β / range / field SD / RW1 SD)",
+                    "value": "0.105 / 0.185 / 0.174 / 0.081"
+                },
+                {
+                    "label": "Latte INLA · warm",
+                    "value": "1.16 s"
+                },
+                {
+                    "label": "R-INLA",
+                    "value": "2.21 s",
                     "muted": true
                 },
                 {
@@ -168,14 +279,14 @@
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "7.39 s",
+                    "value": "11.6 s",
                     "muted": true
                 }
             ],
-            "id": "epil",
-            "notes": "fixed max 0.005; subject RE max 0.046 / median 0.020",
-            "title": "Epil (BUGS)"
+            "id": "paranaprec",
+            "notes": "RW1 and intercept agree closely; SPDE field KS ~0.10 is the weakly-identified-field floor (variance- not mean-limited)",
+            "title": "Paraná precipitation"
         }
     ],
-    "generated_at": "2026-06-05T16:40:01.017"
+    "generated_at": "2026-06-10T10:01:45.220"
 }

@@ -57,7 +57,7 @@ scot$x_scaled <- scot$X / 10
 formula <- Counts ~ 1 + x_scaled + f(Region,
     model = "besag",
     graph = graph_path,
-    scale.model = FALSE,
+    scale.model = TRUE,
     hyper = list(prec = list(prior = "pc.prec",
                              param = c(params$pc_U, params$pc_alpha)))
 )

@@ -18,10 +18,11 @@ Pkg.activate(joinpath(@__DIR__, "..", "..", ".."))
 using CSV
 using DataFrames
 using Distributions
-using DynamicPPL: @model
+using DynamicPPL          # full module: the @latte macro's expansion references it
 using JSON3
 using Latte
 using GaussianMarkovRandomFields
+using LinearAlgebra
 using MCMCChains
 using Printf
 using Random
@@ -34,7 +35,7 @@ const WORKDIR = joinpath(@__DIR__, "_workdir")
 const N_OBS = 50
 const SEED = UInt64(0x0badcafe)
 
-@model function additive_iid_poisson(y, n)
+@latte function additive_iid_poisson(y, n)
     # MvNormal-of-length-1 instead of plain Normal because the DPPL
     # adapter expects vector latents — needs to register `β` in the
     # latent layout as a block of size 1.
@@ -145,8 +146,11 @@ function main(args::Vector{String} = ARGS)
         @info "running NUTS reference (4 chains × 5000 × 2000 warmup, target 0.95)"
         rng = MersenneTwister(SEED)
         backend = Threads.nthreads() > 1 ? Turing.MCMCThreads() : Turing.MCMCSerial()
+        # @latte's call form returns an LGM; the DPPL model for Turing is
+        # recovered via `Latte.dppl_model(...)`.
+        turing_model = Latte.dppl_model(additive_iid_poisson)(data.y, data.n)
         t_nuts = @elapsed chain = sample(
-            rng, additive_iid_poisson(data.y, data.n),
+            rng, turing_model,
             Turing.NUTS(2000, 0.95), backend, 5000, 4;
             progress = false, verbose = false,
         )
@@ -156,21 +160,29 @@ function main(args::Vector{String} = ARGS)
     end
     nuts_cdfs = nuts_eta_cdfs(nuts_chain, data.n)
 
-    # ── 2. Latte INLA (Simplified by default) ────────────────────────
+    # ── 2. Latte INLA ─────────────────────────────────────────────────
+    # Default: the @latte macro builds a compact LGM (the Poisson likelihood
+    # with the `β[1] + x[i]` predictor is a LinearlyTransformedObservationModel)
+    # and inla resolves the VBC mean correction. `--augmented` opts into the
+    # legacy augmented + simplified.laplace mode, where each η_i is a primary
+    # latent.
+    #
     # Full Laplace is dropped from the standard comparison — it's
     # validated separately and adds ~5+ minutes per run. Pass
     # `--with-full-laplace` to include it.
-    dppl_model = additive_iid_poisson(data.y, data.n)
-    lgm = latte_from_dppl(dppl_model; random = (:β, :x))
+    augmented = "--augmented" in args
+    marg = augmented ? SimplifiedLaplace() : nothing   # nothing ⇒ resolve (→ VBC, compact LTM)
+    lgm = additive_iid_poisson(data.y, data.n; augment = augmented)
+    resolved = string(typeof(augmented ? SimplifiedLaplace() : Latte.default_marginalization(lgm)).name.name)
 
-    @info "running Latte INLA (simplified.laplace)"
+    @info "running Latte INLA" mode = (augmented ? "augmented + simplified.laplace (legacy)" : "compact + VBC (default)") resolved
     t_latte = @elapsed latte_result = inla(
         lgm, data.y;
-        latent_marginalization_method = SimplifiedLaplace(),
+        latent_marginalization_method = marg,
         progress = false,
     )
-    @info "Latte (Simplified) done" elapsed = round(t_latte, digits = 2)
-    latte_lp = latent_predictor_marginals(latte_result, data.n)
+    @info "Latte done" elapsed = round(t_latte, digits = 2) resolved
+    latte_lp = eta_marginals(latte_result, data.n)
 
     if "--with-full-laplace" in args
         @info "running Latte INLA (LaplaceMarginal)"
@@ -249,12 +261,13 @@ function main(args::Vector{String} = ARGS)
     nuts_β_q025 = quantile(nuts_β, 0.025)
     nuts_β_q975 = quantile(nuts_β, 0.975)
 
-    # Latte β marginals across both Simplified and Full Laplace
-    # strategies — useful for telling whether any β bias is specific to
-    # the SLA path (and thus the surgical correction) vs a deeper issue
-    # with mode finding / hyperparameter integration / augmentation.
-    info = latte_result.augmentation_info
-    β_latent_idx = first(info.base_latent_indices)
+    # Latte β marginals across both default (compact + VBC) and Full Laplace
+    # strategies — useful for telling whether any β bias is specific to the
+    # marginalization method vs a deeper issue with mode finding /
+    # hyperparameter integration. `β` is a length-1 latent block; its index is
+    # read from the model's named layout (works in both compact and augmented
+    # modes).
+    β_latent_idx = first(Latte.latent_groups(latte_result)[:β])
     latte_β = latte_result.latent_marginals[β_latent_idx]
 
     function _stats(d)
@@ -276,7 +289,7 @@ function main(args::Vector{String} = ARGS)
     println("β posterior (intercept) — sanity check on priors and approximation methods")
     println("="^80)
     @printf "%-30s mean %+.4f  sd %.4f  q025 %+.4f  q975 %+.4f\n" "NUTS" nuts_β_mean nuts_β_sd nuts_β_q025 nuts_β_q975
-    @printf "%-30s mean %+.4f  sd %.4f  q025 %+.4f  q975 %+.4f\n" "Latte (Simplified)" latte_simp_stats[1] latte_simp_stats[2] latte_simp_stats[3] latte_simp_stats[4]
+    @printf "%-30s mean %+.4f  sd %.4f  q025 %+.4f  q975 %+.4f\n" "Latte ($(resolved))" latte_simp_stats[1] latte_simp_stats[2] latte_simp_stats[3] latte_simp_stats[4]
     if latte_full_stats !== nothing
         @printf "%-30s mean %+.4f  sd %.4f  q025 %+.4f  q975 %+.4f\n" "Latte (Full Laplace)" latte_full_stats[1] latte_full_stats[2] latte_full_stats[3] latte_full_stats[4]
     end
@@ -285,7 +298,7 @@ function main(args::Vector{String} = ARGS)
     println()
     println("η_i = β + x_i marginal accuracy vs NUTS reference (n=$(data.n))")
     println("="^80)
-    println(_aggregate("Latte (augmented mode)", latte_ks))
+    println(_aggregate("Latte ($(augmented ? "augmented + SLA" : "compact + " * resolved))", latte_ks))
     println(_aggregate("R-INLA (compact mode)", rinla_ks))
     println()
 
@@ -295,16 +308,23 @@ function main(args::Vector{String} = ARGS)
     )
 end
 
-# Latte's η_i marginals: in augmented mode they live at the
-# linear-predictor block of `latent_marginals`. We pick the first n
-# entries (the augmentation predictors) and return them as a Vector.
-function latent_predictor_marginals(result, n_obs::Int)
+# Latte's η_i = β + x_i marginals, in both modes:
+#   - augmented: η is a primary latent; the predictor block of
+#     `latent_marginals` carries the simplified-Laplace skew correction.
+#   - compact (default): η is the linear functional β·1 + x[i] of the latent
+#     field. `linear_combinations` builds its marginal as a weighted mixture of
+#     Gaussian conditionals over the hyperparameter integration points, with the
+#     VBC-corrected mean threaded through (so the mean matches the corrected
+#     latent marginals).
+function eta_marginals(result, n_obs::Int)
     info = result.augmentation_info
-    info === nothing && error(
-        "latte result has no augmentation_info; can't extract η marginals",
-    )
-    pred_idx = info.linear_predictor_indices
-    return [result.latent_marginals[i] for i in pred_idx[1:n_obs]]
+    if info !== nothing
+        pred_idx = info.linear_predictor_indices
+        return [result.latent_marginals[i] for i in pred_idx[1:n_obs]]
+    end
+    # Compact mode: η_i = 1·β + x[i]. Coefficient 1 on the single β component
+    # for every row; the identity on the n-dim x block selects x[i] per row.
+    return linear_combinations(result; β = ones(n_obs), x = Matrix(1.0I, n_obs, n_obs))
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

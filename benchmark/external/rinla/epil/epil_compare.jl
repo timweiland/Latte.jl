@@ -10,7 +10,8 @@ Pkg.activate(joinpath(@__DIR__, "..", "..", ".."))
 using CSV
 using DataFrames
 using Distributions
-using DynamicPPL: @model
+using DynamicPPL          # full module: the @latte macro's expansion references it
+using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: IIDModel
 using JSON3
 using Latte
@@ -21,7 +22,7 @@ using Statistics
 const EPIL_CSV = joinpath(@__DIR__, "epil_data.csv")
 const WORKDIR = joinpath(@__DIR__, "_workdir")
 
-@model function epil_model(
+@latte function epil_model(
         y, log_base4, trt, trt_logbase4, log_age, v4,
         ind, n_subject, n_obs,
     )
@@ -98,15 +99,18 @@ function main(args::Vector{String} = ARGS)
     data = load_epil()
     @info "Epil dataset" n = data.n n_subject = data.n_subject sum_y = sum(data.y)
 
-    @info "running Latte INLA (simplified.laplace)"
-    dppl = epil_model(
+    # Default: the @latte macro builds a compact LGM and inla resolves the VBC
+    # mean correction. `--augmented` opts into the legacy augmented + SLA mode.
+    augmented = "--augmented" in args
+    marg = augmented ? SimplifiedLaplace() : nothing   # nothing ⇒ resolve (→ VBC, compact LTM)
+    @info "running Latte INLA" mode = (augmented ? "augmented + simplified.laplace (legacy)" : "compact + VBC (default)")
+    lgm = epil_model(
         data.y, data.log_base4, data.trt, data.trt_logbase4, data.log_age, data.v4,
-        data.ind, data.n_subject, data.n,
+        data.ind, data.n_subject, data.n; augment = augmented,
     )
-    lgm = latte_from_dppl(dppl; random = (:fixed, :b_subject, :b_obs))
     t_latte_cold = @elapsed result = inla(
         lgm, data.y;
-        latent_marginalization_method = SimplifiedLaplace(),
+        latent_marginalization_method = marg,
         progress = false,
     )
     warm_times = Float64[]
@@ -114,13 +118,13 @@ function main(args::Vector{String} = ARGS)
         push!(
             warm_times, @elapsed inla(
                 lgm, data.y;
-                latent_marginalization_method = SimplifiedLaplace(),
+                latent_marginalization_method = marg,
                 progress = false,
             )
         )
     end
     t_latte_warm = median(warm_times)
-    @info "Latte done" cold = round(t_latte_cold, digits = 2) warm_median = round(t_latte_warm, digits = 3)
+    @info "Latte done" cold = round(t_latte_cold, digits = 2) warm_median = round(t_latte_warm, digits = 3) augmented resolved = string(typeof(augmented ? SimplifiedLaplace() : Latte.default_marginalization(lgm)).name.name)
     latte_fixed = _user_marginals(result, :fixed)
     latte_subj = _user_marginals(result, :b_subject)
 

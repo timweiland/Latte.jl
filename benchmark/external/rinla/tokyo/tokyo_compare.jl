@@ -16,7 +16,7 @@ Pkg.activate(joinpath(@__DIR__, "..", "..", ".."))
 using CSV
 using DataFrames
 using Distributions
-using DynamicPPL: @model
+using DynamicPPL          # full module: the @latte macro's expansion references it
 using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: RWModel, LatentModel
 using JSON3
@@ -47,7 +47,7 @@ end
 const TOKYO_CSV = joinpath(@__DIR__, "tokyo_data.csv")
 const WORKDIR = joinpath(@__DIR__, "_workdir")
 
-@model function tokyo_model(y, n_trials, M)
+@latte function tokyo_model(y, n_trials, M)
     τ ~ PCPrior.Precision(1.0, α = 0.01)
     x ~ M(τ = τ)
     for t in eachindex(y)
@@ -103,13 +103,16 @@ function main(args::Vector{String} = ARGS)
     @info "Tokyo dataset" n = data.n sum_y = sum(data.y) sum_n = sum(data.n_trials)
 
     # ── Latte ────────────────────────────────────────────────────────
-    @info "running Latte INLA (simplified.laplace)"
+    # Default: the @latte macro builds a compact LGM and inla resolves the VBC
+    # mean correction. `--augmented` opts into the legacy augmented + SLA mode.
+    augmented = "--augmented" in args
+    marg = augmented ? SimplifiedLaplace() : nothing   # nothing ⇒ resolve (→ VBC, compact LTM)
+    @info "running Latte INLA" mode = (augmented ? "augmented + simplified.laplace (legacy)" : "compact + VBC (default)")
     M = RW2SumOnly(data.n)
-    dppl = tokyo_model(data.y, data.n_trials, M)
-    lgm = latte_from_dppl(dppl; random = (:x,))
+    lgm = tokyo_model(data.y, data.n_trials, M; augment = augmented)
     t_latte_cold = @elapsed result = inla(
         lgm, data.y;
-        latent_marginalization_method = SimplifiedLaplace(),
+        latent_marginalization_method = marg,
         progress = false,
     )
     warm_times = Float64[]
@@ -117,13 +120,13 @@ function main(args::Vector{String} = ARGS)
         push!(
             warm_times, @elapsed inla(
                 lgm, data.y;
-                latent_marginalization_method = SimplifiedLaplace(),
+                latent_marginalization_method = marg,
                 progress = false,
             )
         )
     end
     t_latte_warm = median(warm_times)
-    @info "Latte done" cold = round(t_latte_cold, digits = 2) warm_median = round(t_latte_warm, digits = 3)
+    @info "Latte done" cold = round(t_latte_cold, digits = 2) warm_median = round(t_latte_warm, digits = 3) augmented resolved = string(typeof(augmented ? SimplifiedLaplace() : Latte.default_marginalization(lgm)).name.name)
     latte_x = _user_x_marginals(result)
 
     # ── R-INLA (cached unless --refresh-rinla) ───────────────────────
