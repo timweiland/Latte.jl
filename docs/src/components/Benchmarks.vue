@@ -2,6 +2,7 @@
 import benchmarkData from '../data/benchmark_results.json'
 import BenchScatter from './BenchScatter.vue'
 import BenchCard from './BenchCard.vue'
+import BenchScaling from './BenchScaling.vue'
 
 type ReceiptRow = {
   label: string
@@ -72,11 +73,24 @@ const comparabilityLabel: Record<Receipt['comparability'], string> = {
 
       <section class="bench-section">
         <header class="bench-section-head">
+          <h2>Scaling in <em>n</em></h2>
+          <p>
+            The same spatial Poisson–Matérn (SPDE) model fit at five mesh
+            resolutions, on a mesh handed identically to both engines — so the
+            curves isolate how each scales with the latent dimension, not the
+            problem setup.
+          </p>
+        </header>
+        <BenchScaling />
+      </section>
+
+      <section class="bench-section">
+        <header class="bench-section-head">
           <h2>Coming next</h2>
           <p>
             Cross-engine comparisons — the same model under INLA, TMB, and
-            HMC-Laplace — plus scaling in <em>n</em> and hyperparameter
-            dimension. Scripts land in <code>benchmark/</code> as they're run.
+            HMC-Laplace — plus scaling in hyperparameter dimension. Scripts land
+            in <code>benchmark/</code> as they're run.
           </p>
         </header>
       </section>
@@ -179,6 +193,7 @@ const comparabilityLabel: Record<Receipt['comparability'], string> = {
   margin: 0 0 12px;
   color: var(--espresso);
 }
+.bench-section-head h2 em { font-style: italic; color: var(--berry); }
 .bench-section-head p { margin: 0; font-size: 15px; line-height: 1.55; color: #4A3828; }
 .bench-section-head code { background: var(--tan); color: var(--bean); padding: 1px 6px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 0.92em; }
 
