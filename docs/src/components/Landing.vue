@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import LandingBenchmark from './LandingBenchmark.vue'
+// Thumbnails for the three featured tutorial cards (shared with the gallery).
+import gettingStartedThumb from '../assets/thumbs/getting_started.png'
+import spatialSpdeThumb from '../assets/thumbs/spatial_spde.png'
+import hmcLaplaceThumb from '../assets/thumbs/hmc_laplace_when.png'
 </script>
 
 <template>
@@ -126,20 +130,23 @@ import LandingBenchmark from './LandingBenchmark.vue'
       <div class="container">
         <h2>Tutorials</h2>
         <div class="cards">
-          <a class="card" href="/tutorials/disease_mapping_spatial">
-            <div class="tag">SPATIAL · DISEASE MAPPING</div>
-            <h4>BYM: Besag + IID</h4>
-            <p>Regional disease risk smoothed with an ICAR spatial prior plus an IID residual. PC priors on both precisions, fit with INLA in a handful of lines.</p>
+          <a class="card" href="/tutorials/getting_started">
+            <div class="card-thumb"><img :src="gettingStartedThumb" alt="Per-hospital posterior mortality intervals" /></div>
+            <div class="tag">GETTING STARTED</div>
+            <h4>Surgery mortality across hospitals</h4>
+            <p>The simplest end-to-end Bayesian analysis you can write: hospital-by-hospital mortality rates, an IID random effect, and <code>inla()</code> in a handful of lines.</p>
           </a>
-          <a class="card" href="/tutorials/temporal_trend_earthquakes">
-            <div class="tag">TEMPORAL · COUNTS</div>
-            <h4>Earthquake intensity trends</h4>
-            <p>RW1 vs RW2 priors on annual seismicity, compared by DIC, WAIC, and marginal likelihood. All three from the same <code>inla()</code> fit.</p>
+          <a class="card" href="/tutorials/spatial_spde">
+            <div class="card-thumb"><img :src="spatialSpdeThumb" alt="Predicted seismic-intensity field over Japan" /></div>
+            <div class="tag">SPATIAL · SPDE</div>
+            <h4>Matérn SPDE on a mesh</h4>
+            <p>Continuous-domain spatial smoothing the SPDE way. Build a triangulated mesh, define a Matérn precision, and fit it to earthquake intensity.</p>
           </a>
-          <a class="card" href="/tutorials/spatio_temporal_separable">
-            <div class="tag">SPACE-TIME · SEPARABLE</div>
-            <h4>Kronecker space-time</h4>
-            <p>Region-specific temporal dynamics via a <code>SeparableModel</code> Kronecker prior. Additive vs interaction-only vs full, from one <code>@latte</code> model.</p>
+          <a class="card" href="/tutorials/hmc_laplace_when">
+            <div class="card-thumb"><img :src="hmcLaplaceThumb" alt="Calibrated hyperparameter posterior, HMC vs INLA grid" /></div>
+            <div class="tag">INFERENCE · HMC-LAPLACE</div>
+            <h4>When to sample the hyperparameters</h4>
+            <p>When the hyperparameter posterior is a curved, skewed ridge, INLA's grid design is biased. <code>hmc_laplace</code> samples it instead, validated against gold-standard NUTS.</p>
           </a>
         </div>
         <div class="gallery-more">
@@ -295,6 +302,8 @@ pre.code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-hei
 .card .tag { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--caramel); text-transform: uppercase; letter-spacing: 1.3px; }
 .card h4 { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 500; font-size: 24px; margin: 0; letter-spacing: -0.4px; line-height: 1.15; }
 .card p { font-size: 14px; line-height: 1.55; color: #4A3828; margin: 0; }
+.card-thumb { margin: -26px -24px 0; aspect-ratio: 16 / 9; overflow: hidden; background: var(--tan); border-bottom: 1px solid var(--tan); }
+.card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .gallery-more { text-align: center; margin-top: 36px; }
 
 /* ── Footer ── */
