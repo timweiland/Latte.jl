@@ -191,6 +191,7 @@ fig
 n_counties = nrow(county_data)
 spatial_offset = 1
 iid_offset = 1 + n_counties
+base_marginals = base_latent_marginals(inla_result)
 
 # Let's make a joyplot showing how these effects vary across a selection of counties:
 sorted_idx = sortperm(county_data.SIR, rev = true)
@@ -200,9 +201,9 @@ component_indices = vcat(
     sorted_idx[(end - 2):end]
 )        # 3 lowest SIR
 
-spatial_dists = [inla_result.base_latent_marginals[spatial_offset + i] for i in component_indices]
+spatial_dists = [base_marginals[spatial_offset + i] for i in component_indices]
 spatial_labels = [county_data.county[i] * " (spatial)" for i in component_indices]
-iid_dists = [inla_result.base_latent_marginals[iid_offset + i] for i in component_indices]
+iid_dists = [base_marginals[iid_offset + i] for i in component_indices]
 iid_labels = [county_data.county[i] * " (IID)" for i in component_indices]
 
 fig_components = Figure(size = (1200, 600))
