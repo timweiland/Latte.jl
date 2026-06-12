@@ -10,6 +10,26 @@ _unwrap_to_exponential_family(m::LinearlyTransformedObservationModel) = _unwrap_
 _unwrap_to_exponential_family(m) = m
 
 """
+    linear_predictor_marginals(result::INLAResult)
+
+Marginal distributions of the linear predictor η = A·x (one per observation),
+uniform across modes. Augmented models carry η as the stored η-block of the
+latent marginals. Compact models do not materialize η, so they derive it from
+the latent posterior via the design map, using the VBC-corrected mean and the
+constraint-correct selected-inverse variance (the same moments
+`observation_marginals` consumes).
+"""
+function linear_predictor_marginals(result::INLAResult)
+    lpm = getfield(result, :linear_predictor_marginals)
+    lpm === nothing || return lpm
+    result.model.observation_model isa LinearlyTransformedObservationModel || error(
+        "linear_predictor_marginals requires a LinearlyTransformedObservationModel " *
+            "(η = A·x). Got observation model of type $(typeof(result.model.observation_model)).",
+    )
+    return _predictor_marginals_compact(result)
+end
+
+"""
     observation_marginals(result::INLAResult; rtol::Real = 1.0e-3, atol::Real = 1.0e-6)
 
 Compute marginal distributions for observations (fitted values) by transforming
@@ -90,21 +110,8 @@ function observation_marginals(
         rtol::Real = 1.0e-3,
         atol::Real = 1.0e-6
     )
-    # Linear-predictor marginals. Augmented models carry them as the η-block of
-    # the latent marginals (a stored view). Compact models don't materialize η, so
-    # compute the predictor marginals on demand (mean A·μ* — VBC-corrected when
-    # applicable — with the constraint-correct selected-inverse variance).
-    lpm = result.linear_predictor_marginals
-    if lpm === nothing
-        if result.model.observation_model isa LinearlyTransformedObservationModel
-            lpm = _predictor_marginals_compact(result)
-        else
-            error(
-                "observation_marginals requires a LinearlyTransformedObservationModel " *
-                    "(η = A·x). Got observation model of type $(typeof(result.model.observation_model))."
-            )
-        end
-    end
+    # Linear-predictor marginals, uniform across compact/augmented modes.
+    lpm = linear_predictor_marginals(result)
 
     # Extract observation model, peeling Latte-side wrappers
     # (BinomialTrialsObservationModel) that carry per-site data but leave the
