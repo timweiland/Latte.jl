@@ -12,22 +12,30 @@ Gaussian covariance (TMB), or HMC on the Laplace marginal (tmbstan-style).
 
 > ⚠️ **Early development.** API is not yet stable. Expect breaking changes until a 1.0.
 
+## Installation
+
+```julia
+] add https://github.com/timweiland/Latte.jl
+```
+
+Latte will be installable with `] add Latte` once it is registered in the General registry.
+
 ## Example
 
 ```julia
-using Latte, DynamicPPL, Distributions, LinearAlgebra
+using Latte, GaussianMarkovRandomFields, DynamicPPL, Distributions, LinearAlgebra
 
-@model function hier_poisson(y, X, group)
+@latte function hier_poisson(y, X, group)
     τ_u ~ Gamma(2, 1)
-    β   ~ MvNormal(zeros(size(X, 2)), 100.0 * I)
-    u   ~ MvNormal(zeros(maximum(group)), (1/τ_u) * I)
+    β   ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
+    u   ~ IIDModel(maximum(group))(τ = τ_u)
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(X[i, :] ⋅ β + u[group[i]]); check_args=false)
+        y[i] ~ Poisson(exp(X[i, :] ⋅ β + u[group[i]]))
     end
 end
 
-# DSL → Latent Gaussian Model (one line)
-lgm = latte_from_dppl(hier_poisson(y_obs, X, group); random = (:β, :u))
+# @latte recognizes the latent structure automatically
+lgm = hier_poisson(y_obs, X, group)
 
 # Three inference methods, same model, shared result protocol
 r_inla = inla(lgm, y_obs)          # grid/CCD integration over θ
@@ -44,15 +52,20 @@ diagnose(r_tmb)
 # → (rel_ess = 0.87, pareto_k = 0.12, interpretation = :excellent, ...)
 ```
 
+**Learn more:** the [tutorial gallery](https://timweiland.github.io/Latte.jl/dev/tutorials/),
+[benchmarks against R-INLA](https://timweiland.github.io/Latte.jl/dev/benchmarks/),
+and the [full documentation](https://timweiland.github.io/Latte.jl/dev/).
+
 ## What's in the box
 
 - **Inference methods**:
   - [`inla`](https://timweiland.github.io/Latte.jl/dev/) — Integrated Nested Laplace Approximation (Rue et al. 2009)
   - [`tmb`](https://timweiland.github.io/Latte.jl/dev/) — TMB-style MAP + Laplace covariance (Monnahan & Kristensen 2018)
   - [`hmc_laplace`](https://timweiland.github.io/Latte.jl/dev/) — NUTS on the Laplace marginal, warm-started from TMB (tmbstan-style)
-- **DSL front door**: `latte_from_dppl(m; random=...)` turns any `@model ... end`
-  into a `LatentGaussianModel`. Auto-detects the latent DAG, falls back to
-  sparse AD for non-linear priors, and pattern-matches common likelihoods
+- **DSL front door**: write your model with the `@latte` macro and it
+  auto-detects the latent DAG. Already have a DynamicPPL `@model`? Hand it to
+  `latte_from_dppl(m; random=...)` instead. Either way it falls back to sparse
+  AD for non-linear priors, and pattern-matches common likelihoods
   (Poisson / Bernoulli / Normal) onto `GaussianMarkovRandomFields.jl`'s
   hand-coded `ExponentialFamily` observation models.
 - **Shared protocol**: every inference result implements the same interface —
