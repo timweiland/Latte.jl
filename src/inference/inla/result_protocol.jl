@@ -10,6 +10,15 @@ using OrderedCollections: OrderedDict
 # ─── Marginals ──────────────────────────────────────────────────────────────
 latent_marginals(r::INLAResult) = r.latent_marginals
 
+# Base latent marginals (the original model's components), uniform across modes:
+# augmented slices the base block of the latent vector; compact keeps only the
+# base latent, so the latent marginals already are them.
+function base_latent_marginals(r::INLAResult)
+    bl = getproperty(r, :base_latent_marginals)
+    return bl === nothing ? latent_marginals(r) : bl
+end
+export base_latent_marginals
+
 # Internal storage is a NamedTuple keyed by hyperparameter name; the protocol
 # returns a positional Vector.
 hyperparameter_marginals(r::INLAResult) = collect(values(r.hyperparameter_marginals))

@@ -11,6 +11,11 @@ using GaussianMarkovRandomFields: ObservationModel, ObservationLikelihood,
     pointwise_loglik, NormalLikelihood,
     PoissonLikelihood, BernoulliLikelihood, BinomialLikelihood
 
+# Extend GMRFs' `linear_predictor_marginals` with a result-level accessor:
+# compact mode derives η from the latent posterior, augmented slices it.
+import GaussianMarkovRandomFields: linear_predictor_marginals
+export linear_predictor_marginals
+
 # Re-export observation model types and functions for user convenience
 export ObservationModel, ObservationLikelihood, ExponentialFamily,
     BinomialObservations, PoissonObservations, LinearlyTransformedObservationModel,
