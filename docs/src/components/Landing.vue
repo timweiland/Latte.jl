@@ -188,21 +188,13 @@ import hmcLaplaceThumb from '../assets/thumbs/hmc_laplace_when.png'
             <h5>Learn</h5>
             <a href="/main_interface">Documentation</a>
             <a href="/tutorials/">Tutorials</a>
-            <a href="/main_interface">API reference</a>
-            <a href="#">Migration from R-INLA</a>
+            <a href="/reference/observation_models">API reference</a>
           </div>
           <div>
             <h5>Community</h5>
             <a href="https://github.com/timweiland/Latte.jl">GitHub</a>
-            <a href="https://discourse.julialang.org/">Julia Discourse</a>
             <a href="https://github.com/timweiland/Latte.jl/issues">Issue tracker</a>
-            <a href="#">Contributing</a>
-          </div>
-          <div>
-            <h5>Cite</h5>
-            <a href="#">Paper (in prep)</a>
-            <a href="#">CITATION.bib</a>
-            <a href="#">Acknowledgements</a>
+            <a href="https://github.com/timweiland/Latte.jl/blob/main/CONTRIBUTING.md">Contributing</a>
           </div>
         </div>
         <div class="foot-bottom">
@@ -308,7 +300,7 @@ pre.code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-hei
 
 /* ── Footer ── */
 footer { background: var(--espresso); color: var(--cream); padding: 56px 0 36px; }
-.foot-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 48px; }
+.foot-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 48px; }
 .foot-grid h5 { font-family: 'Fraunces', serif; font-style: italic; font-weight: 500; font-size: 16px; color: var(--caramel); margin: 0 0 12px; }
 .foot-grid a { display: block; color: var(--cream); text-decoration: none; font-size: 14px; padding: 4px 0; opacity: 0.85; }
 .foot-grid a:hover { opacity: 1; color: var(--caramel); }
