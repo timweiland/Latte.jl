@@ -37,7 +37,7 @@ println("n = $n, observed mean = $(round(mean(y), digits = 2)), var = $(round(va
     τ ~ PCPrior.Precision(1.0, α = 0.01)
     x ~ IIDModel(n)(τ = τ)
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(x[i]); check_args = false)
+        y[i] ~ Poisson(exp(x[i]))
     end
 end
 lgm = poisson_fit(y, n)

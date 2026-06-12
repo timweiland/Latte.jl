@@ -86,8 +86,7 @@ using LinearAlgebra
     u ~ IIDModel(H, constraint = :sumtozero)(τ = τ_u)
     for i in eachindex(r)
         r[i] ~ Binomial(
-            n_trials[i], logistic(β[1] + u[hospital_idx[i]]);
-            check_args = false,
+            n_trials[i], logistic(β[1] + u[hospital_idx[i]])
         )
     end
 end

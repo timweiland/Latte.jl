@@ -154,8 +154,7 @@ const INLA_KWARGS = (
     v ~ RWModel{1}(n_time)(τ = τ_rw1)
     for i in eachindex(y)
         y[i] ~ Poisson(
-            expected[i] * exp(β[1] + u[region[i]] + v[time[i]]);
-            check_args = false,
+            expected[i] * exp(β[1] + u[region[i]] + v[time[i]])
         )
     end
 end
@@ -211,7 +210,7 @@ fig
     for i in eachindex(y)
         δ_idx = (time[i] - 1) * n_regions + region[i]
         y[i] ~ Poisson(
-            expected[i] * exp(β[1] + δ[δ_idx]); check_args = false,
+            expected[i] * exp(β[1] + δ[δ_idx])
         )
     end
 end
@@ -285,8 +284,7 @@ fig
     for i in eachindex(y)
         δ_idx = (time[i] - 1) * n_regions + region[i]
         y[i] ~ Poisson(
-            expected[i] * exp(β[1] + u[region[i]] + v[time[i]] + δ[δ_idx]);
-            check_args = false,
+            expected[i] * exp(β[1] + u[region[i]] + v[time[i]] + δ[δ_idx])
         )
     end
 end
