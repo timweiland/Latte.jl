@@ -115,23 +115,21 @@ function plot_dist!(ax, d; n_points = 200, kwargs...)
     return lines!(ax, xs, ys; kwargs...)
 end
 
-n_lp = length(r1.linear_predictor_marginals)
-
 fig = Figure(size = (800, 400))
 
 ## Intercept comparison
 ax1 = Axis(fig[1, 1]; title = "Intercept (β₁)", xlabel = "value", ylabel = "density")
-plot_dist!(ax1, r1.base_latent_marginals[1]; color = :blue, label = "Model 1 (x1)")
-plot_dist!(ax1, r2.base_latent_marginals[1]; color = :red, label = "Model 2 (x2)")
-plot_dist!(ax1, bma_12.latent_marginals[n_lp + 1]; color = :black, linewidth = 3, label = "BMA")
+plot_dist!(ax1, base_latent_marginals(r1)[1]; color = :blue, label = "Model 1 (x1)")
+plot_dist!(ax1, base_latent_marginals(r2)[1]; color = :red, label = "Model 2 (x2)")
+plot_dist!(ax1, bma_12.latent_marginals[1]; color = :black, linewidth = 3, label = "BMA")
 vlines!(ax1, β_true[1]; color = :green, linestyle = :dash, label = "truth")
 axislegend(ax1; position = :lt, framevisible = false)
 
 ## Slope comparison (β₂ from each model — different covariates!)
 ax2 = Axis(fig[1, 2]; title = "Slope (β₂)", xlabel = "value", ylabel = "density")
-plot_dist!(ax2, r1.base_latent_marginals[2]; color = :blue, label = "Model 1 (coeff of x1)")
-plot_dist!(ax2, r2.base_latent_marginals[2]; color = :red, label = "Model 2 (coeff of x2)")
-plot_dist!(ax2, bma_12.latent_marginals[n_lp + 2]; color = :black, linewidth = 3, label = "BMA")
+plot_dist!(ax2, base_latent_marginals(r1)[2]; color = :blue, label = "Model 1 (coeff of x1)")
+plot_dist!(ax2, base_latent_marginals(r2)[2]; color = :red, label = "Model 2 (coeff of x2)")
+plot_dist!(ax2, bma_12.latent_marginals[2]; color = :black, linewidth = 3, label = "BMA")
 axislegend(ax2; position = :lt, framevisible = false)
 
 fig
@@ -153,7 +151,7 @@ println("  Model 2: $(round(bma_prior.model_weights[2], digits = 4))")
 #
 # The `BMAResult` contains standard `WeightedMixture` marginals, so the full
 # Distributions.jl interface works:
-intercept_bma = bma_12.latent_marginals[n_lp + 1]
+intercept_bma = bma_12.latent_marginals[1]
 println(
     "BMA intercept: mean = $(round(mean(intercept_bma), digits = 3)), ",
     "95% CI = [$(round(quantile(intercept_bma, 0.025), digits = 3)), ",
