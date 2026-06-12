@@ -19,7 +19,7 @@ selecting sensible defaults while supporting advanced customization.
 
 # Keyword Arguments
 - `latent_marginalization_method = nothing`: Method for latent marginalization. `nothing`
-  resolves per model via [`default_marginalization`](@ref) — compact LTM models get the
+  resolves per model via `default_marginalization`: compact LTM models get the
   VBC mean correction (`VBCMarginal`), everything else simplified Laplace (`SimplifiedLaplace`).
 - `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = AutoHyperparameterMarginal()`: Method for hyperparameter marginalization (GridSum for D=1, CCD interpolant for D≥2)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)

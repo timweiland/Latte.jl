@@ -125,19 +125,18 @@ rand(τ_marginal, 3)
 # If you'd prefer to get a quick summary of key statistics, the helper method `summary_df` is your friend:
 summary_df(inla_result.hyperparameter_marginals)
 
-# We can do the same for the marginals of the latent field.
-# It's worth mentioning that by default, the latent field is augmented by the linear predictors (since this simplifies marginalization).
-# So while the latent model we originally specified only had 13 variables (`β` plus 12 hospital effects), we get 25 latent marginals in the end:
-typeof(inla_result.latent_marginals), length(inla_result.latent_marginals)
+# We can do the same for the marginals of the latent field. These are exactly the
+# variables we specified in the model: the intercept `β` plus the 12 hospital
+# effects, 13 in total.
+summary_df(inla_result.latent_marginals)
 
-# We can distinguish between the two.
-# The following are the marginals of our original latent model:
-summary_df(inla_result.base_latent_marginals)
+# We can also ask for the per-hospital linear predictors `η = β + u[hospital]`.
+# These aren't latent variables we sampled directly, so Latte derives them from
+# the latent posterior on demand:
+summary_df(linear_predictor_marginals(inla_result))
 
-# And these are the marginals of the linear predictors:
-summary_df(inla_result.linear_predictor_marginals)
-
-# We can also get the posterior predictive marginals (which result from mapping the linear predictor marginals through the inverse link function):
+# And the posterior predictive marginals, which map the linear predictors through
+# the inverse link function onto the mortality-rate scale:
 pred_df = summary_df(observation_marginals(inla_result))
 
 # We can use AlgebraOfGraphics again to visualize our results nicely:
