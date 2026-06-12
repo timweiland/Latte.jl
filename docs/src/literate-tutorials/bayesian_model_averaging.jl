@@ -43,7 +43,7 @@ using LinearAlgebra
     τ ~ Exponential(1.0)
     β ~ MvNormal(zeros(2), (1 / τ) * I(2))
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(β[1] + β[2] * x1[i]); check_args = false)
+        y[i] ~ Poisson(exp(β[1] + β[2] * x1[i]))
     end
 end
 
@@ -51,7 +51,7 @@ end
     τ ~ Exponential(1.0)
     β ~ MvNormal(zeros(2), (1 / τ) * I(2))
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(β[1] + β[2] * x2[i]); check_args = false)
+        y[i] ~ Poisson(exp(β[1] + β[2] * x2[i]))
     end
 end
 
@@ -59,7 +59,7 @@ end
     τ ~ Exponential(1.0)
     β ~ MvNormal(zeros(3), (1 / τ) * I(3))
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(β[1] + β[2] * x1[i] + β[3] * x2[i]); check_args = false)
+        y[i] ~ Poisson(exp(β[1] + β[2] * x1[i] + β[3] * x2[i]))
     end
 end
 
