@@ -80,20 +80,21 @@ import hmcLaplaceThumb from '../assets/thumbs/hmc_laplace_when.png'
                 <div class="fn">disease_map.jl</div>
               </div>
 <pre class="code"><span class="c-comment"># Disease mapping with a Besag ICAR prior</span>
-<span class="c-sym">@latte</span> <span class="c-kw">function</span> <span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>)
-  <span class="c-kw">β</span> ~ <span class="c-fn">MvNormal</span>(<span class="c-fn">zeros</span>(<span class="c-str">2</span>), <span class="c-str">100.0</span> * <span class="c-var">I</span>)
+<span class="c-sym">@latte</span> <span class="c-kw">function</span> <span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">W</span>)
+  <span class="c-kw">β</span> ~ <span class="c-fn">MvNormal</span>(<span class="c-fn">zeros</span>(<span class="c-str">1</span>), <span class="c-str">100.0</span> * <span class="c-var">I</span>(<span class="c-str">1</span>))
   <span class="c-kw">τ</span> ~ <span class="c-fn">PCPrior</span>.<span class="c-fn">Precision</span>(<span class="c-str">1.0</span>, α = <span class="c-str">0.01</span>)
-  <span class="c-kw">u</span> ~ <span class="c-fn">BesagModel</span>(<span class="c-var">W</span>)(τ = <span class="c-kw">τ</span>)
+  <span class="c-kw">u</span> ~ <span class="c-fn">BesagModel</span>(<span class="c-var">W</span>; normalize_var = <span class="c-fn">Val</span>{<span class="c-kw">true</span>}())(τ = <span class="c-kw">τ</span>)
   <span class="c-kw">for</span> <span class="c-var">i</span> <span class="c-kw">in</span> <span class="c-fn">eachindex</span>(<span class="c-var">y</span>)
-    <span class="c-var">y</span>[<span class="c-var">i</span>] ~ <span class="c-fn">Poisson</span>(<span class="c-var">E</span>[<span class="c-var">i</span>] * <span class="c-fn">exp</span>(<span class="c-var">X</span>[<span class="c-var">i</span>,:]⋅<span class="c-kw">β</span> + <span class="c-kw">u</span>[<span class="c-var">i</span>]))
+    <span class="c-var">y</span>[<span class="c-var">i</span>] ~ <span class="c-fn">Poisson</span>(<span class="c-var">E</span>[<span class="c-var">i</span>] * <span class="c-fn">exp</span>(<span class="c-kw">β</span>[<span class="c-str">1</span>] + <span class="c-kw">u</span>[<span class="c-var">i</span>]))
   <span class="c-kw">end</span>
 <span class="c-kw">end</span>
 
 <span class="c-comment"># Choose your inference engine</span>
-<span class="c-var">fit</span> = <span class="c-fn">inla</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
-<span class="c-var">fit</span> = <span class="c-fn">tmb</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
-<span class="c-var">fit</span> = <span class="c-fn">hmc_laplace</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">X</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
+<span class="c-var">fit</span> = <span class="c-fn">inla</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
+<span class="c-var">fit</span> = <span class="c-fn">tmb</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
+<span class="c-var">fit</span> = <span class="c-fn">hmc_laplace</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
 </pre>
+              <a class="code-link" href="/tutorials/disease_mapping_spatial">See the full disease-mapping tutorial →</a>
             </div>
           </div>
         </div>
@@ -275,6 +276,10 @@ nav.top .container { display: flex; align-items: center; justify-content: space-
 .code-chrome .tl { width: 10px; height: 10px; border-radius: 50%; }
 .code-chrome .fn { margin-left: 12px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #9B8268; }
 pre.code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.6; margin: 0; padding: 22px 24px; color: var(--cream); overflow-x: auto; background: var(--espresso); }
+/* Two-class selector to beat `.latte-landing a { color: inherit }` (0,1,1),
+ * else the link inherits dark body text and is invisible until hover. */
+.code-window .code-link { display: block; padding: 11px 24px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--caramel); text-decoration: none; border-top: 1px solid rgba(255,255,255,0.08); transition: color .12s, background .12s; }
+.code-window .code-link:hover { color: var(--cream); background: #1F0F08; }
 .c-comment { color: #9B8268; }
 .c-kw { color: #E8D5B7; }
 .c-fn { color: #86C068; }
