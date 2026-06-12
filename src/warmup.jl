@@ -24,7 +24,7 @@ using Latte, DynamicPPL, Distributions, GaussianMarkovRandomFields
     β ~ MvNormal(zeros(size(X, 2)), 100.0 * I)
     u ~ IIDModel(maximum(group))(τ = τ)
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(X[i, :]' * β + u[group[i]]); check_args = false)
+        y[i] ~ Poisson(exp(X[i, :]' * β + u[group[i]]))
     end
 end
 

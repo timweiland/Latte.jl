@@ -78,7 +78,7 @@ using LinearAlgebra
     β ~ MvNormal(zeros(1), 100.0 * I(1))
     f ~ RWModel{1}(n)(τ = τ_rw)
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(β[1] + f[i]); check_args = false)
+        y[i] ~ Poisson(exp(β[1] + f[i]))
     end
 end
 
@@ -128,7 +128,7 @@ fig
     β ~ MvNormal(zeros(1), 100.0 * I(1))
     f ~ RWModel{2}(n)(τ = τ_rw)
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(β[1] + f[i]); check_args = false)
+        y[i] ~ Poisson(exp(β[1] + f[i]))
     end
 end
 

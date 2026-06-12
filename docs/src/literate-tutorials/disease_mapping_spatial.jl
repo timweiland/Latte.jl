@@ -132,7 +132,7 @@ n = nrow(county_data)
     u ~ IIDModel(n)(τ = τ_iid)
     for i in eachindex(cases)
         cases[i] ~ Poisson(
-            expected[i] * exp(β[1] + spatial[i] + u[i]); check_args = false,
+            expected[i] * exp(β[1] + spatial[i] + u[i])
         )
     end
 end
@@ -384,7 +384,7 @@ println("  Log marginal likelihood: ", round(inla_result.accumulators[2].log_mar
     β ~ MvNormal(zeros(1), 100.0 * I(1))
     u ~ IIDModel(n)(τ = τ_iid)
     for i in eachindex(cases)
-        cases[i] ~ Poisson(expected[i] * exp(β[1] + u[i]); check_args = false)
+        cases[i] ~ Poisson(expected[i] * exp(β[1] + u[i]))
     end
 end
 

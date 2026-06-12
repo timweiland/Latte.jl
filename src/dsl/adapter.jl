@@ -36,7 +36,7 @@ using Distributions: UnivariateDistribution
     β ~ MvNormal(zeros(size(X, 2)), 100.0 * I)
     u ~ MvNormal(zeros(maximum(group)), (1 / τ) * I)
     for i in eachindex(y)
-        y[i] ~ Poisson(exp(X[i, :]' * β + u[group[i]]); check_args = false)
+        y[i] ~ Poisson(exp(X[i, :]' * β + u[group[i]]))
     end
 end
 

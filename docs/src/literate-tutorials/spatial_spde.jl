@@ -126,7 +126,7 @@ using LinearAlgebra
     field ~ base_matern(τ = τ_matern, range = range_matern)
     η = β[1] .+ A_obs * field
     for i in eachindex(counts)
-        counts[i] ~ Poisson(area[i] * exp(η[i]); check_args = false)
+        counts[i] ~ Poisson(area[i] * exp(η[i]))
     end
 end
 
