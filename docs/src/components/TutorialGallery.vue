@@ -87,12 +87,24 @@ const tutorials: Tutorial[] = [
     blurb: 'INLA integrates the hyperparameters out on a deterministic grid; when that posterior is a curved, skewed ridge, the design is biased. hmc_laplace samples it instead — shown on an AR(1) model, validated against gold-standard NUTS.',
   },
 ]
+
+// Thumbnails live in ../assets/thumbs/<tutorial>.png (the final segment of each
+// href). Vite bundles each as a hashed asset URL via eager glob import.
+const thumbs = import.meta.glob('../assets/thumbs/*.png', {
+  eager: true,
+  import: 'default',
+}) as Record<string, string>
+
+const cards = tutorials.map(t => ({
+  ...t,
+  image: thumbs[`../assets/thumbs/${t.href.split('/').pop()}.png`],
+}))
 </script>
 
 <template>
   <div class="tutorial-gallery">
     <a
-      v-for="t in tutorials"
+      v-for="t in cards"
       :key="t.href"
       class="t-card"
       :href="t.href"
