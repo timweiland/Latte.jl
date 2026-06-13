@@ -33,6 +33,7 @@ PICKS = {
     "nonlinear_regression_gam":    "nonlinear_regression_gam-12.png",  # fitted curve + credible band
     "posterior_predictive_checks": "posterior_predictive_checks-10.png",
     "spatial_spde":                "spatial_spde-27.png",              # Japan seismic-intensity field
+    "barrier_coastline":           "barrier_coastline-27.png",         # barrier vs stationary intensity around Florida
     "spatio_temporal_separable":   "spatio_temporal_separable-24.png", # full space-time fitted field
     "temporal_trend_earthquakes":  "temporal_trend_earthquakes-10.png",# fitted trend + band
     "turing_handoff":              "turing_handoff-8.png",
