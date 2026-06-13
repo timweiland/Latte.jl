@@ -51,6 +51,12 @@ const tutorials: Tutorial[] = [
     blurb: 'Continuous-domain spatial smoothing via the SPDE/Matérn approach. Build a triangulated mesh, define the Matérn precision, fit.',
   },
   {
+    href: '/tutorials/barrier_coastline',
+    tag: 'SPATIAL · BARRIER',
+    title: 'Spatial fields that respect coastlines',
+    blurb: 'A stationary Matérn field smooths fish abundance straight across the Florida peninsula; a barrier model (Bakka et al.) does not. Same LGCP, swap the prior — and watch the phantom Atlantic hot spot vanish.',
+  },
+  {
     href: '/tutorials/spatio_temporal_separable',
     tag: 'SPACE-TIME · SEPARABLE',
     title: 'Kronecker space-time',
