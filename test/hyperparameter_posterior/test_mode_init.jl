@@ -165,4 +165,29 @@ end
         @test mode_info.runner_up_gap !== nothing
         @test mode_info.runner_up_gap >= -1.0e-6   # gap is best - second-best, ≥ 0 modulo noise
     end
+
+    @testset "mode-quality diagnostic locates the mode via θ_star, not grid order" begin
+        lgm = _make_simple_lgm()
+        spec = lgm.hyperparameter_spec
+        # Grid stored in ascending τ with the mode in the interior (highest
+        # log-density at index 3) — the layout the default 1-D exploration
+        # produces. The diagnostic must not assume grid_points[1] is the mode.
+        τs = [2.5, 3.4, 4.6, 6.2, 8.4]
+        logd = [-1.68, -0.21, 0.28, -0.22, -1.74]
+        pts = [
+            Latte.GridPoint(
+                    convert(Latte.WorkingHyperparameters, Latte.NaturalHyperparameters([τ], spec)),
+                    ld, nothing,
+                ) for (τ, ld) in zip(τs, logd)
+        ]
+        expl = (; grid_points = pts)   # only `.grid_points` is read
+
+        # θ* is the interior peak: the optimizer succeeded → no warning/error.
+        θ_star = pts[3].θ
+        @test Latte._diagnose_mode_quality(θ_star, expl, lgm, :error, 1.0) === nothing
+
+        # θ* stuck at an edge worse than the interior peak → genuine failure fires.
+        θ_stuck = pts[1].θ
+        @test_throws ErrorException Latte._diagnose_mode_quality(θ_stuck, expl, lgm, :error, 1.0)
+    end
 end
