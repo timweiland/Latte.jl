@@ -156,7 +156,7 @@ end
 #
 # We encode that as a tiny `Distribution` whose `logpdf` branches on the event
 # indicator. The Weibull shape ``\alpha`` is an unknown we infer — it becomes a
-# hyperparameter via the `log_α` term in the model below.
+# hyperparameter via the `α ~ LogNormal(...)` prior in the model below.
 
 struct WeibullSurv{T <: Real} <: ContinuousUnivariateDistribution
     η::T
@@ -180,16 +180,16 @@ Distributions.maximum(::WeibullSurv) = Inf
 Distributions.insupport(::WeibullSurv, t::Real) = t > 0
 
 # The `@latte` model carries an intercept plus the four covariates in `β`, the
-# same Besag frailty, and the Weibull shape as a hyperparameter. `@latte` reads
-# `log_α` as a hyperparameter and hoists `α = exp(log_α)`, exactly as it would
-# for any other likelihood parameter.
+# same Besag frailty, and the Weibull shape as a hyperparameter. We put the
+# prior directly on the natural parameter with `α ~ LogNormal(0, 1)`, so `@latte`
+# reads `α` as a declared hyperparameter — its positive support is inferred from
+# the prior, and its marginal comes back in natural (shape) space.
 
 @latte function leuk_weibull(t, X, district, status, W)
-    log_α ~ Normal(0.0, 1.0)
+    α ~ LogNormal(0.0, 1.0)
     τ ~ PCPrior.Precision(1.0, α = 0.01)
     β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))   # intercept + 4 covariates
     u ~ BesagModel(W)(τ = τ)
-    α = exp(log_α)
     for i in eachindex(t)
         η = X[i, :] ⋅ β + u[district[i]]
         t[i] ~ WeibullSurv(η, α, status[i])
@@ -199,18 +199,20 @@ end
 Xw = hcat(ones(nrow(leuk)), covmat)   # intercept + covariates
 lgm_weib = leuk_weibull(leuk.time, Xw, leuk.district, leuk.status, W)
 
-# This model runs under the default derivative strategy without any extra knobs.
-# Here we pass `FiniteDiffStrategy()` purely for speed: with only two
-# hyperparameters the finite-difference inner Laplace step is roughly twice as
-# fast as the autodiff default and gives identical results. (It's the same knob
-# the Tweedie tutorial uses, where the sparse custom-Hessian path needs it.)
+# Declaring the natural-parameter prior leaves nothing for `@latte` to hoist, so
+# this model runs under the default `ADStrategy` without any extra knobs. Here we
+# pass `FiniteDiffStrategy()` purely for speed: with only a handful of
+# hyperparameters and a custom likelihood, the finite-difference inner Laplace
+# step is roughly twice as fast as the autodiff default and gives identical
+# results.
 result_weib = inla(lgm_weib, leuk.time; diff_strategy = FiniteDiffStrategy(), progress = false)
 
 ## `:β` is intercept + 4 covariates, so the covariate effects are entries 2:5.
 weib_β = latent_marginals(result_weib, :β)
 weib_coef = [(mean(weib_β[1 + k]), std(weib_β[1 + k])) for k in 1:4]   # skip intercept
-α_post = result_weib.hyperparameter_marginals.log_α
-α_mean = exp(mean(α_post))
+## `α` is a *declared* hyperparameter (the prior is on the natural shape), so its
+## marginal already lives in natural space — we read `E[α]` off directly by name.
+α_mean = mean(result_weib.hyperparameter_marginals.α)
 for (nm, (m, s)) in zip(COVNAMES, weib_coef)
     println("  $nm: ", round(m, digits = 3), " ± ", round(s, digits = 3))
 end
