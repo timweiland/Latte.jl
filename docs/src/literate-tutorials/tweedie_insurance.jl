@@ -198,7 +198,6 @@ fig
 # you'd add it as another `~` line and Latte would happily integrate
 # over it too.
 using Latte
-using DynamicPPL
 
 @latte function tweedie_glm(y, X, p_fixed)
     log_φ ~ Normal(0.0, 2.0)
