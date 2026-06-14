@@ -119,7 +119,6 @@ W = contiguity_adjacency(geom_collection)
 #   identified from the spatial field.
 # - The unstructured component `u ~ IIDModel(n)(τ = τ_iid)`.
 using Latte
-using DynamicPPL
 using Distributions
 using LinearAlgebra
 n = nrow(county_data)

@@ -36,7 +36,6 @@ y = rand.(Poisson.(exp.(η_true)))
 # prior with an `Exponential(1)` prior on the precision. The adapter turns each
 # one into a `LatentGaussianModel` and hands it to `inla`.
 using Latte
-using DynamicPPL
 using LinearAlgebra
 
 @latte function m1_dppl(y, x1)

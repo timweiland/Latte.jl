@@ -115,7 +115,6 @@ println("A_obs size: ", size(A_obs))
 # (controlling amplitude) and `range_matern` (controlling spatial correlation
 # distance). We use a PC prior for precision and an `Exponential` prior for range.
 using Latte
-using DynamicPPL
 using Distributions
 using LinearAlgebra
 

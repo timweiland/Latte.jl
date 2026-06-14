@@ -43,7 +43,6 @@
 # dense grid — CCD is where the ellipsoidal-design assumption bites.
 
 using Latte
-using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: AR1Model, IIDModel
 using Turing

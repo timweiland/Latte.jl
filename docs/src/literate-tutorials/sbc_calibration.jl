@@ -28,7 +28,6 @@
 #
 # ## Setup
 using Latte
-using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using Random
