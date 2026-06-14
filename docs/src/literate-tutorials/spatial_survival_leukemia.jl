@@ -134,9 +134,11 @@ end
 lgm_pois = leuk_poisson(pp_event, Xpp, log_exposure, pp_district, W)
 result_pois = inla(lgm_pois, pp_event; progress = false)
 
-## Covariate log-hazard-ratios are the last four entries of β.
-pois_latent = base_latent_marginals(result_pois)
-pois_coef = [(mean(pois_latent[K + k]), std(pois_latent[K + k])) for k in 1:4]
+## `latent_marginals(result, :name)` returns the marginals for a named latent
+## block — here `:β`, whose last four entries are the covariate
+## log-hazard-ratios (the first `K` are the piecewise baselines).
+pois_β = latent_marginals(result_pois, :β)
+pois_coef = [(mean(pois_β[K + k]), std(pois_β[K + k])) for k in 1:4]
 for (nm, (m, s)) in zip(COVNAMES, pois_coef)
     println("  $nm: ", round(m, digits = 3), " ± ", round(s, digits = 3))
 end
@@ -198,13 +200,16 @@ end
 Xw = hcat(ones(nrow(leuk)), covmat)   # intercept + covariates
 lgm_weib = leuk_weibull(leuk.time, Xw, leuk.district, leuk.status, W)
 
-# A hand-written likelihood with a sparse latent field needs finite-difference
-# derivatives for the inner Laplace step, so we pass `FiniteDiffStrategy()` —
-# the same knob the Tweedie tutorial uses.
+# This model runs under the default derivative strategy without any extra knobs.
+# Here we pass `FiniteDiffStrategy()` purely for speed: with only two
+# hyperparameters the finite-difference inner Laplace step is roughly twice as
+# fast as the autodiff default and gives identical results. (It's the same knob
+# the Tweedie tutorial uses, where the sparse custom-Hessian path needs it.)
 result_weib = inla(lgm_weib, leuk.time; diff_strategy = FiniteDiffStrategy(), progress = false)
 
-weib_latent = base_latent_marginals(result_weib)
-weib_coef = [(mean(weib_latent[1 + k]), std(weib_latent[1 + k])) for k in 1:4]   # skip intercept
+## `:β` is intercept + 4 covariates, so the covariate effects are entries 2:5.
+weib_β = latent_marginals(result_weib, :β)
+weib_coef = [(mean(weib_β[1 + k]), std(weib_β[1 + k])) for k in 1:4]   # skip intercept
 α_post = result_weib.hyperparameter_marginals.log_α
 α_mean = exp(mean(α_post))
 for (nm, (m, s)) in zip(COVNAMES, weib_coef)
@@ -272,7 +277,9 @@ end
 # the hazard relative to the regional average. We read it off the Weibull fit
 # and draw it on the North-West England map.
 
-frailty = exp.([mean(weib_latent[5 + d]) for d in 1:n_district])   # β has 5 entries, then u
+## The spatial frailty is its own named block `:u`, one entry per district.
+weib_u = latent_marginals(result_weib, :u)
+frailty = exp.([mean(weib_u[d]) for d in 1:n_district])
 
 mapdf = CSV.read(joinpath(data_dir, "leuk_map.csv"), DataFrame)
 polys = Vector{Point2f}[]

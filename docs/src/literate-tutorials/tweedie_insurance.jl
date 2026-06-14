@@ -232,12 +232,16 @@ lgm = tweedie_glm(y, X, true_p; likelihood_hessian_pattern = :dense)
 
 # ## Running INLA
 #
-# One wrinkle specific to this model: we run with
-# `diff_strategy = FiniteDiffStrategy()`. `@latte` hoists the `φ = exp(log_φ)`
-# transform into the observation payload, and nested forward-mode AD through
-# that *plus* the Tweedie series isn't Dual-clean for the outer hyperparameter
-# gradient. With a single hyperparameter, finite differences are cheap and
-# robust; everything else about the call is unchanged:
+# Most custom likelihoods run under the default `diff_strategy = ADStrategy()`
+# with no extra wiring — the AD path handles a hand-written `logpdf` fine. This
+# model is the exception, for a reason specific to how it's written: the
+# hyperparameter-derived `φ = exp(log_φ)` is hoisted by `@latte` into the
+# observation payload, where it sits inside an opaque `NamedTuple`. The outer
+# hyperparameter Hessian then sizes its inner buffer at `Float64` and the
+# buried `Dual` can't be converted back, so default AD errors here. We sidestep
+# it with `FiniteDiffStrategy()`; with a single hyperparameter, finite
+# differences are cheap and robust, and everything else about the call is
+# unchanged:
 result = inla(
     lgm, y;
     diff_strategy = FiniteDiffStrategy(),
@@ -289,10 +293,12 @@ fig2
 #
 # Anything you can write down as a `logpdf(::MyDist, y)` is a first-class
 # observation likelihood in Latte. No upstream package edits, no manual
-# Hessian derivations, no MCMC fallback — the same `inla()` call that
-# fits a Poisson regression fits a Tweedie regression, an ordinal model,
-# a heavy-tailed Student-t, a Bayesian quantile regression via the
-# asymmetric Laplace, or whatever else your domain throws at you.
+# Hessian derivations, no MCMC fallback — the same default `inla()` call that
+# fits a Poisson regression also fits an ordinal model, a heavy-tailed
+# Student-t, a Bayesian quantile regression via the asymmetric Laplace, or
+# whatever else your domain throws at you. Tweedie needed
+# `FiniteDiffStrategy()` only because of the payload hoist noted above; that's
+# the exception, not the rule for custom likelihoods.
 #
 # A couple of practical tips when writing your own:
 #
@@ -309,6 +315,11 @@ fig2
 #   diagonal-Hessian path. Latte's adapter handles this automatically;
 #   if you build your `LatentGaussianModel` by hand, pass it explicitly
 #   to `AutoDiffObservationModel`.
+# - Stick with the default `ADStrategy()` for the outer hyperparameter
+#   gradient. Reach for `FiniteDiffStrategy()` only in the narrow case
+#   seen here, where a hyperparameter-derived value is hoisted into the
+#   observation payload (as `φ = exp(log_φ)` is) and so the outer Hessian
+#   can't keep it `Dual`-typed.
 #
 # Curious where else this pattern lands well? See the rest of the
 # tutorials gallery for hierarchical regressions, smoothing priors,

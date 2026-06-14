@@ -83,10 +83,12 @@ Pipeline:
 - `progress`: pass through to AdvancedHMC.
 - `diff_strategy`: forwarded to the TMB warm-start (mode + Σ_θ). Default
   `ADStrategy()` is noise-robust on augmented LGMs and works for `@latte`
-  models with recognized GMRF latents (IID / RW / AR1 / Besag); pass
-  `FiniteDiffStrategy()` only for a lifted custom likelihood whose
-  sparse-Hessian AD degrades `Dual`s (e.g. Tweedie; tracked in
-  `tasks/dppl-adapter-outer-ad-closure.org`).
+  models with recognized GMRF latents (IID / RW / AR1 / Besag) and for the
+  broad class of custom-`logpdf` likelihoods. Reach for `FiniteDiffStrategy()`
+  only in the narrow case where a hyperparameter-derived value is hoisted into
+  the observation payload by the `@latte` prelude-lift (e.g. `φ = exp(log_φ)`
+  in Tweedie), which the outer Hessian can't keep `Dual`-typed; tracked in
+  `tasks/dppl-adapter-outer-ad-closure.org`.
 
 # Diagnostics
 
