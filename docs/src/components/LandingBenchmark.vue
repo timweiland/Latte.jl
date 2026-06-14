@@ -128,3 +128,23 @@ const area = computed(() => `${line(active.value.latte)} L${gx(gmax.value)},${AX
   .lb-panels { flex-direction: column; gap: 18px; }
 }
 </style>
+
+<style>
+/* Dark mode. Non-scoped on purpose: this project's CSS build silently drops
+   Vue scoped :global(.dark) rules. Every rule is nested under .lb and gated on
+   html.dark so it can't leak and outranks the scoped light defaults. */
+html.dark .lb {
+  --foam: #38241B;                       /* light surface  -> dark surface */
+  --tan: rgba(201,152,106,0.2);          /* border/gridline */
+  --caramel: #C9986A;                    /* accent (unchanged) */
+  --mocha: #B79877;                      /* muted text/axis */
+  --bean: #D4B896;                       /* used as text/stroke -> light */
+  --berry: #D9603F;                      /* red accent */
+}
+
+/* Hardcoded legend text color (#4A3828, a dark text) -> light. */
+html.dark .lb .lg { color: #D4B896; }
+
+/* Axis line (warm-brown stroke) would vanish on the dark surface; lighten it. */
+html.dark .lb .ax { stroke: rgba(212,184,150,0.4); }
+</style>

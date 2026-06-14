@@ -164,3 +164,23 @@ const lgY0 = MT + 8
   .scl-table th, .scl-table td { padding: 4px 5px; }
 }
 </style>
+
+<style>
+/* Dark mode — non-scoped, every rule nested under .scl and gated on html.dark.
+   Cannot leak; outranks the scoped light defaults above. */
+html.dark .scl {
+  --foam: #38241B;                       /* light surface → dark surface */
+  --tan: rgba(201, 152, 106, 0.2);       /* border/gridline */
+  --caramel: #C9986A;                    /* accent — kept */
+  --mocha: #B79877;                      /* muted text/axis — lightened */
+  --bean: #D4B896;                       /* text/axis + dark plotted curve — lightened */
+  --berry: #D9603F;                      /* red accent — lightened */
+}
+
+/* hardcoded axis & tick strokes (warm brown → vanish on dark): lighten */
+html.dark .scl .scl-ax,
+html.dark .scl .scl-tick { stroke: rgba(201, 152, 106, 0.45); }
+
+/* hardcoded light table border (#E8D5B7-derived rgba) → translucent caramel */
+html.dark .scl .scl-table td { border-bottom-color: rgba(201, 152, 106, 0.2); }
+</style>
