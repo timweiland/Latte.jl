@@ -57,6 +57,12 @@ const tutorials: Tutorial[] = [
     blurb: 'A stationary Matérn field smooths fish abundance straight across the Florida peninsula; a barrier model (Bakka et al.) does not. Same LGCP, swap the prior — and watch the phantom Atlantic hot spot vanish.',
   },
   {
+    href: '/tutorials/spatial_survival_leukemia',
+    tag: 'SURVIVAL · SPATIAL',
+    title: 'Spatial survival: leukemia hazards',
+    blurb: 'Time-to-event with right-censoring and a Besag spatial frailty over 24 districts, fit two ways: the Poisson piecewise-exponential trick on the fast path, and a hand-written Weibull likelihood. Both agree with each other and with R-INLA.',
+  },
+  {
     href: '/tutorials/spatio_temporal_separable',
     tag: 'SPACE-TIME · SEPARABLE',
     title: 'Kronecker space-time',
