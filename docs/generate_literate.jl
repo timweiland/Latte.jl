@@ -27,6 +27,17 @@ end
 counts = Dict(:built => 0, :skipped => 0, :failed => 0)
 
 for (IN, OUT) in [(TUTORIALS_IN, TUTORIALS_OUT)]
+    ## Ship committed data/ files to the output dir BEFORE executing any
+    ## tutorial: under Literate `@__DIR__` resolves to OUT, so a tutorial that
+    ## reads `joinpath(@__DIR__, "data", ...)` needs its data sitting there.
+    let data_in = joinpath(IN, "data")
+        if isdir(data_in)
+            mkpath(joinpath(OUT, "data"))
+            for f in readdir(data_in; join = true)
+                isfile(f) && cp(f, joinpath(OUT, "data", basename(f)); force = true)
+            end
+        end
+    end
     ## First pass: process .jl files and copy known assets
     for program in readdir(IN; join = true)
         name = basename(program)
