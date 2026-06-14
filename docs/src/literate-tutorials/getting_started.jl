@@ -74,7 +74,6 @@ draw(
 # - We use `logistic` from `StatsFuns` for the inverse-logit link, mirroring
 #   the Turing idiom.
 using Latte
-using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using StatsFuns: logistic

@@ -111,7 +111,6 @@ fig
 # the interaction signal that an additive model cannot capture.
 
 using Latte
-using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: BesagModel, RWModel, SeparableModel
 using LinearAlgebra

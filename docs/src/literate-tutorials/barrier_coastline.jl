@@ -315,7 +315,6 @@ fig
 # precision a penalised-complexity prior, and the spatial range a weakly
 # informative `Exponential`.
 using Latte
-using DynamicPPL
 
 @latte function fish_lgcp(counts, base, A)
     β ~ MvNormal(zeros(1), 100.0 * I(1))

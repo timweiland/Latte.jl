@@ -68,7 +68,6 @@ draw(
 # `@latte` recognizes as a structured Gaussian. We write one model per order —
 # `RWModel{1}` here, `RWModel{2}` below.
 using Latte
-using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: RWModel
 using LinearAlgebra

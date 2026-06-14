@@ -24,7 +24,6 @@
 # just *write it down*.
 
 using Latte
-using DynamicPPL
 using GaussianMarkovRandomFields: BesagModel
 using Distributions
 using LinearAlgebra
