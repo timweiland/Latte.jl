@@ -200,8 +200,7 @@ fig
 using Latte
 
 @latte function tweedie_glm(y, X, p_fixed)
-    log_φ ~ Normal(0.0, 2.0)
-    φ = exp(log_φ)
+    φ ~ LogNormal(0.0, 2.0)
     β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
     for i in eachindex(y)
         μ_i = exp(dot(X[i, :], β))
@@ -209,8 +208,6 @@ using Latte
     end
 end
 
-# Two notes worth calling out for the curious:
-#
 # A few notes worth calling out for the curious:
 #
 # - The custom Tweedie likelihood is **not** in Latte's fast-path table
@@ -225,22 +222,22 @@ end
 #   `n = 200` dataset a dense Hessian is tiny; for very large `n` you
 #   might want to provide a known sparse pattern explicitly.
 # - Calling the `@latte` function returns the `LatentGaussianModel`
-#   directly: `@latte` reads `log_φ` as a hyperparameter (note the
-#   `φ = exp(log_φ)` transform) and `β` as the latent field.
+#   directly: `@latte` reads `φ` as a hyperparameter and `β` as the
+#   latent field. Because the prior `LogNormal(0, 2)` has positive
+#   support, Latte infers the log-transform automatically and reports
+#   the `φ` marginal in natural (dispersion) space.
 lgm = tweedie_glm(y, X, true_p; likelihood_hessian_pattern = :dense)
 
 # ## Running INLA
 #
-# Most custom likelihoods run under the default `diff_strategy = ADStrategy()`
-# with no extra wiring — the AD path handles a hand-written `logpdf` fine. This
-# model is the exception, for a reason specific to how it's written: the
-# hyperparameter-derived `φ = exp(log_φ)` is hoisted by `@latte` into the
-# observation payload, where it sits inside an opaque `NamedTuple`. The outer
-# hyperparameter Hessian then sizes its inner buffer at `Float64` and the
-# buried `Dual` can't be converted back, so default AD errors here. We sidestep
-# it with `FiniteDiffStrategy()`; with a single hyperparameter, finite
-# differences are cheap and robust, and everything else about the call is
-# unchanged:
+# Declaring the prior directly on the natural parameter `φ` means there is no
+# hyperparameter-derived value for `@latte` to hoist into the observation
+# payload, so this model runs under the default `diff_strategy = ADStrategy()`
+# with no extra wiring — the AD path handles a hand-written `logpdf` fine. We
+# nonetheless pass `FiniteDiffStrategy()` here purely as a performance choice:
+# for a custom likelihood with a single hyperparameter, finite differences are
+# roughly 2x faster than AD on the outer Hessian, and everything else about the
+# call is unchanged:
 result = inla(
     lgm, y;
     diff_strategy = FiniteDiffStrategy(),
@@ -250,9 +247,10 @@ result = inla(
 # ## Posteriors
 #
 # `result.latent_marginals` holds posterior marginals for `β`, and
-# `result.hyperparameter_marginals` holds the marginal for `log_φ`.
-# Both are `Distributions.jl`-compatible objects, so we can call
-# `mean`, `std`, `quantile`, etc. directly:
+# `result.hyperparameter_marginals` holds the marginal for `φ` — in
+# natural (dispersion) space, since we declared the prior on `φ`
+# directly. Both are `Distributions.jl`-compatible objects, so we can
+# call `mean`, `std`, `quantile`, etc. directly:
 β_summary = summary_df(result.latent_marginals)
 
 # ...and the dispersion marginal:
@@ -260,8 +258,8 @@ hp_summary = summary_df(result.hyperparameter_marginals)
 
 # Compare to truth:
 truth = DataFrame(
-    parameter = ["β₁ (intercept)", "β₂ (slope)", "log_φ"],
-    truth = [true_β[1], true_β[2], log(true_φ)],
+    parameter = ["β₁ (intercept)", "β₂ (slope)", "φ"],
+    truth = [true_β[1], true_β[2], true_φ],
     posterior_mean = [β_summary.mean[1], β_summary.mean[2], hp_summary.mean[1]],
     q2_5 = [β_summary.q2_5[1], β_summary.q2_5[2], hp_summary.q2_5[1]],
     q97_5 = [β_summary.q97_5[1], β_summary.q97_5[2], hp_summary.q97_5[1]],
@@ -274,7 +272,7 @@ for (j, (name, marginal, true_val)) in enumerate(
         [
             ("β₁ (intercept)", result.latent_marginals[1], true_β[1]),
             ("β₂ (slope)", result.latent_marginals[2], true_β[2]),
-            ("log_φ", result.hyperparameter_marginals.log_φ, log(true_φ)),
+            ("φ", result.hyperparameter_marginals.φ, true_φ),
         ]
     )
     ax = Axis(fig2[1, j]; title = name, xlabel = "value", ylabel = "density")
@@ -285,8 +283,8 @@ end
 fig2
 
 # Red dashed lines mark the true values; the posteriors concentrate
-# around them with sensible width. Dispersion `log_φ ≈ 0.40` corresponds
-# to `φ ≈ 1.5`, our generative truth.
+# around them with sensible width. The dispersion posterior centres on
+# `φ ≈ 1.5`, our generative truth.
 #
 # ## Takeaway
 #
@@ -295,9 +293,9 @@ fig2
 # Hessian derivations, no MCMC fallback — the same default `inla()` call that
 # fits a Poisson regression also fits an ordinal model, a heavy-tailed
 # Student-t, a Bayesian quantile regression via the asymmetric Laplace, or
-# whatever else your domain throws at you. Tweedie needed
-# `FiniteDiffStrategy()` only because of the payload hoist noted above; that's
-# the exception, not the rule for custom likelihoods.
+# whatever else your domain throws at you. This Tweedie fit runs under the
+# default `ADStrategy()`; we kept `FiniteDiffStrategy()` only as a speed
+# optimisation for the single-hyperparameter outer Hessian.
 #
 # A couple of practical tips when writing your own:
 #
@@ -314,11 +312,11 @@ fig2
 #   diagonal-Hessian path. Latte's adapter handles this automatically;
 #   if you build your `LatentGaussianModel` by hand, pass it explicitly
 #   to `AutoDiffObservationModel`.
-# - Stick with the default `ADStrategy()` for the outer hyperparameter
-#   gradient. Reach for `FiniteDiffStrategy()` only in the narrow case
-#   seen here, where a hyperparameter-derived value is hoisted into the
-#   observation payload (as `φ = exp(log_φ)` is) and so the outer Hessian
-#   can't keep it `Dual`-typed.
+# - The default `ADStrategy()` handles the outer hyperparameter gradient
+#   for custom likelihoods out of the box. `FiniteDiffStrategy()` is a
+#   useful alternative when you have only a handful of hyperparameters:
+#   finite differences are cheap there and can run noticeably faster than
+#   AD, as in this fit.
 #
 # Curious where else this pattern lands well? See the rest of the
 # tutorials gallery for hierarchical regressions, smoothing priors,

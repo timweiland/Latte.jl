@@ -123,6 +123,27 @@ precision_ci = quantile(τ_marginal, [0.025, 0.975])
 correlation_ci = quantile(ρ_marginal, [0.025, 0.975])
 ```
 
+#### Derived quantities
+
+A declared hyperparameter's transform is inferred from its prior's support, so
+**declaring the prior on the parameter you care about** is usually all you need.
+A positive parameter is cleanest as a positive prior — write `α ~ LogNormal(0, 1)`
+rather than `log_α ~ Normal(0, 1)` with `α = exp(log_α)` (an *identical* prior):
+then `α` is a declared hyperparameter and `mean(result.hyperparameter_marginals.α)`
+is the true natural-space `E[α]`, directly.
+
+For a quantity that genuinely can't be written as a single declared prior — a
+function of two hyperparameters, say — use [`pushforward`](@ref) to map a marginal
+through a transform. Its `mean`, `quantile`, etc. are computed by integration, so
+`mean(pushforward(m, exp))` is the true `E[exp X]`, not the Jensen-biased
+`exp(E[X])`:
+
+```julia
+derived = pushforward(result.hyperparameter_marginals.log_β, exp)
+mean(derived)                          # true E[exp(log_β)], integrated
+quantile(derived, [0.025, 0.975])
+```
+
 ### Latent Field Marginals  
 Posterior marginal distributions for each latent field component:
 
@@ -399,4 +420,15 @@ hyperparameter_marginals
 latent_groups
 hyperparameter_groups
 hyperparameter_mode
+```
+
+### Working with marginals
+
+Returned marginals are `Distributions.jl` distributions, so `mean`, `var`,
+`std`, `quantile`, `pdf`, and `rand` work directly. For a quantity *derived* from
+a hyperparameter inside the model body, `pushforward` gives its posterior with a
+correctly integrated mean.
+
+```@docs
+pushforward
 ```
