@@ -105,7 +105,6 @@ draw(
 #
 # where $\beta_0$ is an intercept and $f$ is the RW2 smooth over time.
 using Latte
-using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: RWModel
 using LinearAlgebra

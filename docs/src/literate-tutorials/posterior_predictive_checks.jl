@@ -15,7 +15,6 @@
 # In this tutorial we'll fit a plain Poisson model to data that's
 # actually *overdispersed* and watch the PPC catch it.
 using Latte
-using DynamicPPL
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using Random, Statistics
