@@ -281,4 +281,35 @@ using GaussianMarkovRandomFields
         @test r isa Latte.InferenceResult
         @test converged(r)
     end
+
+    @testset "9. show(lgm) prints a structure summary" begin
+        n = 12
+        X = [ones(n) randn(n)]
+        grp = rand(1:4, n)
+        @latte function showmodel(y, X, grp)
+            τ ~ Gamma(2.0, 1.0)
+            β ~ MvNormal(zeros(size(X, 2)), 10.0 * I(size(X, 2)))
+            u ~ IIDModel(maximum(grp))(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Poisson(exp(dot(X[i, :], β) + u[grp[i]]))
+            end
+        end
+        y = rand(0:3, n)
+        lgm = showmodel(y, X, grp)
+
+        rich = sprint(show, MIME("text/plain"), lgm)
+        @test occursin("LatentGaussianModel", rich)
+        @test occursin("hyperparameters (1)", rich)
+        @test occursin("τ", rich)
+        @test occursin("latent field", rich)
+        @test occursin("β", rich) && occursin("u", rich)
+        @test occursin("Poisson", rich)
+        @test occursin("likelihood", rich)
+        @test occursin("├─", rich) && occursin("└─", rich)   # box-tree framing
+
+        compact = sprint(show, lgm)
+        @test occursin("LatentGaussianModel(", compact)
+        @test occursin("Poisson", compact)
+        @test !occursin("\n", compact)                       # single line
+    end
 end
