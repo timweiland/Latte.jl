@@ -105,3 +105,14 @@ function Base.rand(rng::AbstractRNG, d::SplineMarginalDistribution)
 end
 
 Base.rand(d::SplineMarginalDistribution) = rand(Random.GLOBAL_RNG, d)
+
+# Compact summary instead of dumping the spline internals (η_grid, splines, …).
+function Base.show(io::IO, d::SplineMarginalDistribution)
+    lo, hi = d.bounds
+    print(
+        io, "SplineMarginalDistribution(mean=", round(d.mean_val; sigdigits = 4),
+        ", sd=", round(sqrt(d.var_val); sigdigits = 4),
+        ", support=[", round(lo; sigdigits = 4), ", ", round(hi; sigdigits = 4), "])",
+    )
+    return nothing
+end

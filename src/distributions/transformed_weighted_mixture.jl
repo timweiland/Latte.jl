@@ -6,7 +6,7 @@ using Random
 using Roots
 using Printf
 
-export TransformedWeightedMixture
+export TransformedWeightedMixture, pushforward
 
 """
     TransformedWeightedMixture{T, B} <: ContinuousUnivariateDistribution
@@ -76,8 +76,8 @@ quantile(obs_marginal, 0.95)  # 95th percentile of λ
 - **Lazy caching**: Moments computed once on first request.
 - **Change of variables**: PDF correctly accounts for Jacobian using `logabsdetjac`.
 """
-mutable struct TransformedWeightedMixture{T, B} <: ContinuousUnivariateDistribution
-    base_distribution::WeightedMixture{T}
+mutable struct TransformedWeightedMixture{T, B, D <: ContinuousUnivariateDistribution} <: ContinuousUnivariateDistribution
+    base_distribution::D
     bijector::B
     rtol::T
     atol::T
@@ -86,18 +86,45 @@ mutable struct TransformedWeightedMixture{T, B} <: ContinuousUnivariateDistribut
     _moments::Union{Nothing, NTuple{2, T}}
     _support::Union{Nothing, NTuple{2, T}}
 
+    # The base may be any 1-D distribution — the linear-predictor `WeightedMixture`
+    # it was written for (observation marginals), or e.g. a hyperparameter
+    # `SplineMarginalDistribution` (see `pushforward`). The moment/support code
+    # only needs `mean`/`std`/`pdf` of the base.
     function TransformedWeightedMixture(
-            base_distribution::WeightedMixture{T},
+            base_distribution::D,
             bijector::B;
             rtol::Real = 1.0e-6,
             atol::Real = 1.0e-6
-        ) where {T, B}
-        return new{T, B}(
+        ) where {D <: ContinuousUnivariateDistribution, B}
+        T = float(eltype(base_distribution))
+        return new{T, B, D}(
             base_distribution, bijector, T(rtol), T(atol),
             nothing, nothing
         )
     end
 end
+
+"""
+    pushforward(marginal, g)
+
+The distribution of `g(X)` where `X ~ marginal`. Moments are computed by
+integration, so `mean(pushforward(m, exp))` is the true `E[exp(X)]` — not
+`exp(E[X])` (the Jensen-inequality trap).
+
+`g` may be `exp`, `log`, `identity`, or any `Bijectors` bijector. This is the
+way to recover a *derived* hyperparameter's posterior: e.g. when a model
+declares `log_α ~ Normal(...)` and uses `α = exp(log_α)`, the posterior of `α`
+is `pushforward(result.hyperparameter_marginals.log_α, exp)`. (A *declared*
+hyperparameter's marginal is already in natural space, so this isn't needed
+there.)
+"""
+pushforward(m::ContinuousUnivariateDistribution, b::Bijectors.Bijector) =
+    TransformedWeightedMixture(m, inverse(b))
+pushforward(m::ContinuousUnivariateDistribution, ::typeof(exp)) =
+    TransformedWeightedMixture(m, elementwise(log))
+pushforward(m::ContinuousUnivariateDistribution, ::typeof(log)) =
+    TransformedWeightedMixture(m, elementwise(exp))
+pushforward(m::ContinuousUnivariateDistribution, ::typeof(identity)) = m
 
 # ==================== Core PDF/LOGPDF Methods ====================
 
@@ -199,14 +226,16 @@ Helper function to integrate a function over the base distribution (in η space)
 Computes: ∫ fun(g⁻¹(η)) * p_η(η) dη
 """
 function _integrate_over_base(d::TransformedWeightedMixture, fun)
-    # Integration bounds in linear predictor space
+    # Integration bounds in base (η) space. Clamp the ±10σ window to the base's
+    # actual support so a bounded base (e.g. a Uniform, or a hyperparameter
+    # SplineMarginal with finite bounds) is never sampled where its density is
+    # zero — and, crucially, where the inverse map may be undefined (e.g. logit
+    # outside [0,1] → NaN).
     η_mean, η_std = mean(d.base_distribution), std(d.base_distribution)
-    #η_min = minimum(d.base_distribution)
-    #η_max = maximum(d.base_distribution)
-    η_min = η_mean - 10.0 * η_std
-    η_max = η_mean + 10.0 * η_std
+    η_min = max(η_mean - 10.0 * η_std, minimum(d.base_distribution))
+    η_max = min(η_mean + 10.0 * η_std, maximum(d.base_distribution))
 
-    # Handle infinite bounds with finite approximations
+    # Handle infinite bounds (unbounded base) with finite approximations.
     if isinf(η_min)
         η_min = -1.0e10
         while pdf(d.base_distribution, η_min) > 1.0e-10
