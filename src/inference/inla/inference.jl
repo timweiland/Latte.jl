@@ -144,7 +144,7 @@ function inla(
     # log-density much higher than θ*'s, the mode finder probably stuck
     # at a local maximum. Cheap post-hoc check.
     _diagnose_mode_quality(
-        mode_info, exploration, model_pred, mode_diagnostic, mode_diagnostic_tol,
+        θ_star, exploration, model_pred, mode_diagnostic, mode_diagnostic_tol,
     )
 
     # Phase 3: Hyperparameter Marginalization (66% → 100%)

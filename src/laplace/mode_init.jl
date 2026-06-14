@@ -152,14 +152,18 @@ end
 # than θ*'s, the mode finder probably stuck at a local maximum.
 
 """
-    _diagnose_mode_quality(mode_info, exploration, model, mode, tol)
+    _diagnose_mode_quality(θ_star, exploration, model, mode, tol)
 
 Compare θ*'s log-density to the best log-density found during exploration.
 If the gap exceeds `tol`, take action per `mode` ∈ (`:none`, `:warn`,
 `:error`). Default `:warn`.
+
+The mode point is located by matching `θ_star` against the grid, not by
+position: the exploration stores points in coordinate order with the mode
+in the interior, so `grid_points[1]` is a grid edge, not the mode.
 """
 function _diagnose_mode_quality(
-        mode_info, exploration, model::LatentGaussianModel,
+        θ_star::WorkingHyperparameters, exploration, model::LatentGaussianModel,
         mode::Symbol, tol::Float64,
     )
     mode === :none && return nothing
@@ -173,16 +177,14 @@ function _diagnose_mode_quality(
     log_densities = [p.log_density for p in pts]
     best_idx = argmax(log_densities)
     best_logp = log_densities[best_idx]
-    mode_logp = maximum(log_densities)   # mode is one of the points; could differ from best
 
-    # The exploration grid is centred at θ*. Find the point whose θ
-    # matches θ_star (the mode the finder picked).
-    θ_star_vec = pts[1].θ.θ   # By construction `pts[1]` is the mode point;
-    # in both grid and CCD paths the mode is added first.
-
-    # Find the actual mode-point index by comparing θ vectors.
+    # Find the grid point at the optimizer's mode θ_star. The mode point is
+    # inserted during exploration, so an exact match exists; fall back to the
+    # nearest node if float noise prevents one.
+    θ_star_vec = θ_star.θ
     mode_idx = something(
-        findfirst(p -> _θ_close(p.θ.θ, θ_star_vec), pts), 1,
+        findfirst(p -> _θ_close(p.θ.θ, θ_star_vec), pts),
+        argmin([sum(abs2, p.θ.θ .- θ_star_vec) for p in pts]),
     )
     mode_logp = log_densities[mode_idx]
 
