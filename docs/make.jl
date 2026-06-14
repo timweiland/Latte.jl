@@ -26,6 +26,7 @@ makedocs(;
             "Custom likelihoods: Tweedie" => "tutorials/tweedie_insurance.md",
             "State-space stock assessment (TMB)" => "tutorials/fisheries_state_space.md",
             "Spatial SPDE: earthquake intensity" => "tutorials/spatial_spde.md",
+            "Spatial barrier models: coastlines" => "tutorials/barrier_coastline.md",
             "Spatio-temporal modeling" => "tutorials/spatio_temporal_separable.md",
             "Posterior predictive checks" => "tutorials/posterior_predictive_checks.md",
             "Simulation-based calibration" => "tutorials/sbc_calibration.md",
