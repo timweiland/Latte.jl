@@ -213,11 +213,16 @@ using DataFrames
         obs_model = ExponentialFamily(Normal)
         model = LatentGaussianModel(spec, FunctionLatentModel(latent_gmrf_func, 3), obs_model)
 
-        # Test that show doesn't error
+        # Compact show: one-line summary with likelihood, latent dim, hp count.
         str = string(model)
         @test occursin("LatentGaussianModel", str)
-        @test occursin("Hyperparameter spec", str)
-        @test occursin("Observation model", str)
+        @test occursin("hyperparameter", str)
+        @test occursin("Normal", str)
+        # Rich show: structured tree with sections.
+        rich = sprint(show, MIME("text/plain"), model)
+        @test occursin("hyperparameters", rich)
+        @test occursin("latent field", rich)
+        @test occursin("likelihood", rich)
     end
 
     @testset "Integration with Mixed Parameters" begin

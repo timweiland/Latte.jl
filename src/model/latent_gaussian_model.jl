@@ -365,16 +365,140 @@ function log_joint_density(model::LatentGaussianModel, x, θ_n::NaturalHyperpara
     return log_joint_density(model, x, θ_w, y) + logdetjac(θ_n)
 end
 
-"""
-    Base.show(io::IO, model::LatentGaussianModel)
+# ─── Pretty printing ──────────────────────────────────────────────────
 
-Pretty printing for INLA models.
+# The underlying distribution of a (possibly working-space transformed) prior,
+# rendered as one clean line with the module prefix, type params, and any
+# long floats trimmed.
+function _prior_label(prior)
+    d = hasfield(typeof(prior), :dist) ? getfield(prior, :dist) : prior
+    s = sprint(show, d)
+    s = replace(s, r"\{[^{}]*\}" => "")                              # drop {Float64}
+    s = replace(s, r"^[A-Za-z_]\w*\." => "")                         # drop one `Module.`
+    s = replace(s, r"-?\d+\.\d{5,}" => m -> string(round(parse(Float64, m); sigdigits = 4)))
+    return s
+end
+
+# Working-space transform name, e.g. `[log]`; empty for the identity transform.
+function _transform_tag(hp)
+    t = hp.transform
+    t === identity && return ""
+    name = try
+        t isa Base.Fix1 ? string(nameof(t.x)) : string(nameof(t))
+    catch
+        ""
+    end
+    return isempty(name) ? "" : "  [$name]"
+end
+
+# Per-named-block latent model types (e.g. "Besag", "FixedEffects"), aligned
+# with `latent_layout` order; `nothing` if the prior can't be unwrapped to a
+# component list (e.g. a hand-built `FunctionLatentModel`).
+function _latent_block_types(model)
+    try
+        lp = model.latent_prior
+        while !hasfield(typeof(lp), :components) && hasfield(typeof(lp), :inner)
+            lp = getfield(lp, :inner)
+        end
+        hasfield(typeof(lp), :components) || return nothing
+        return [replace(string(nameof(typeof(c))), r"Model$" => "") for c in lp.components]
+    catch
+        return nothing
+    end
+end
+
+# Number of observations, best-effort across fast-path and lifted obs models.
+function _obs_count(om)
+    try
+        hasfield(typeof(om), :design_matrix) && return size(getfield(om, :design_matrix), 1)
+        if hasfield(typeof(om), :args_nt) && hasfield(typeof(om), :group_syms)
+            g = first(getfield(om, :group_syms))
+            nt = getfield(om, :args_nt)
+            haskey(nt, g) && return length(nt[g])
+        end
+    catch
+    end
+    return nothing
+end
+
+_likelihood_base(om) = om isa LinearlyTransformedObservationModel ? om.base_model : om
+
+function _likelihood_label(om)
+    base = _likelihood_base(om)
+    if base isa ExponentialFamily
+        fam = string(nameof(base.family))
+        link = lowercase(replace(string(nameof(typeof(base.link))), r"Link$" => ""))
+        n = _obs_count(om)
+        return n === nothing ? "$fam, $link link" : "$fam, $link link · $n observations"
+    end
+    n = _obs_count(om)
+    return n === nothing ? "custom logpdf" : "custom logpdf · $n observations"
+end
+
+function _likelihood_short(om)
+    base = _likelihood_base(om)
+    return base isa ExponentialFamily ? string(nameof(base.family)) : "custom logpdf"
+end
+
 """
-function Base.show(io::IO, model::LatentGaussianModel{D, F, O}) where {D, F, O}
+    show(io, model::LatentGaussianModel)
+
+Compact one-line summary. At the REPL the `MIME"text/plain"` method below
+prints the full structure (hyperparameters, latent blocks, likelihood).
+"""
+function Base.show(io::IO, model::LatentGaussianModel)
+    nhp = length(keys(model.hyperparameter_spec.free))
+    ndim = length(model.latent_prior)
+    print(
+        io, "LatentGaussianModel(", _likelihood_short(model.observation_model),
+        ", ", ndim, "-dim latent, ", nhp, " hyperparameter", nhp == 1 ? "" : "s", ")",
+    )
+    return nothing
+end
+
+"""
+    show(io, MIME"text/plain"(), model::LatentGaussianModel)
+
+Structured summary of the recognized model: free (and fixed) hyperparameters
+with their priors, the named latent blocks with sizes and model types, and the
+observation likelihood.
+"""
+function Base.show(io::IO, ::MIME"text/plain", model::LatentGaussianModel)
+    spec = model.hyperparameter_spec
+    free = spec.free
+    layout = model.latent_layout
+    ndim = length(model.latent_prior)
+
     println(io, "LatentGaussianModel")
-    println(io, "  Hyperparameter spec:\n    $(repr(model.hyperparameter_spec))")
-    println(io, "  Latent prior function: ", typeof(model.latent_prior))
-    return println(io, "  Observation model: ", typeof(model.observation_model))
+
+    println(io, "├─ hyperparameters (", length(keys(free)), ")")
+    whp = maximum((length(string(n)) for n in (keys(free)..., keys(spec.fixed)...)); init = 0)
+    for (name, hp) in pairs(free)
+        println(io, "│    ", rpad(string(name), whp), "  ~ ", _prior_label(hp.prior), _transform_tag(hp))
+    end
+    for (name, val) in pairs(spec.fixed)
+        println(io, "│    ", rpad(string(name), whp), "  = ", val, "   (fixed)")
+    end
+
+    println(io, "├─ latent field · ", ndim, " dims")
+    if isempty(layout)
+        println(io, "│    (unnamed)  ", ndim)
+    else
+        names = collect(keys(layout))
+        ranges = collect(values(layout))
+        types = _latent_block_types(model)
+        usetypes = types !== nothing && length(types) == length(names)
+        wname = maximum(length(string(n)) for n in names)
+        wsize = maximum(length(string(length(r))) for r in ranges)
+        for i in eachindex(names)
+            tlab = usetypes ? string("   ", types[i]) : ""
+            println(io, "│    ", rpad(string(names[i]), wname), "  ", lpad(string(length(ranges[i])), wsize), tlab)
+        end
+    end
+
+    println(io, "└─ likelihood")
+    print(io, "     ", _likelihood_label(model.observation_model))
+    return nothing
 end
 
 """
