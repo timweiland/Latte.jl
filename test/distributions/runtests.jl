@@ -5,6 +5,7 @@ using Test
 @testset "Distributions Tests" begin
     include("test_skew_normal_ext.jl")
     include("test_weighted_mixture.jl")
+    include("test_pushforward.jl")
     include("test_sample_marginal.jl")
     include("test_transformed_normal_marginal.jl")
     include("test_bijectors.jl")
