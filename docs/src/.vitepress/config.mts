@@ -34,6 +34,10 @@ export default defineConfig({
   cleanUrls: true,
   outDir: 'REPLACE_ME_DOCUMENTER_VITEPRESS', // This is required for MarkdownVitepress to work correctly...
   head: [
+    // Default to light theme regardless of OS preference: seed the appearance
+    // store before Vitepress's check-dark-mode script reads it (config `head`
+    // entries render ahead of that script). User toggles still persist.
+    ['script', {}, `(function(){try{var k='vitepress-theme-appearance';var v=localStorage.getItem(k);if(v===null||v==='auto'){localStorage.setItem(k,'light');}}catch(e){}})();`],
     ['link', { rel: 'icon', href: 'REPLACE_ME_DOCUMENTER_VITEPRESS_FAVICON' }],
     ['script', {src: `${getBaseRepository(baseTemp.base)}versions.js`}],
     // ['script', {src: '/versions.js'], for custom domains, I guess if deploy_url is available.

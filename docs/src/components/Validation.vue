@@ -286,3 +286,42 @@ code { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; background: r
 
 @media (max-width: 760px) { .how-grid { grid-template-columns: 1fr; } .container { padding: 0 24px; } }
 </style>
+
+<style>
+/* Dark mode — non-scoped, nested under the unique root class so it can't leak.
+   Redefine the palette custom properties so every var(--x) flips automatically,
+   then override the handful of hardcoded colors that bypass the vars. */
+html.dark .val-page {
+  --bg:       #2A1810; /* page background → dark surface */
+  --tan:      rgba(201,152,106,0.25); /* borders → stronger subtle border */
+  --caramel:  #C9986A; /* accent → keep */
+  --mocha:    #B79877; /* muted text → light muted */
+  --bean:     #F5E6D3; /* emphasised text → light primary */
+  --espresso: #F5E6D3; /* body text → light primary */
+  --berry:    #D9603F; /* red accent → lightened for dark */
+  --good:     #6FA368; /* success green → lightened for dark */
+  --foam:     #38241B; /* table/card surface → elevated dark */
+}
+
+/* Hardcoded #4A3828 dark text → light secondary */
+html.dark .val-page .val-lede,
+html.dark .val-page .how-grid p,
+html.dark .val-page .engine-blurb,
+html.dark .val-page .val-notes li { color: #D4B896; }
+
+/* Table cell row borders (#F0E6D8) → subtle dark border */
+html.dark .val-page .val-table td { border-bottom-color: rgba(201,152,106,0.18); }
+
+/* Badge text on minor/border (#8a5a1e) → caramel accent, readable on dark */
+html.dark .val-page .b-minor,
+html.dark .val-page .b-border { color: #C9986A; }
+
+/* n/a badge background (#EFE7DA) → deepest dark surface */
+html.dark .val-page .b-na { background: #1F130D; }
+
+/* Warm-brown alpha fills/strokes → tuned for dark contrast */
+html.dark .val-page code { background: rgba(201,152,106,0.14); }
+html.dark .val-page .nonid-tag { background: rgba(201,152,106,0.14); }
+html.dark .val-page .spark-band { fill: rgba(201,152,106,0.16); }
+html.dark .val-page .spark-zero { stroke: rgba(201,152,106,0.5); }
+</style>
