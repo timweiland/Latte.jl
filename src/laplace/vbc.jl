@@ -64,8 +64,8 @@ function default_marginalization(model)
             model.observation_model isa LinearlyTransformedObservationModel
     ) || return SimplifiedLaplace()
     isempty(latent_index_set_for_vbc(model, AutoVBCIndexSet())) || return VBCMarginal()
-    @info "VBC default: no resolvable latent hub set (no named layout) — using " *
-        "GaussianMarginal. Pass VBCMarginal([indices...]) or SimplifiedLaplace() to override." maxlog = 1
+    @debug "Using GaussianMarginal latent marginals (no compact hub layout); " *
+        "pass VBCMarginal([indices...]) or SimplifiedLaplace() to override." maxlog = 1
     return GaussianMarginal()
 end
 

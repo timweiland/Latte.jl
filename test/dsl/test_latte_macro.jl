@@ -247,4 +247,38 @@ using GaussianMarkovRandomFields
         r2 = inla(ref, y; progress = false)
         @test mean(r1.hyperparameter_marginals.σ) ≈ mean(r2.hyperparameter_marginals.σ) rtol = 1.0e-2
     end
+
+    @testset "8. @latte usable without `using DynamicPPL`" begin
+        # A fresh module that only `using Latte` (no `using DynamicPPL`) must
+        # be able to define and fit an `@latte` model — the macro expansion
+        # must not require `DynamicPPL` to be bound in the user's scope.
+        m = Module(:NoDPPLUser)
+        Core.eval(m, :(using Latte))
+        Core.eval(m, :(using Distributions))
+        Core.eval(m, :(using LinearAlgebra))
+        @test !isdefined(m, :DynamicPPL)
+
+        Core.eval(
+            m,
+            quote
+                @latte function reg_no_dppl(y, X)
+                    σ ~ Gamma(2.0, 1.0)
+                    β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
+                    for i in eachindex(y)
+                        y[i] ~ Normal(dot(X[i, :], β), σ)
+                    end
+                end
+            end,
+        )
+
+        n, p = 8, 2
+        X = [ones(n) randn(n)]
+        y = randn(n)
+        lgm = Base.invokelatest(getfield(m, :reg_no_dppl), y, X)
+        @test lgm isa Latte.LatentGaussianModel
+
+        r = inla(lgm, y; progress = false)
+        @test r isa Latte.InferenceResult
+        @test converged(r)
+    end
 end

@@ -138,6 +138,31 @@ credible_intervals = [quantile(m, [0.025, 0.975]) for m in result.latent_margina
 poisson_rates_mean = exp.(posterior_means)
 ```
 
+#### Marginals for a named latent block
+
+When the model is written with [`@latte`](@ref) (or converted with
+[`latte_from_dppl`](@ref)), each latent term gets a name. Rather than indexing
+the flat vector with hand-computed offsets, ask for a named block directly with
+`latent_marginals(result, name::Symbol)`. It returns the slice of marginals for
+that term — a `Vector` of `Distribution`s (length 1 for a scalar term):
+
+```julia
+# Model with `β ~ MvNormal(...)` (regression coefficients) and a
+# `u ~ BesagModel(W)(τ = τ)` spatial effect.
+β_marginals = latent_marginals(result, :β)   # one marginal per coefficient
+u_marginals = latent_marginals(result, :u)   # one marginal per spatial unit
+
+β_means = [mean(m) for m in β_marginals]
+β_stds  = [std(m)  for m in β_marginals]
+```
+
+This is the recommended way to pull out a specific term: it stays correct when
+the latent layout changes (extra covariates, a different number of spatial
+units) and reads more clearly than positional indexing. The available names are
+those of the `~`-bound latent terms in the model; `latent_groups(result)`
+returns the full `name => index-range` map. The same name-keyed form works for
+hyperparameters via `hyperparameter_marginals(result, name)`.
+
 ### Convergence Diagnostics
 Always check that the optimization converged:
 
@@ -358,4 +383,20 @@ end
 
 ```@docs
 INLAResult
+```
+
+### Result accessors
+
+These work uniformly across every engine's result (INLA, TMB, HMC-Laplace). The
+name-keyed forms (`latent_marginals(result, :β)`,
+`hyperparameter_marginals(result, :τ)`) require a model with named latent /
+hyperparameter terms — `@latte` and `latte_from_dppl` populate the layout that
+`latent_groups` / `hyperparameter_groups` expose.
+
+```@docs
+latent_marginals
+hyperparameter_marginals
+latent_groups
+hyperparameter_groups
+hyperparameter_mode
 ```
