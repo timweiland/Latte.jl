@@ -314,3 +314,38 @@ const comparabilityLabel: Record<Receipt['comparability'], string> = {
   .receipt-grid { grid-template-columns: 1fr; }
 }
 </style>
+
+<!--
+  Dark mode. NOT scoped (scoped `:global(.dark)` rules are dropped by the
+  CSS build), but every rule is nested under `.bench-page` so it cannot
+  leak. Redefining the palette custom properties flips every `var(--x)`
+  consumer at once; targeted rules below handle hardcoded colors.
+-->
+<style>
+html.dark .bench-page {
+  --bg:       #2A1810; /* page background */
+  --cream:    #38241B; /* elevated surface (placeholder-card) */
+  --tan:      rgba(201, 152, 106, 0.18); /* code bg / subtle border */
+  --caramel:  #C9986A; /* accent — kept */
+  --mocha:    #B79877; /* muted text / dashed borders */
+  --bean:     #D4B896; /* secondary text (code text, em) */
+  --espresso: #F5E6D3; /* primary text */
+  --berry:    #D9603F; /* red accent */
+  --foam:     #38241B; /* card surface */
+}
+
+/* Hardcoded #4A3828 dark text → light secondary */
+html.dark .bench-page .bench-lede,
+html.dark .bench-page .how-grid p,
+html.dark .bench-page .bench-section-head p,
+html.dark .bench-page .placeholder-body,
+html.dark .bench-page .loses-list li,
+html.dark .bench-page .repro-card p {
+  color: #D4B896;
+}
+
+/* Card shadow: warm brown → neutral dark */
+html.dark .bench-page .receipt {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+</style>

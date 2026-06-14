@@ -213,20 +213,29 @@ const cards = tutorials.map(t => ({
 @media (max-width: 640px) {
   .tutorial-gallery { grid-template-columns: 1fr; }
 }
+</style>
 
-/* Dark mode */
-:global(.dark) .tutorial-gallery {
-  --t-foam:     #38241B;
-  --t-tan:      rgba(201, 152, 106, 0.18);
-  --t-caramel:  #C9986A;
-  --t-mocha:    #B79877;
-  --t-bean:     #3D2817;
-  --t-espresso: #F5E6D3;
+<!--
+  Dark mode. Kept in a separate NON-scoped block: this project's CSS build
+  silently drops `:global(.dark)` selectors from scoped styles. Every rule is
+  nested under the unique root class `.tutorial-gallery`, so it cannot leak,
+  and the `html.dark` prefix raises specificity above the scoped light defaults.
+  Flipping the `--t-` vars cascades to every `var(--t-x)` automatically.
+-->
+<style>
+html.dark .tutorial-gallery {
+  --t-bg:       #2A1810; /* page bg */
+  --t-foam:     #38241B; /* card surface */
+  --t-tan:      rgba(201, 152, 106, 0.18); /* border / image surface */
+  --t-caramel:  #C9986A; /* accent, unchanged */
+  --t-mocha:    #B79877; /* muted text */
+  --t-bean:     #1F130D; /* deepest surface */
+  --t-espresso: #F5E6D3; /* primary text */
 }
-:global(.dark) .t-card-blurb {
+html.dark .tutorial-gallery .t-card-blurb {
   color: #D4B896;
 }
-:global(.dark) .t-card:hover {
+html.dark .tutorial-gallery .t-card:hover {
   box-shadow: 0 16px 40px rgba(0,0,0,0.4);
 }
 </style>

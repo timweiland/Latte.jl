@@ -111,3 +111,21 @@ const label = (p: Pt) =>
 
 .sc-foot { font-size: 11.5px; color: var(--mocha); margin: 12px 2px 0; line-height: 1.5; }
 </style>
+
+<style>
+/* Dark-mode overrides. Non-scoped on purpose: this project's CSS build
+   silently drops Vue's :global(.dark) rules. Every rule is nested under the
+   unique .sc root and prefixed with html.dark so it can't leak and outranks
+   the scoped light defaults above. */
+html.dark .sc {
+  --foam: #38241B;                     /* light surface  → dark surface */
+  --tan: rgba(201, 152, 106, 0.2);     /* border/gridline */
+  --caramel: #C9986A;                  /* accent (kept) */
+  --mocha: #B79877;                    /* muted text/axis */
+  --bean: #D4B896;                     /* text (heading + point labels) */
+  --berry: #D9603F;                    /* red accent */
+}
+/* axis + tick strokes were a dark warm-brown that vanishes on dark bg */
+html.dark .sc .sc-ax { stroke: rgba(201, 152, 106, 0.4); }
+html.dark .sc .sc-tick { stroke: rgba(201, 152, 106, 0.4); }
+</style>

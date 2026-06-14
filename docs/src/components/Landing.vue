@@ -1,9 +1,16 @@
 <script setup lang="ts">
+import { inject } from 'vue'
+import { useData } from 'vitepress'
 import LandingBenchmark from './LandingBenchmark.vue'
 // Thumbnails for the three featured tutorial cards (shared with the gallery).
 import gettingStartedThumb from '../assets/thumbs/getting_started.png'
 import spatialSpdeThumb from '../assets/thumbs/spatial_spde.png'
 import hmcLaplaceThumb from '../assets/thumbs/hmc_laplace_when.png'
+
+// Appearance toggle — the landing has its own nav (not the shared LatteNav),
+// so it needs its own switch. Same mechanism as LatteNav / VPSwitchAppearance.
+const { isDark } = useData()
+const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isDark.value })
 </script>
 
 <template>
@@ -40,6 +47,11 @@ import hmcLaplaceThumb from '../assets/thumbs/hmc_laplace_when.png'
           <a href="/validation/">Validation</a>
           <a href="https://github.com/timweiland/Latte.jl">GitHub</a>
           <span class="ver">v0.1-dev</span>
+          <button class="theme-toggle" type="button" @click="toggleAppearance"
+                  aria-label="Toggle light/dark theme" title="Toggle light/dark theme">
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          </button>
         </div>
       </div>
     </nav>
@@ -319,6 +331,12 @@ footer .wm.foot-wm { display: inline-flex; align-items: center; padding: 0; opac
 .wm .wm-jl { font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 20px; color: var(--caramel); font-weight: 500; }
 footer .wm .wm-txt { color: var(--cream); }
 
+/* Theme toggle (mirrors LatteNav) */
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; background: transparent; border: 1px solid var(--tan); border-radius: 6px; color: #4A3828; cursor: pointer; transition: color .15s, border-color .15s; }
+.theme-toggle:hover { border-color: var(--caramel); color: var(--berry); }
+.theme-toggle svg { width: 17px; height: 17px; display: block; }
+.theme-toggle .icon-sun { display: none; }
+
 /* Responsive */
 @media (max-width: 1024px) {
   .hero-grid { grid-template-columns: 1fr; gap: 40px; }
@@ -328,4 +346,33 @@ footer .wm .wm-txt { color: var(--cream); }
   .cards { grid-template-columns: 1fr; }
   .foot-grid { grid-template-columns: 1fr 1fr; }
 }
+</style>
+
+<!-- Dark mode (non-scoped: this project's build drops scoped :global()).
+     Everything is nested under .latte-landing so it can't leak. The code
+     window, primary button, and footer are intentionally dark surfaces (they
+     use var(--espresso)), so rather than flip that var we flip the page/card
+     surfaces (--bg, --foam) plus the text that sits on them, and fix the few
+     dark-on-dark cases (primary button, code window) explicitly. -->
+<style>
+html.dark .latte-landing { --bg: #2A1810; --foam: #38241B; --tan: rgba(201, 152, 106, 0.2); --mocha: #B79877; --berry: #D9603F; color: #F5E6D3; }
+html.dark .latte-landing .links { color: var(--cream); }
+html.dark .latte-landing .links a:hover { color: var(--caramel); }
+html.dark .latte-landing .wm .wm-txt { color: #F5E6D3; }
+html.dark .latte-landing .hero .lede { color: #D4B896; }
+html.dark .latte-landing .hero h1 em { color: var(--caramel); }
+html.dark .latte-landing .hero-mark g { stroke: #C9986A; }
+html.dark .latte-landing .btn.btn-primary { background: var(--caramel); color: var(--espresso); }
+html.dark .latte-landing .btn.btn-ghost { color: #F5E6D3; border-color: rgba(201, 152, 106, 0.4); }
+html.dark .latte-landing .btn.btn-ghost:hover { background: var(--caramel); color: var(--espresso); }
+html.dark .latte-landing .engine .method { color: #F5E6D3; }
+html.dark .latte-landing .code-window { background: #1F130D; box-shadow: 0 16px 56px rgba(0, 0, 0, 0.5); border: 1px solid rgba(201, 152, 106, 0.15); }
+html.dark .latte-landing .code-window pre.code { background: #1F130D; }
+html.dark .latte-landing .card p { color: #D4B896; }
+html.dark .latte-landing .card-thumb { background: rgba(201, 152, 106, 0.12); }
+html.dark .latte-landing footer { border-top: 1px solid rgba(201, 152, 106, 0.18); }
+html.dark .latte-landing .theme-toggle { border-color: rgba(201, 152, 106, 0.3); color: var(--cream); }
+html.dark .latte-landing .theme-toggle:hover { border-color: var(--caramel); color: var(--caramel); }
+html.dark .latte-landing .theme-toggle .icon-sun { display: block; }
+html.dark .latte-landing .theme-toggle .icon-moon { display: none; }
 </style>
