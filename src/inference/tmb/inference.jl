@@ -24,10 +24,13 @@ Laplace estimate of `log p(y)`.
   can catch catastrophic cancellation from the η-coupling penalty).
   `FiniteDiffStrategy()` falls back to `FiniteDiff.finite_difference_hessian`.
   The default `ADStrategy()` works for `@latte` models with recognized GMRF
-  latents (verified to agree with FiniteDiff on IID / RW1 / RW2 / AR1 / Besag).
-  `FiniteDiffStrategy()` is only needed for a *lifted custom likelihood* whose
-  sparse-Hessian AD path degrades `Dual` types (e.g. the Tweedie tutorial;
-  tracked in `tasks/dppl-adapter-outer-ad-closure.org`).
+  latents (verified to agree with FiniteDiff on IID / RW1 / RW2 / AR1 / Besag)
+  and for the broad class of custom-`logpdf` likelihoods. The narrow case that
+  needs `FiniteDiffStrategy()` is a hyperparameter-derived value *hoisted into
+  the observation payload* by the `@latte` prelude-lift (e.g. `φ = exp(log_φ)`
+  in the Tweedie tutorial): the buried value can't stay `Dual`-typed through the
+  outer Hessian, so default AD errors. Tracked in
+  `tasks/dppl-adapter-outer-ad-closure.org`.
 """
 function tmb(
         model::LatentGaussianModel, y;

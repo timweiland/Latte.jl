@@ -38,10 +38,12 @@ computed.
 
 - `ADStrategy()`, the default: ForwardDiff gradients with central differences for
   the Hessian. Accurate and robust for `@latte` models with recognised GMRF
-  latents.
-- `FiniteDiffStrategy()`: a plain finite-difference fallback. Use it for custom
-  likelihoods where the sparse-Hessian AD path degrades the dual numbers, as in the
-  Tweedie tutorial.
+  latents, and for the broad class of custom-`logpdf` likelihoods.
+- `FiniteDiffStrategy()`: a plain finite-difference fallback. The narrow case that
+  needs it is a hyperparameter-derived value hoisted into the observation payload by
+  the `@latte` prelude-lift (`φ = exp(log_φ)` in the Tweedie tutorial), which the
+  outer Hessian can't keep dual-typed. It is not required for custom likelihoods in
+  general.
 
 ```julia
 tmb(model, y; diff_strategy = FiniteDiffStrategy())

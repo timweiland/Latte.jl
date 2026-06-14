@@ -60,7 +60,10 @@ macro latte(modeldef)
     body_for_dppl = _transform_body(_maybe_probe_rewrite(body, blocks, posargs_t, recognition_expr))
     inner_name = Symbol("__latte_dppl_", fname)
     inner_def = Expr(:function, _replace_fname(sig, inner_name), body_for_dppl)
-    expanded_inner = macroexpand(__module__, :(DynamicPPL.@model $inner_def))
+    # Splice the `DynamicPPL` module object (resolved in *this* package's
+    # scope, where it's always imported) rather than the bareword path, so
+    # `@latte` works in user modules that haven't `using DynamicPPL`.
+    expanded_inner = macroexpand(__module__, :($(DynamicPPL).@model $inner_def))
 
     # Prelude-lift eligibility analysis + codegen.
     # Reject lift outright when the signature has kwargs — the macro currently

@@ -8,6 +8,7 @@ using LinearAlgebra
 using SparseArrays
 using OrderedCollections: OrderedDict
 using Random
+using Logging
 
 # A minimal layout-bearing model double for the index-set policy (the resolver is
 # duck-typed on `latent_groups`).
@@ -379,6 +380,29 @@ end
         @test latent_index_set_for_vbc(m, AutoVBCIndexSet(short_dim = 500)) == collect(1:410)
         # explicit vector passes through unchanged (order preserved)
         @test latent_index_set_for_vbc(m, [5, 2, 8]) == [5, 2, 8]
+    end
+
+    @testset "default_marginalization fallback is silent at :info, noted at :debug" begin
+        # A compact LTM model with no named layout (hand-built FunctionLatentModel)
+        # falls back to GaussianMarginal. That fallback is an automatic, correct
+        # default, so it must not surface as an :info-level message during normal
+        # use — only as a :debug note.
+        m = 6
+        spec = @hyperparams begin
+            (τ ~ Gamma(2, 1), transform = log, space = natural)
+        end
+        Qbase = sparse(Matrix(2.0I, m, m))
+        latent_func = (; τ, kwargs...) -> (zeros(m), τ .* Qbase)
+        A = _design(8, m)
+        obs_model = LinearlyTransformedObservationModel(ExponentialFamily(Poisson), A)
+        model = LatentGaussianModel(spec, FunctionLatentModel(latent_func, m), obs_model; augment_latent = false)
+
+        @test isempty(latent_index_set_for_vbc(model, AutoVBCIndexSet()))
+        # No :info (or higher) message escapes; the result is still GaussianMarginal.
+        @test_logs min_level = Logging.Info Latte.default_marginalization(model)
+        @test Latte.default_marginalization(model) isa GaussianMarginal
+        # The note is still available for debugging.
+        @test_logs (:debug,) min_level = Logging.Debug Latte.default_marginalization(model)
     end
 
     @testset "latent_index_set_for_vbc — empty layout + pure-field fallback" begin
