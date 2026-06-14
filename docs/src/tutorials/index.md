@@ -54,5 +54,11 @@ layout: false
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.92em;
 }
+
+/* Dark mode (the page chrome is hardcoded light above). */
+html.dark .tutorials-page { background: #2A1810; color: #F5E6D3; }
+html.dark .tutorials-page h1 { color: #F5E6D3; }
+html.dark .tutorials-page .lede { color: #D4B896; }
+html.dark .tutorials-page code { background: rgba(201, 152, 106, 0.18); color: #C9986A; }
 </style>
 ```

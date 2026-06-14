@@ -169,3 +169,24 @@ view.forEach(c => { active[c.id] = 0 })
 .latte-lg::before { border-top-color: var(--berry); }
 .rinla-lg::before { border-top-color: var(--bean); border-top-style: dashed; }
 </style>
+
+<style>
+/* Dark mode. Non-scoped on purpose: this project's CSS build silently drops
+   Vue scoped :global(.dark) rules, so we scope by hand under the unique
+   .bc-grid root and prefix with html.dark. Cannot leak; outranks the scoped
+   light defaults. Light mode is left untouched — this only ADDS dark behavior. */
+html.dark .bc-grid {
+  --foam: #38241B;                       /* light surface  → dark surface     */
+  --tan: rgba(201, 152, 106, 0.2);       /* border/gridline → faint warm line */
+  --caramel: #C9986A;                    /* accent          → kept            */
+  --mocha: #B79877;                      /* muted text/axis → lifted          */
+  --bean: #D4B896;                       /* dark text/stroke → light text     */
+  --berry: #D9603F;                      /* red accent      → brighter red    */
+}
+/* --bean is text/stroke only (titles, R-INLA dashed line, caption headings),
+   never a fill background, so it flips to a light tone. */
+
+/* Hardcoded colors */
+html.dark .bc-grid .bc-ax { stroke: rgba(201, 152, 106, 0.4); }   /* axis: warm dark → visible warm */
+html.dark .bc-grid .lg { color: #D4B896; }                        /* #4A3828 legend text → light */
+</style>
