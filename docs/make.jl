@@ -34,6 +34,7 @@ makedocs(;
             "Handoff to Turing" => "tutorials/turing_handoff.md",
             "Sampling hyperparameters (HMC-Laplace)" => "tutorials/hmc_laplace_when.md",
         ],
+        "Coming from R-INLA" => "coming_from_rinla.md",
         "Benchmarks" => "benchmarks/index.md",
         "Validation" => "validation/index.md",
         "Inference engines" => [

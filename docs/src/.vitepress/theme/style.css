@@ -223,3 +223,103 @@ mjx-container > svg { margin: auto; display: inline-block; }
 /* ─── PaperCite grid (used on engine / content pages) ─────────────── */
 .ref-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 12px 0; }
 @media (max-width: 760px) { .ref-grid-2 { grid-template-columns: 1fr; } }
+
+/* ─── Wide doc layout (opt-in via `pageClass: latte-wide`) ─────────── */
+/* For reference-heavy pages with wide tables, hide the left nav sidebar
+ * by default so the body reclaims its width. WideSidebar.vue renders a
+ * floating toggle that slides the sidebar back in as an overlay drawer
+ * (publishing the `latte-sidebar-open` class on <html>). Everything is
+ * scoped under `.latte-wide` so all other pages are untouched. */
+.latte-wide .VPSidebar {
+  transform: translateX(-100%) !important;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+  z-index: 56 !important;
+}
+html.latte-sidebar-open .latte-wide .VPSidebar {
+  transform: translateX(0) !important;
+  box-shadow: 8px 0 32px rgba(42, 24, 16, 0.22);
+}
+
+/* Reclaim the freed space and widen the reading column on desktop. */
+@media (min-width: 960px) {
+  .latte-wide .VPContent.has-sidebar {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .latte-wide .VPDoc.has-aside .content-container,
+  .latte-wide .VPDoc .content-container {
+    max-width: var(--latte-wide-content-max, 1120px);
+  }
+}
+
+/* ─── R-INLA / Latte.jl code badges + side-by-side pairs ───────────── */
+/* Opt-in via `pageClass: ... rinla-compare`. Every `r` code block is
+ * tagged "R-INLA" and every `julia` block "Latte.jl", so the two are
+ * easy to tell apart. `.rinla-pair` (a div wrapping an R/Julia pair in
+ * the source) lays them out side by side on wide viewports. */
+.rinla-compare div[class~="language-r"],
+.rinla-compare div[class~="language-julia"] {
+  position: relative;
+}
+/* Make room for the corner badge and hide the default language hint. */
+.rinla-compare div[class~="language-r"] > pre,
+.rinla-compare div[class~="language-julia"] > pre {
+  padding-top: 2.6em !important;
+}
+.rinla-compare div[class~="language-r"] > .lang,
+.rinla-compare div[class~="language-julia"] > .lang {
+  display: none;
+}
+.rinla-compare div[class~="language-r"]::before,
+.rinla-compare div[class~="language-julia"]::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  padding: 4px 12px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.3;
+  color: #fff;
+  border-top-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+.rinla-compare div[class~="language-r"]::before {
+  content: "R-INLA";
+  background: #276DC3;          /* the R project's own blue — a respectful nod */
+}
+.rinla-compare div[class~="language-julia"]::before {
+  content: "Latte.jl";
+  background: var(--latte-berry);
+  color: var(--latte-foam);
+}
+
+/* Give both blocks in a pair the same vertical margin so their badges line
+ * up. VitePress pulls an adjacent code block up by 8px to "merge" stacked
+ * blocks (`.vp-doc div[class*=language-]+div[class*=language-]`); the second
+ * selector here has higher specificity and neutralizes that for pairs. */
+.rinla-compare .rinla-pair > div[class*="language-"],
+.rinla-compare .rinla-pair > div[class*="language-"] + div[class*="language-"] {
+  margin: 12px 0;
+  min-width: 0;   /* let columns shrink so long lines scroll within the block */
+}
+/* Side-by-side on wide viewports; stacks naturally below the breakpoint. */
+@media (min-width: 960px) {
+  .rinla-compare .rinla-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+}
+
+/* ─── Light-mode code blocks: give them a visible boundary ─────────── */
+/* The code surface (foam) sits very close to the page background (latte-bg),
+ * so without a border the blocks barely read as distinct. Dark mode already
+ * has strong bg contrast, so this is light-mode only. */
+:root:not(.dark) .vp-doc div[class*="language-"] {
+  border: 1px solid var(--latte-tan);
+  box-shadow: 0 1px 2px rgba(61, 40, 23, 0.05);
+}
