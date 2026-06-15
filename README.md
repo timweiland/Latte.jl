@@ -1,13 +1,20 @@
-# Latte
+<div align="center">
+  <img src="docs/src/assets/logo.svg" alt="Latte.jl logo" width="150"/>
+  <h1>Latte.jl</h1>
+  <p><strong>A probabilistic programming framework for latent Gaussian models.</strong></p>
+</div>
+
+<div align="center">
 
 [![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://timweiland.github.io/Latte.jl/stable/)
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://timweiland.github.io/Latte.jl/dev/)
 [![Build Status](https://github.com/timweiland/Latte.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/timweiland/Latte.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/timweiland/Latte.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/timweiland/Latte.jl)
 
-**Latte is a Bayesian inference toolkit for latent Gaussian models.** Write your
-model once in [DynamicPPL](https://github.com/TuringLang/DynamicPPL.jl) and pick
-which approximation to run: fast grid-based integration (INLA), point-estimate +
+</div>
+
+Write your model once in [DynamicPPL](https://github.com/TuringLang/DynamicPPL.jl) and
+pick which approximation to run: fast grid-based integration (INLA), point-estimate +
 Gaussian covariance (TMB), or HMC on the Laplace marginal (tmbstan-style).
 
 > ⚠️ **Early development.** API is not yet stable. Expect breaking changes until a 1.0.
