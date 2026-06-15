@@ -102,23 +102,18 @@ function tweedie_logpdf(y, μ, φ, p)
 end
 
 # To use this inside an `@latte` model, we wrap it as a tiny
-# `Distribution` subtype. Latte recognises the resulting `~`
-# statements and routes them through the AD-based observation model
-# automatically — no further wiring needed.
-struct Tweedie{T <: Real} <: ContinuousUnivariateDistribution
-    μ::T
-    φ::T
-    p::T
-end
-## Promoting constructor lets users mix Float and AD Dual arguments.
-function Tweedie(μ::Real, φ::Real, p::Real)
-    μp, φp, pp = promote(μ, φ, p)
-    return Tweedie{typeof(μp)}(μp, φp, pp)
+# `Distribution` subtype with a `logpdf` — that is all Latte needs. It
+# recognises the resulting `~` statements and routes them through the
+# AD-based observation model automatically. Give the parameters
+# *independent* type parameters so the latent-derived `μ` (an AD dual
+# number) and `φ`/`p` (a hyperparameter and a constant) can have different
+# types; that is what makes it AD-ready, with no promoting constructor.
+struct Tweedie{A, B, C} <: ContinuousUnivariateDistribution
+    μ::A
+    φ::B
+    p::C
 end
 Distributions.logpdf(d::Tweedie, y::Real) = tweedie_logpdf(y, d.μ, d.φ, d.p)
-Distributions.minimum(::Tweedie) = 0.0
-Distributions.maximum(::Tweedie) = Inf
-Distributions.insupport(::Tweedie, y::Real) = y >= 0
 
 # A quick sanity check: as `p → 2` the compound Poisson-Gamma collapses
 # to a single Gamma. The limiting parameters come from the compound
