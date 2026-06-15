@@ -1,11 +1,11 @@
-# IntegratedNestedLaplace.jl Development Makefile
+# Latte.jl Development Makefile
 
 .PHONY: help setup test test-fast test-full generate-reference clean docs docs-rebuild docs-skip docs-serve docs-preview logo
 
 # Default target
 help:
-	@echo "IntegratedNestedLaplace.jl Development Commands"
-	@echo "=============================================="
+	@echo "Latte.jl Development Commands"
+	@echo "============================="
 	@echo ""
 	@echo "Setup:"
 	@echo "  make setup           - Install dependencies and TestEnv"
