@@ -15,6 +15,7 @@ import Landing from '@/Landing.vue'
 import TutorialGallery from '@/TutorialGallery.vue'
 import LatteNav from '@/LatteNav.vue'
 import LatteFooter from '@/LatteFooter.vue'
+import WideSidebar from '@/WideSidebar.vue'
 import Benchmarks from '@/Benchmarks.vue'
 import Validation from '@/Validation.vue'
 import PaperCite from '@/PaperCite.vue'
@@ -37,7 +38,7 @@ export const Theme: ThemeConfig = {
       // and footer. Pages using layout: false (Landing.vue,
       // tutorials/index.md) bring their own LatteNav + LatteFooter and
       // these slot injections don't render for them.
-      'layout-top': () => h(LatteNav),
+      'layout-top': () => [h(LatteNav), h(WideSidebar)],
       'layout-bottom': () => h(LatteFooter),
       'nav-bar-content-after': () => [
         h(NolebaseEnhancedReadabilitiesMenu), // Enhanced Readabilities menu
@@ -55,6 +56,7 @@ export const Theme: ThemeConfig = {
     app.component('TutorialGallery', TutorialGallery)
     app.component('LatteNav', LatteNav)
     app.component('LatteFooter', LatteFooter)
+    app.component('WideSidebar', WideSidebar)
     app.component('Benchmarks', Benchmarks)
     app.component('Validation', Validation)
     app.component('PaperCite', PaperCite)
