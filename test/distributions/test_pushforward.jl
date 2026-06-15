@@ -1,5 +1,8 @@
 using Test
 using Latte
+# Resolve `pushforward` to Latte's: DifferentiationInterface (loaded by other
+# files earlier in the shared test session) also exports `pushforward`.
+using Latte: pushforward
 using Distributions
 using Statistics
 import Bijectors

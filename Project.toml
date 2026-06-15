@@ -75,6 +75,7 @@ LibGEOS = "0.8, 0.9"
 LinearAlgebra = "<0.0.1, 1"
 LinearSolve = "3"
 LogDensityProblems = "2"
+Logging = "<0.0.1, 1"
 MCMCChains = "7"
 Makie = "0.20 - 0.24"
 Optim = "1"
@@ -106,8 +107,9 @@ Gmsh = "705231aa-382f-11e9-3f0c-b7cb4346fdeb"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 LDLFactorizations = "40e66cde-538c-5869-a4ad-c39174c6795b"
 LibGEOS = "a90b1aa1-3769-5649-ba7e-abc5a9d163eb"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 
 [targets]
-test = ["Aqua", "Ferrite", "FerriteGmsh", "Gmsh", "JLD2", "LDLFactorizations", "LibGEOS", "Turing", "Test"]
+test = ["Aqua", "Ferrite", "FerriteGmsh", "Gmsh", "JLD2", "LDLFactorizations", "LibGEOS", "Logging", "Turing", "Test"]
