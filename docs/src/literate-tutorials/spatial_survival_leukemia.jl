@@ -158,16 +158,14 @@ end
 # indicator. The Weibull shape ``\alpha`` is an unknown we infer — it becomes a
 # hyperparameter via the `α ~ LogNormal(...)` prior in the model below.
 
-struct WeibullSurv{T <: Real} <: ContinuousUnivariateDistribution
-    η::T
-    α::T
+## Independent type parameters for `η` and `α` so the latent-derived `η` (an
+## AD dual number) and the `α` hyperparameter (a Float64) can have different
+## types — that is all it takes to be AD-ready, no promoting constructor. And
+## `@latte` only needs `logpdf`, so there is nothing else to define.
+struct WeibullSurv{A, B} <: ContinuousUnivariateDistribution
+    η::A
+    α::B
     event::Int
-end
-## Promote so η (a latent-derived dual number) and α (a Float64 hyperparameter)
-## share a type when Latte differentiates the likelihood.
-function WeibullSurv(η::Real, α::Real, event::Integer)
-    ηp, αp = promote(η, α)
-    return WeibullSurv{typeof(ηp)}(ηp, αp, Int(event))
 end
 function Distributions.logpdf(d::WeibullSurv, t::Real)
     logt = log(t)
@@ -175,9 +173,6 @@ function Distributions.logpdf(d::WeibullSurv, t::Real)
     log_haz = log(d.α) + (d.α - 1) * logt + d.η
     return d.event == 1 ? log_haz - exp(log_cumhaz) : -exp(log_cumhaz)
 end
-Distributions.minimum(::WeibullSurv) = 0.0
-Distributions.maximum(::WeibullSurv) = Inf
-Distributions.insupport(::WeibullSurv, t::Real) = t > 0
 
 # The `@latte` model carries an intercept plus the four covariates in `β`, the
 # same Besag frailty, and the Weibull shape as a hyperparameter. We put the
