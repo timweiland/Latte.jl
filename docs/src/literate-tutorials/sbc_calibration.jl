@@ -5,8 +5,8 @@
 # checking — but: given the very generative process the model
 # describes, does your inference method recover the truth on average?
 #
-# Simulation-Based Calibration (Talts, Betancourt, Simpson, Vehtari,
-# Gelman 2020) answers this with one clean protocol:
+# Simulation-Based Calibration ([Talts et al. 2018](#ref-sbc)) answers
+# this with a short protocol:
 #
 # 1. Sample `θ_true ∼ p(θ)` from the prior.
 # 2. Simulate `y ∼ p(y | θ_true)` from the generative model.
@@ -32,11 +32,11 @@ using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using Random
 
-# A simple latent-Gaussian model: IID Normal-ish effects under a
-# PC prior on precision, Poisson likelihood. Written as an `@latte`
-# model — `sbc_run` accepts the resulting `LatentGaussianModel` factory
-# directly (it draws priors via `rand` and infers on the LGM), so no
-# `random` kwarg is needed.
+# A small latent-Gaussian model: IID effects under a PC prior on
+# precision, with a Poisson likelihood. It is written as an `@latte`
+# model. `sbc_run` accepts the resulting `LatentGaussianModel` factory
+# directly: it draws priors via `rand` and infers on the LGM, so there is
+# no `random` kwarg to pass.
 @latte function smoke_model(y, n)
     τ ~ PCPrior.Precision(1.0, α = 0.01)
     x ~ IIDModel(n)(τ = τ)
@@ -51,9 +51,9 @@ y_proto = Vector{Missing}(missing, n)
 
 # ## A smoke-test SBC run
 #
-# `n_attempted = 40` is only enough for a smoke test — we want to
-# exercise the pipeline, not make calibration claims. For real
-# calibration claims aim for `n_attempted >= 1000`.
+# `n_attempted = 40` is only enough for a smoke test. The point here is
+# to exercise the pipeline, not to make a calibration claim; for that,
+# aim for `n_attempted >= 1000`.
 r = sbc_run(
     build_model, y_proto;
     n_attempted = 40,
@@ -70,25 +70,27 @@ r
 
 # ## Interpreting the summary
 #
-# For the `τ` hyperparameter in this model, you should see:
+# For the `τ` hyperparameter in this model, a calibrated run shows two
+# things. The mean quantile position sits close to 0.5, which says there
+# is no systematic bias. And the empirical coverage tracks the nominal
+# levels: roughly 0.5 at the 50% interval, 0.8 at the 80%, and 0.95 at
+# the 95%, which says the credible intervals are faithful.
 #
-# - Mean quantile position close to 0.5 — no systematic bias.
-# - 50% coverage ≈ 0.5, 80% coverage ≈ 0.8, 95% coverage ≈ 0.95 —
-#   credible intervals are faithful.
-#
-# With `n_attempted = 40`, there's real sampling noise in these
-# numbers; the yellow warning in the summary banner is your
-# reminder of that. Values outside a ±0.15 envelope around nominal
-# on 40 replicates is only mildly suspicious; outside ±0.05 on 1000
-# replicates would be a real miscalibration signal.
+# At `n_attempted = 40` these numbers carry real sampling noise, and the
+# yellow warning in the summary banner is there to remind you. On 40
+# replicates a value outside a ±0.15 envelope around nominal is only
+# mildly suspicious; on 1000 replicates, outside ±0.05 would be a genuine
+# miscalibration signal.
 #
 # ## Reading the raw data
 #
-# Ranks and truths live on the result as dense matrices:
+# Ranks and truths live on the result as dense matrices, one row per
+# successful replicate and one column per ranked target:
 size(r.ranks), size(r.truths)
 
-# Column `j` corresponds to `r.targets[j]`:
-r.targets
+# Column `j` corresponds to `r.targets[j]`. Each target carries a label;
+# here there is just the one hyperparameter:
+[d.label for d in r.targets]
 
 # The per-replicate quantile positions (a calibrated procedure has
 # these uniform on `(0, 1)`):
@@ -134,19 +136,17 @@ r_tmb
 #
 # ## What SBC can and can't tell you
 #
-# SBC validates the **inference procedure** against **the model's own
-# prior**. It is:
+# SBC validates the inference procedure against the model's own prior. It
+# is the right tool for questions about the inference: is the Laplace
+# approximation biased, does the MCMC mix, does the approximation degrade
+# in the tails. It is the wrong tool for asking whether the model fits the
+# data, which is what posterior predictive checks are for.
 #
-# - **The right tool** for "is my Laplace approximation biased?",
-#   "does my MCMC mix?", "does my approximation degrade in tails?".
-# - **Not the right tool** for "does my model fit my data?" — that's
-#   what posterior predictive checks are for.
-#
-# If your prior generates scientifically absurd datasets (a common
-# outcome with vaguely-specified PC priors), SBC will still report
-# faithfully against *that* prior. Scenario-restricted SBC — sampling
-# from a truth-filter rather than the full prior — is a natural
-# follow-up but explicitly not included in the MVP.
+# If your prior generates scientifically absurd datasets (a common outcome
+# with vaguely specified PC priors), SBC still reports faithfully against
+# *that* prior. Scenario-restricted SBC, which samples from a truth-filter
+# rather than the full prior, is a natural follow-up but is not part of the
+# current implementation.
 #
 # ## Rough rule of thumb for `n_attempted`
 #
@@ -159,3 +159,18 @@ r_tmb
 # For 1000-replicate runs use `executor = ThreadedExecutor()` — the
 # replicates are embarrassingly parallel and the result is bitwise
 # identical to the sequential one.
+
+# ## References
+#
+# ```@raw html
+# <div class="ref-grid-2">
+# <PaperCite
+#   tag="SBC"
+#   title="Validating Bayesian Inference Algorithms with Simulation-Based Calibration"
+#   authors="S. Talts, M. Betancourt, D. Simpson, A. Vehtari & A. Gelman"
+#   venue="arXiv preprint" year="2018"
+#   arxiv="1804.06788"
+#   url="https://arxiv.org/abs/1804.06788"
+#   abstract="Introduces SBC: under exact inference, the rank of each prior-drawn parameter within its posterior is uniform, so non-uniform ranks diagnose miscalibration of any Bayesian computation." />
+# </div>
+# ```

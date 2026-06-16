@@ -10,9 +10,9 @@ layout: false
     <h1>Tutorials</h1>
     <p class="lede">
       End-to-end examples, ordered roughly from simplest to most involved.
-      Each follows the same recipe — define the model as an <code>@latte</code>
-      function (or a DPPL <code>@model</code>), then fit it with a single
-      <code>inla()</code> call.
+      Each defines a model as an <code>@latte</code> function (or a plain DPPL
+      <code>@model</code>) and runs it through one of Latte's inference engines:
+      <code>inla</code>, <code>tmb</code>, or <code>hmc_laplace</code>.
     </p>
     <TutorialGallery />
   </div>

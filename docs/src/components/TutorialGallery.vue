@@ -12,7 +12,13 @@ const tutorials: Tutorial[] = [
     href: '/tutorials/getting_started',
     tag: 'GETTING STARTED',
     title: 'Surgery mortality across hospitals',
-    blurb: 'A walkthrough of the simplest possible Bayesian analysis with Latte: hospital-by-hospital mortality rates, an IID random effect, and INLA in a few lines.',
+    blurb: 'Hospital-by-hospital surgery mortality with an IID random effect, written once and run through all three engines (INLA, TMB, HMC-Laplace) in a few lines each.',
+  },
+  {
+    href: '/tutorials/inla_in_depth',
+    tag: 'INLA · IN DEPTH',
+    title: 'Getting familiar with INLA',
+    blurb: 'Stay with the surgery model and dig into the INLA result object: reading marginals through the accessor functions, the model-comparison criteria (DIC, WAIC, marginal likelihood), and joint posterior sampling.',
   },
   {
     href: '/tutorials/disease_mapping_spatial',
@@ -42,7 +48,7 @@ const tutorials: Tutorial[] = [
     href: '/tutorials/fisheries_state_space',
     tag: 'STATE-SPACE · TMB',
     title: 'Multi-fleet stock assessment',
-    blurb: 'Schaefer surplus production with a continuous-time logistic ODE, three CPUE indices, and a 9-D hyperparameter space. tmb() finds the MAP and propagates uncertainty in seconds where INLA grid would need billions of points.',
+    blurb: 'Schaefer surplus production with a continuous-time logistic ODE, three CPUE indices, and a 9-D hyperparameter space. tmb() finds the hyperparameter MAP and reports uncertainty from the joint Hessian.',
   },
   {
     href: '/tutorials/spatial_spde',
@@ -54,7 +60,7 @@ const tutorials: Tutorial[] = [
     href: '/tutorials/barrier_coastline',
     tag: 'SPATIAL · BARRIER',
     title: 'Spatial fields that respect coastlines',
-    blurb: 'A stationary Matérn field smooths fish abundance straight across the Florida peninsula; a barrier model (Bakka et al.) does not. Same LGCP, swap the prior — and watch the phantom Atlantic hot spot vanish.',
+    blurb: 'A stationary Matérn field smooths fish abundance straight across the Florida peninsula; a barrier model (Bakka et al.) does not. Same LGCP, swap the prior, and the phantom hot spot across the peninsula disappears.',
   },
   {
     href: '/tutorials/spatial_survival_leukemia',
@@ -72,7 +78,7 @@ const tutorials: Tutorial[] = [
     href: '/tutorials/bayesian_model_averaging',
     tag: 'MODEL COMPARISON',
     title: 'Bayesian model averaging',
-    blurb: 'Three competing Poisson regressions, scored by marginal likelihood, then weighted into a posterior-averaged prediction.',
+    blurb: 'Two competing trend models (RW1 vs AR1) on annual earthquake counts, with near-tied marginal likelihoods. Their posterior weights come out close to even, so the averaged trend is a genuine blend.',
   },
   {
     href: '/tutorials/posterior_predictive_checks',

@@ -1,34 +1,33 @@
 # # Custom likelihoods: Tweedie regression on insurance claims
 #
-# Most Bayesian inference packages ship a fixed menu of observation
-# likelihoods — Poisson, Binomial, Normal, maybe Negative Binomial — and
-# anything outside that menu either requires hacking the package's C
-# layer or falls back to slow black-box samplers. Latte takes a different
-# stance: any distribution you can write down as a `logpdf` can be used
-# inside `inla()`, with full posterior uncertainty over both the latent
-# field and the hyperparameters.
+# A latent Gaussian model in Latte is not tied to a fixed list of
+# observation likelihoods. Any distribution you can write down as a
+# `logpdf` can go on the `~` line of an `@latte` model and be fit with
+# `inla()`, recovering posterior marginals for the latent field and the
+# hyperparameters together.
 #
-# This tutorial walks through that workflow on a likelihood R-INLA does
-# not provide at all: the **Tweedie compound Poisson-Gamma**. The Tweedie
-# is the canonical model for *zero-inflated continuous* responses —
-# insurance claim amounts, daily rainfall, fish catch biomass — where
-# most observations are exactly zero and the rest follow a continuous
-# right-skewed distribution.
+# This tutorial works through that on the Tweedie compound Poisson-Gamma,
+# the standard model for zero-inflated continuous responses such as
+# insurance claim amounts, daily rainfall, and fish-catch biomass, where
+# most observations are exactly zero and the rest are continuous and
+# right-skewed.
 #
-# Along the way you will learn:
-# - How to wrap a hand-coded log-density as a `Distribution` subtype that
-#   slots into an `@latte` model.
-# - How Latte's adapter routes any custom `~` distribution through the
-#   `AutoDiffObservationModel` AD path, with no changes to the
-#   `inla()` call.
-# - How to recover both the regression coefficients and the dispersion
-#   hyperparameter from a single fit.
+# We will:
+# - wrap a hand-coded log-density as a `Distribution` subtype usable in an
+#   `@latte` model,
+# - let Latte's adapter route the custom `~` statement through its
+#   automatic-differentiation observation model without touching the
+#   `inla()` call, and
+# - recover the regression coefficients and the dispersion hyperparameter
+#   from a single fit.
 #
 # ## Why Tweedie?
 #
-# A Tweedie distribution with power parameter `1 < p < 2` is exactly a
-# *compound Poisson-Gamma*: each observation `Y` arises by first drawing
-# a count `N ~ Poisson(λ)` and then summing `N` iid Gamma claim sizes,
+# A Tweedie distribution with power parameter `1 < p < 2` is a compound
+# Poisson-Gamma, the member of the [Tweedie exponential-dispersion
+# family](#ref-tweedie-edm) that handles zero-inflated continuous data: each
+# observation `Y` arises by first drawing a count
+# `N ~ Poisson(λ)` and then summing `N` iid Gamma claim sizes,
 #
 # ```math
 # Y = \sum_{i=1}^{N} X_i, \qquad X_i \sim \text{Gamma}(\alpha, \beta).
@@ -43,19 +42,17 @@
 # ```
 #
 # with `λ = μ^(2-p)/(φ(2-p))`, `α = (2-p)/(p-1)`, `β = φ(p-1)μ^(p-1)`.
-# That power variance function — variance scaling like `μ^p` — is what
-# gives Tweedie its modelling reach: `p = 1` is Poisson, `p = 2` is
-# Gamma, `1 < p < 2` interpolates between them.
+# The power variance function, with variance scaling like `μ^p`, gives
+# Tweedie its range: `p = 1` is Poisson, `p = 2` is Gamma, and
+# `1 < p < 2` interpolates between them.
 #
 # ## A custom `Distribution`
 #
-# The Tweedie pdf has no closed form. Dunn & Smyth (2005) give a
-# numerically stable series expansion — exactly the kind of thing that
-# is awkward to write in C inside R-INLA but is just a few lines of
-# Julia.
+# The Tweedie pdf has no closed form, but [Dunn & Smyth (2005)](#ref-dunn-smyth)
+# give a numerically stable series expansion that is a few lines of Julia.
 #
-# We use the compound Poisson–Gamma form. At `y = 0` the density is
-# atomic: `P(Y = 0) = exp(-λ)`. For `y > 0` the density factors as
+# We use the compound Poisson-Gamma form. At `y = 0` the density is
+# atomic, `P(Y = 0) = exp(-λ)`. For `y > 0` it factors as
 #
 # ```math
 # f(y) = e^{-\lambda - y/\beta} \, y^{-1} \sum_{n \ge 1}
@@ -101,13 +98,14 @@ function tweedie_logpdf(y, μ, φ, p)
     end
 end
 
-# To use this inside an `@latte` model, we wrap it as a tiny
-# `Distribution` subtype with a `logpdf` — that is all Latte needs. It
-# recognises the resulting `~` statements and routes them through the
-# AD-based observation model automatically. Give the parameters
-# *independent* type parameters so the latent-derived `μ` (an AD dual
-# number) and `φ`/`p` (a hyperparameter and a constant) can have different
-# types; that is what makes it AD-ready, with no promoting constructor.
+# To use this inside an `@latte` model, we wrap it as a small
+# `Distribution` subtype with a `logpdf`, which is all Latte needs to
+# recognise the `~` statement and route it through its
+# automatic-differentiation observation model. The three parameters get
+# independent type parameters so that the latent-derived `μ` (an AD dual
+# number) and `φ`/`p` (a hyperparameter and a constant) can carry
+# different types. That is what keeps the struct AD-ready, and it avoids
+# the need for a promoting constructor.
 struct Tweedie{A, B, C} <: ContinuousUnivariateDistribution
     μ::A
     φ::B
@@ -158,22 +156,28 @@ true_p = 1.6
 y = [rand_tweedie(Random.GLOBAL_RNG, μ_i, true_φ, true_p) for μ_i in true_μ]
 
 df = DataFrame(x = X[:, 2], claim = y, has_claim = y .> 0)
+first(df, 5)
 
 # About 4% of policies file no claim at all; the rest are continuous,
-# right-skewed claim amounts. Visualised:
+# right-skewed claim amounts. The claim distribution and its dependence on the
+# covariate are two different views of the same `df`, so we build each as an
+# AlgebraOfGraphics layer and draw them into one figure:
 using AlgebraOfGraphics, CairoMakie
 
 fig = Figure(size = (820, 360))
-ax1 = Axis(
-    fig[1, 1], title = "Claim distribution",
-    xlabel = "Claim amount", ylabel = "Density",
+draw!(
+    fig[1, 1],
+    data(df) * mapping(:claim => "Claim amount") *
+        AlgebraOfGraphics.histogram(bins = 40) *
+        visual(color = (:steelblue, 0.6));
+    axis = (title = "Claim distribution", ylabel = "Count"),
 )
-hist!(ax1, y; bins = 40, color = (:steelblue, 0.6), strokewidth = 0)
-ax2 = Axis(
-    fig[1, 2], title = "Claim vs covariate",
-    xlabel = "Driver risk score (x)", ylabel = "Claim amount",
+draw!(
+    fig[1, 2],
+    data(df) * mapping(:x => "Driver risk score (x)", :claim => "Claim amount") *
+        visual(Scatter, markersize = 7, color = (:black, 0.5));
+    axis = (title = "Claim vs covariate",),
 )
-scatter!(ax2, df.x, df.claim; markersize = 7, color = (:black, 0.5))
 fig
 
 # The cluster of zero-claim policies plus the long right tail is the
@@ -181,17 +185,16 @@ fig
 #
 # ## The model
 #
-# The `@latte` model is the same shape as any other Latte regression: a
+# The `@latte` model has the same shape as any other Latte regression: a
 # hyperparameter prior, a Gaussian prior on the regression coefficients,
-# and a `~` statement per observation. The only thing that's "custom"
-# about it is the `Tweedie(...)` distribution — Latte handles the rest.
+# and a `~` statement per observation. The only custom piece is the
+# `Tweedie(...)` distribution.
 #
 # We treat the Tweedie power `p` as a fixed domain choice (`p = 1.6` is
-# typical for claim severity). This keeps the hyperparameter dimension
-# at 1 and the inference focused on the dispersion `φ` and the
-# regression coefficients `β`. If you wanted to learn `p` from data,
-# you'd add it as another `~` line and Latte would happily integrate
-# over it too.
+# typical for claim severity). That keeps the hyperparameter dimension at
+# one and focuses the inference on the dispersion `φ` and the regression
+# coefficients `β`. To learn `p` from the data instead, you would add it
+# as another `~` line and Latte would integrate over it as well.
 using Latte
 
 @latte function tweedie_glm(y, X, p_fixed)
@@ -203,24 +206,23 @@ using Latte
     end
 end
 
-# A few notes worth calling out for the curious:
+# A few notes on what happens under the hood:
 #
-# - The custom Tweedie likelihood is **not** in Latte's fast-path table
+# - The custom Tweedie likelihood is not in Latte's fast-path table
 #   (Poisson, Bernoulli, Binomial, Normal, NegativeBinomial, Gamma), so
-#   the adapter routes it through `AutoDiffObservationModel`. This gives
-#   us first-class support for any `logpdf` we can write — including
-#   ones with infinite series like Tweedie — at the cost of a bit more
-#   compile time on the first call.
+#   the adapter routes it through `AutoDiffObservationModel`. That covers
+#   any `logpdf` we can write, including ones with an infinite series like
+#   Tweedie, at the cost of a little more compile time on the first call.
 # - We pass `likelihood_hessian_pattern = :dense` because the Tweedie
-#   series expansion isn't traceable by `SparseConnectivityTracer` (the
-#   `for` loop over series terms breaks tracer propagation). For a
-#   `n = 200` dataset a dense Hessian is tiny; for very large `n` you
-#   might want to provide a known sparse pattern explicitly.
-# - Calling the `@latte` function returns the `LatentGaussianModel`
-#   directly: `@latte` reads `φ` as a hyperparameter and `β` as the
-#   latent field. Because the prior `LogNormal(0, 2)` has positive
-#   support, Latte infers the log-transform automatically and reports
-#   the `φ` marginal in natural (dispersion) space.
+#   series expansion is not traceable by `SparseConnectivityTracer`; the
+#   `for` loop over series terms breaks tracer propagation. For `n = 200`
+#   a dense Hessian is small, and for very large `n` you would supply a
+#   known sparse pattern explicitly.
+# - Calling the `@latte` function returns the `LatentGaussianModel`. Latte
+#   reads `φ` as a hyperparameter and `β` as the latent field. Because the
+#   prior `LogNormal(0, 2)` has positive support, the log-transform is
+#   inferred automatically and the `φ` marginal is reported in natural
+#   (dispersion) space.
 lgm = tweedie_glm(y, X, true_p; likelihood_hessian_pattern = :dense)
 
 # ## Running INLA
@@ -228,11 +230,11 @@ lgm = tweedie_glm(y, X, true_p; likelihood_hessian_pattern = :dense)
 # Declaring the prior directly on the natural parameter `φ` means there is no
 # hyperparameter-derived value for `@latte` to hoist into the observation
 # payload, so this model runs under the default `diff_strategy = ADStrategy()`
-# with no extra wiring — the AD path handles a hand-written `logpdf` fine. We
-# nonetheless pass `FiniteDiffStrategy()` here purely as a performance choice:
-# for a custom likelihood with a single hyperparameter, finite differences are
-# roughly 2x faster than AD on the outer Hessian, and everything else about the
-# call is unchanged:
+# with no extra wiring; the AD path handles a hand-written `logpdf` without
+# trouble. We pass `FiniteDiffStrategy()` here as a performance choice: for a
+# custom likelihood with a single hyperparameter, finite differences are about
+# twice as fast as AD on the outer Hessian, and nothing else about the call
+# changes.
 result = inla(
     lgm, y;
     diff_strategy = FiniteDiffStrategy(),
@@ -241,15 +243,16 @@ result = inla(
 
 # ## Posteriors
 #
-# `result.latent_marginals` holds posterior marginals for `β`, and
-# `result.hyperparameter_marginals` holds the marginal for `φ` — in
-# natural (dispersion) space, since we declared the prior on `φ`
-# directly. Both are `Distributions.jl`-compatible objects, so we can
-# call `mean`, `std`, `quantile`, etc. directly:
-β_summary = summary_df(result.latent_marginals)
+# `latent_marginals(result, :β)` returns the posterior marginals for the
+# regression coefficients, and `hyperparameter_marginals(result, :φ)`
+# returns the marginal for `φ` in natural (dispersion) space, since we
+# declared the prior on `φ` directly. Each is a `Distributions.jl`-compatible
+# object, so `mean`, `std`, `quantile`, and the rest work on them directly.
+# `summary_df` collects the common statistics into a table:
+β_summary = summary_df(latent_marginals(result, :β))
 
 # ...and the dispersion marginal:
-hp_summary = summary_df(result.hyperparameter_marginals)
+hp_summary = summary_df(hyperparameter_marginals(result, :φ))
 
 # Compare to truth:
 truth = DataFrame(
@@ -260,59 +263,91 @@ truth = DataFrame(
     q97_5 = [β_summary.q97_5[1], β_summary.q97_5[2], hp_summary.q97_5[1]],
 )
 
-# All three true values land squarely inside the 95% credible intervals.
-# We can also visualise the marginal posteriors:
-fig2 = Figure(size = (1100, 320))
-for (j, (name, marginal, true_val)) in enumerate(
-        [
-            ("β₁ (intercept)", result.latent_marginals[1], true_β[1]),
-            ("β₂ (slope)", result.latent_marginals[2], true_β[2]),
-            ("φ", result.hyperparameter_marginals.φ, true_φ),
-        ]
-    )
-    ax = Axis(fig2[1, j]; title = name, xlabel = "value", ylabel = "density")
+# All three true values land inside the 95% credible intervals. We can
+# also plot the marginal posteriors. Each panel covers a different variable on
+# its own scale, so we assemble a tidy density table from the accessors and
+# facet it, with the true values as a second layer of reference lines:
+β_marginals = latent_marginals(result, :β)
+φ_marginal = hyperparameter_marginals(result, :φ)[1]
+
+panels = [
+    ("β₁ (intercept)", β_marginals[1], true_β[1]),
+    ("β₂ (slope)", β_marginals[2], true_β[2]),
+    ("φ", φ_marginal, true_φ),
+]
+density_df = mapreduce(vcat, panels) do (name, marginal, _)
     xs = range(quantile(marginal, 0.001), quantile(marginal, 0.999); length = 200)
-    lines!(ax, xs, pdf.(marginal, xs); color = :steelblue, linewidth = 2)
-    vlines!(ax, [true_val]; color = :crimson, linestyle = :dash, linewidth = 2)
+    DataFrame(parameter = name, value = xs, density = pdf.(marginal, xs))
 end
-fig2
+truth_df = DataFrame(
+    parameter = [name for (name, _, _) in panels],
+    truth = [true_val for (_, _, true_val) in panels],
+)
+
+curves = data(density_df) *
+    mapping(:value, :density, layout = :parameter) *
+    visual(Lines, color = :steelblue, linewidth = 2)
+truth_lines = data(truth_df) *
+    mapping(:truth, layout = :parameter) *
+    visual(VLines, color = :crimson, linestyle = :dash, linewidth = 2)
+draw(curves + truth_lines; facet = (; linkxaxes = :none, linkyaxes = :none))
 
 # Red dashed lines mark the true values; the posteriors concentrate
-# around them with sensible width. The dispersion posterior centres on
-# `φ ≈ 1.5`, our generative truth.
+# around them. The dispersion posterior centres on `φ ≈ 1.5`, the
+# generative truth.
 #
 # ## Takeaway
 #
-# Anything you can write down as a `logpdf(::MyDist, y)` is a first-class
-# observation likelihood in Latte. No upstream package edits, no manual
-# Hessian derivations, no MCMC fallback — the same default `inla()` call that
-# fits a Poisson regression also fits an ordinal model, a heavy-tailed
-# Student-t, a Bayesian quantile regression via the asymmetric Laplace, or
-# whatever else your domain throws at you. This Tweedie fit runs under the
-# default `ADStrategy()`; we kept `FiniteDiffStrategy()` only as a speed
-# optimisation for the single-hyperparameter outer Hessian.
+# A distribution you can express as `logpdf(::MyDist, y)` works as an
+# observation likelihood in Latte without any change to the `inla()` call.
+# The same model shape would carry an ordinal likelihood, a heavy-tailed
+# Student-t, or a Bayesian quantile regression built on the asymmetric
+# Laplace. This fit ran under the default `ADStrategy()`; we used
+# `FiniteDiffStrategy()` only as a speed optimisation for the
+# single-hyperparameter outer Hessian.
 #
-# A couple of practical tips when writing your own:
+# A few practical tips when writing your own:
 #
-# - Keep the `logpdf` AD-friendly: any control flow should depend on
-#   `y` (data, fixed) rather than on the parameters, and avoid
-#   `Float64`-typed buffers inside the function body — use comprehensions
-#   or `similar(x, T)` so eltype propagates from the inputs.
-# - If your `logpdf` involves an iterative computation (series, root
-#   solver, ODE solver) that's opaque to sparsity tracing, pass
-#   `likelihood_hessian_pattern = :dense` on your `@latte` model to
-#   short-circuit pattern detection.
-# - For genuinely conditionally-independent likelihoods — which is most
-#   of them — supplying `pointwise_loglik_func` lets Latte use a fast
-#   diagonal-Hessian path. Latte's adapter handles this automatically;
-#   if you build your `LatentGaussianModel` by hand, pass it explicitly
-#   to `AutoDiffObservationModel`.
-# - The default `ADStrategy()` handles the outer hyperparameter gradient
-#   for custom likelihoods out of the box. `FiniteDiffStrategy()` is a
-#   useful alternative when you have only a handful of hyperparameters:
-#   finite differences are cheap there and can run noticeably faster than
-#   AD, as in this fit.
+# - Keep the `logpdf` AD-friendly. Control flow should branch on `y`
+#   (data, fixed) rather than on the parameters, and avoid
+#   `Float64`-typed buffers in the body; use comprehensions or
+#   `similar(x, T)` so the eltype propagates from the inputs.
+# - If the `logpdf` involves an iterative computation (a series, root
+#   solver, or ODE solver) that sparsity tracing cannot see through, pass
+#   `likelihood_hessian_pattern = :dense` on the `@latte` model to skip
+#   pattern detection.
+# - When the likelihood is conditionally independent, which covers most
+#   cases, supplying `pointwise_loglik_func` lets Latte use a faster
+#   diagonal-Hessian path. The adapter wires this up automatically; if you
+#   build the `LatentGaussianModel` by hand, pass it to
+#   `AutoDiffObservationModel` yourself.
+# - `ADStrategy()` handles the outer hyperparameter gradient for custom
+#   likelihoods by default. `FiniteDiffStrategy()` is a reasonable
+#   alternative with only a handful of hyperparameters, where finite
+#   differences are cheap and ran somewhat faster here.
 #
-# Curious where else this pattern lands well? See the rest of the
-# tutorials gallery for hierarchical regressions, smoothing priors,
-# spatial models, and more.
+# For other applications of this pattern, see the rest of the tutorials:
+# hierarchical regressions, smoothing priors, and spatial models.
+#
+# ## References
+#
+# ```@raw html
+# <div class="ref-grid-2">
+# <PaperCite
+#   tag="Dunn-Smyth"
+#   title="Series Evaluation of Tweedie Exponential Dispersion Model Densities"
+#   authors="P. K. Dunn & G. K. Smyth"
+#   venue="Statistics and Computing" year="2005"
+#   doi="10.1007/s11222-005-4070-y"
+#   url="https://doi.org/10.1007/s11222-005-4070-y"
+#   abstract="The numerically stable series expansion of the Tweedie density used here: a log-sum-exp evaluation of the compound Poisson-Gamma infinite series." />
+# <PaperCite
+#   tag="Tweedie EDM"
+#   title="Exponential Dispersion Models"
+#   authors="B. Jørgensen"
+#   venue="J. R. Statist. Soc. B" year="1987"
+#   doi="10.1111/j.2517-6161.1987.tb01685.x"
+#   url="https://doi.org/10.1111/j.2517-6161.1987.tb01685.x"
+#   abstract="The exponential-dispersion family that contains the Tweedie distributions, including the compound Poisson-Gamma with power variance function Var[Y] = φ μ^p." />
+# </div>
+# ```

@@ -19,6 +19,7 @@ makedocs(;
         "Tutorials" => [
             "Overview" => "tutorials/index.md",
             "Getting started" => "tutorials/getting_started.md",
+            "Getting familiar with INLA" => "tutorials/inla_in_depth.md",
             "Spatial disease mapping" => "tutorials/disease_mapping_spatial.md",
             "Bayesian model averaging" => "tutorials/bayesian_model_averaging.md",
             "Temporal trends" => "tutorials/temporal_trend_earthquakes.md",
@@ -51,10 +52,10 @@ makedocs(;
             "INLA Model" => "reference/inla_model.md",
             "Hyperparameter Posterior" => "reference/hyperparameter_posterior.md",
         ],
-    ],
+    ]
 )
 
 DocumenterVitepress.deploydocs(;
     repo = "github.com/timweiland/Latte.jl",
-    devbranch = "main",
+    devbranch = "main"
 )

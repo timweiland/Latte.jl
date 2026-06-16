@@ -1,26 +1,27 @@
 # # Disease mapping with spatial models
 #
-# Welcome! In this tutorial we'll analyze lung cancer mortality across Pennsylvania counties
-# using spatial disease mapping. We'll use the BYM model to estimate disease risk while
-# accounting for spatial correlation between neighboring counties.
+# This tutorial analyzes lung cancer mortality across Pennsylvania counties with the
+# BYM model, estimating disease risk while accounting for spatial correlation between
+# neighboring counties.
 #
 # ## What is disease mapping?
 #
-# Disease mapping estimates disease risk across geographic areas. The challenge is that
-# crude rates are unstable in areas with small populations, and neighboring areas often
-# have similar risk due to shared environmental or socioeconomic factors.
+# Disease mapping estimates disease risk across geographic areas. Crude rates are
+# unstable in areas with small populations, and neighboring areas often share risk
+# through common environmental or socioeconomic factors.
 #
-# The **BYM model** (Besag-York-Mollié) is a classic choice for areal data. It combines:
-# - A **spatial component** (Besag/ICAR model) for spatially structured variation
-# - An **unstructured component** (IID) for region-specific random effects
+# The [BYM model (Besag-York-Mollié)](#ref-bym) is a standard choice for areal data. It
+# splits the county effect into a spatial component (a [Besag/ICAR model](#ref-besag)) for
+# spatially structured variation and an unstructured component (IID) for region-specific
+# deviations.
 #
 # ## The Pennsylvania lung cancer dataset
 #
-# We'll use lung cancer mortality data from Pennsylvania counties. The dataset includes
-# observed cases and population broken down by age, race, and gender, which allows us
-# to compute expected counts based on indirect standardization.
+# The data record lung cancer mortality across Pennsylvania counties, with observed
+# cases and population broken down by age, race, and gender. That breakdown is what
+# lets us compute expected counts by indirect standardization.
 #
-# First, let's load the data:
+# Loading the data:
 using CodecBzip2  # needed to decompress .rda files
 using RData
 using DataFrames
@@ -44,12 +45,11 @@ pennLC_sf = load(local_rda)["pennLC_sf"]
 first(pennLC_sf, 5)
 
 # ### Preprocessing
-# Next, we preprocess the data. Concretely, we:
-# - Aggregate data to the county level
-# - Create integer county IDs (needed for spatial model)
-# - Compute expected counts using indirect standardization (expected = population × overall rate across all counties)
-# - Compute the standardized incidence ratio (SIR) = observed / expected
-# - Convert geometries to LibGEOS polygons
+# We aggregate the data to the county level and add the quantities the model needs:
+# - integer county IDs for the spatial model,
+# - expected counts from indirect standardization (population times the overall rate across all counties),
+# - the standardized incidence ratio (SIR), observed over expected,
+# - and county geometries converted to LibGEOS polygons.
 county_data = combine(
     groupby(pennLC_sf, :county),
     :cases => sum => :cases,
@@ -70,7 +70,7 @@ county_data.geometry = [
 sort!(county_data, :county)
 first(county_data, 5)
 
-# Let's get a rough idea of the scale of the data:
+# The scale of the data:
 
 println("Pennsylvania lung cancer data:")
 println("  Counties: ", nrow(county_data))
@@ -80,44 +80,37 @@ println("  Overall rate: ", round(overall_rate * 100000, digits = 2), " per 100,
 
 # ### SIR summary
 #
-# The SIRs show substantial variation across counties.
-
-# Counties with SIR > 1 have higher than expected lung cancer mortality,
-# while SIR < 1 indicates lower than expected mortality.
+# Counties with SIR > 1 have higher than expected lung cancer mortality, those with
+# SIR < 1 lower than expected. Mapping the SIR shows the spread across the state.
 using AlgebraOfGraphics, CairoMakie
 data(county_data) * mapping(:geometry, color = :SIR) * visual(Poly) |> draw
 
-# Notice the high variability! Some counties have SIRs well above 1 (higher risk),
-# others well below (lower risk). The spatial model will stabilize these estimates
-# by borrowing strength from neighboring counties.
+# The variability is large: some counties sit well above 1, others well below. The
+# spatial model stabilizes these estimates by borrowing strength from neighboring
+# counties.
 
 # ## The BYM model
 #
-# For each county i, we model:
-# - Observed cases: Y_i ~ Poisson(E_i × exp(η_i))
-# - Linear predictor: η_i = α + spatial_i + unstructured_i
+# For each county i we model the observed cases as $Y_i \sim \text{Poisson}(E_i \cdot
+# \exp(\eta_i))$ with linear predictor $\eta_i = \alpha + \text{spatial}_i +
+# \text{unstructured}_i$. Here $E_i$ is the expected count (the exposure), $\alpha$ the
+# overall log-risk intercept, $\text{spatial}_i$ the Besag spatially structured effect,
+# and $\text{unstructured}_i$ the IID effect.
 #
-# where:
-# - E_i is the expected count (exposure)
-# - α is the overall log-risk intercept
-# - spatial_i is the Besag spatially structured effect
-# - unstructured_i is the IID unstructured effect
-#
-# For the Besag spatial model, we need to define which counties are neighbors.
-# We'll construct a contiguity-based adjacency matrix from the county geometries.
-# There is a helper method for this in GaussianMarkovRandomFields.jl:
+# The Besag model needs an adjacency structure that says which counties are neighbors.
+# GaussianMarkovRandomFields.jl builds a contiguity-based adjacency matrix from the
+# county geometries:
 using GaussianMarkovRandomFields, SparseArrays
 geom_collection = LibGEOS.GeometryCollection(county_data.geometry)
 W = contiguity_adjacency(geom_collection)
+size(W), nnz(W) ÷ 2  # counties and number of shared borders
 
-# Now we express the BYM model as a DynamicPPL `@model`. Three latent pieces:
-# - An intercept `β` (a one-element MvNormal, giving the DPPL adapter a simple
-#   random-effect structure to recognise).
-# - The spatial component `spatial ~ BesagModel(W; …)(τ = τ_besag)`. This yields
-#   a `ConstrainedGMRF` — `BesagModel` enforces a sum-to-zero constraint per
-#   connected component of the adjacency graph, which keeps the intercept
-#   identified from the spatial field.
-# - The unstructured component `u ~ IIDModel(n)(τ = τ_iid)`.
+# We write the BYM model as an `@latte` block with three latent pieces. The intercept
+# `β` is a one-element `MvNormal`, which gives the adapter a simple random-effect
+# structure to recognise. The spatial component `spatial ~ BesagModel(W; …)(τ =
+# τ_besag)` returns a `ConstrainedGMRF`: `BesagModel` enforces a sum-to-zero constraint
+# per connected component of the adjacency graph, which keeps the intercept identified
+# from the spatial field. The unstructured component is `u ~ IIDModel(n)(τ = τ_iid)`.
 using Latte
 using Distributions
 using LinearAlgebra
@@ -138,11 +131,10 @@ end
 
 # ## Prior specification
 #
-# We use PC (Penalized Complexity) priors for the precision parameters.
-# These priors prefer simpler models unless data strongly suggests otherwise.
-# `PCPrior.Precision(1.0, α = 0.01)` says: "I believe there's only a 1% chance
-# that the standard deviation exceeds 1.0 on the log-risk scale" (roughly a
-# 3-fold change in risk).
+# Both precisions get [PC (Penalized Complexity) priors](#ref-pc-priors), which favor the
+# simpler model unless the data pull away from it. `PCPrior.Precision(1.0, α = 0.01)`
+# calibrates that preference as $P(\sigma > 1) = 0.01$: a 1% prior probability that the
+# standard deviation exceeds 1.0 on the log-risk scale, roughly a three-fold change in risk.
 #
 # ## Running INLA
 #
@@ -151,48 +143,45 @@ end
 lgm = bym_model(county_data.cases, county_data.expected, n, W)
 inla_result = inla(lgm, county_data.cases; progress = false)
 
-# INLA has computed approximate posterior marginals for all parameters!
+# This returns posterior marginals for every parameter.
 #
 # ## Hyperparameter posteriors
 #
-# Let's examine the precision parameters:
-summary_df(inla_result.hyperparameter_marginals)
+# The two precision parameters summarize how much spatial and unstructured variation
+# the model attributes to the data:
+summary_df(hyperparameter_marginals(inla_result))
 
-# We can visualize these posterior distributions:
-fig = Figure(size = (900, 400))
-ax1 = Axis(
-    fig[1, 1],
-    xlabel = "Spatial precision (τ_besag)",
-    ylabel = "Posterior density",
-    title = "Spatial component precision"
+# Evaluating each marginal density on its own grid gives a tidy frame we can hand to
+# AlgebraOfGraphics, faceted by component:
+function density_frame(dist, label)
+    grid = range(quantile(dist, 0.001), quantile(dist, 0.999); length = 200)
+    return DataFrame(τ = grid, density = pdf.(Ref(dist), grid), component = label)
+end
+hyper_density = vcat(
+    density_frame(hyperparameter_marginals(inla_result, :τ_besag)[1], "Spatial (τ_besag)"),
+    density_frame(hyperparameter_marginals(inla_result, :τ_iid)[1], "Unstructured (τ_iid)"),
 )
-ax2 = Axis(
-    fig[1, 2],
-    xlabel = "Unstructured precision (τ_iid)",
-    ylabel = "Posterior density",
-    title = "Unstructured component precision"
-)
-plot!(ax1, inla_result.hyperparameter_marginals.τ_besag)
-plot!(ax2, inla_result.hyperparameter_marginals.τ_iid)
-fig
+data(hyper_density) *
+    mapping(:τ => "Precision", :density => "Posterior density", layout = :component) *
+    visual(Lines) |> draw(; facet = (; linkxaxes = :none))
 
 # ## Visualizing the latent spatial and unstructured effects
 #
-# Before we look at relative risk, let's visualize the actual model components themselves.
-# The BYM model decomposes each county's effect into two parts: a spatial component
-# (shared with neighbors) and an unstructured component (county-specific). These are
-# the base latent marginals - the raw building blocks before they're combined into
-# the linear predictor.
+# Before turning to relative risk, it helps to look at the model components directly.
+# The BYM model splits each county's effect into a spatial part (shared with neighbors)
+# and an unstructured part (county-specific). These base latent marginals are the
+# building blocks that combine into the linear predictor.
 #
-# Random variables are laid out in the order they appear in the model body:
-# `β`, then `spatial`, then `u`. So in `base_latent_marginals`, index 1 is
-# `β`, indices 2:(1+n) are the `spatial` effects, and the next n are `u`.
+# `base_latent_marginals(result)` returns them in the order the variables appear in the
+# model body: `β`, then `spatial`, then `u`. Index 1 is `β`, indices 2:(1+n) are the
+# `spatial` effects, and the next n are `u`.
 n_counties = nrow(county_data)
 spatial_offset = 1
 iid_offset = 1 + n_counties
 base_marginals = base_latent_marginals(inla_result)
+length(base_marginals)  # β (1) + spatial (n) + u (n)
 
-# Let's make a joyplot showing how these effects vary across a selection of counties:
+# A joyplot shows how these effects vary across a selection of counties:
 sorted_idx = sortperm(county_data.SIR, rev = true)
 component_indices = vcat(
     sorted_idx[1:3],              # 3 highest SIR
@@ -205,6 +194,8 @@ spatial_labels = [county_data.county[i] * " (spatial)" for i in component_indice
 iid_dists = [base_marginals[iid_offset + i] for i in component_indices]
 iid_labels = [county_data.county[i] * " (IID)" for i in component_indices]
 
+# Raw Makie: `joyplot!` is Latte's ridgeline recipe for marginal objects; AlgebraOfGraphics
+# has no equivalent and cannot consume opaque distributions directly.
 fig_components = Figure(size = (1200, 600))
 ax_spatial = Axis(
     fig_components[1, 1],
@@ -228,20 +219,19 @@ joyplot!(
 )
 fig_components
 
-# This decomposition is super informative! The spatial component shows smoothly varying
-# effects that are shared between neighboring counties, while the IID component captures
-# county-specific deviations. Notice how the spatial effects tend to be more constrained
-# (tighter distributions) because they're regularized by the spatial structure, whereas
-# the IID effects can vary more freely. This is exactly what the BYM model is designed
-# to do - separate the smooth spatial signal from local noise.
+# The spatial component varies smoothly and is shared between neighboring counties,
+# while the IID component captures county-specific deviations. The spatial effects sit
+# in tighter distributions because the spatial structure regularizes them; the IID
+# effects vary more freely. This is the separation of smooth spatial signal from local
+# noise that the BYM model is built to do.
 
 # ## Posterior relative risk estimates
 #
-# Now the key results: posterior estimates of relative risk for each county!
-# `observation_marginals` gives us marginals of the *fitted count*
-# $E_i \cdot \exp(\beta + \text{spatial}_i + u_i)$ (following R-INLA's convention
-# that fitted values include the offset). To get relative-risk summaries we
-# divide each summary column by the expected count:
+# The quantity of interest is the relative risk for each county. `observation_marginals`
+# returns marginals of the fitted count $E_i \cdot \exp(\beta + \text{spatial}_i + u_i)$,
+# following R-INLA's convention that fitted values include the offset. Dividing each
+# summary column by the expected count puts the summaries back on the relative-risk
+# scale:
 obs_marginals = observation_marginals(inla_result)
 fitted_summary = summary_df(obs_marginals)
 risk_summary = DataFrame(
@@ -257,99 +247,84 @@ first(select(risk_summary, :county, :SIR, :median, :q2_5, :q97_5), 10)
 
 # ## Comparing smoothed vs crude estimates
 #
-# The power of spatial modeling becomes clear when we compare smoothed posterior
-# estimates with crude SIRs:
-fig = Figure(size = (1000, 400))
-ax1 = Axis(
-    fig[1, 1],
-    title = "Crude SIR",
-    xlabel = "County",
-    ylabel = "Risk ratio"
-)
-ax2 = Axis(
-    fig[1, 2],
-    title = "Posterior mean relative risk (BYM)",
-    xlabel = "County",
-    ylabel = "Risk ratio"
+# Overlaying the crude SIR and the smoothed posterior estimate on a shared county axis
+# shows what the spatial model buys us. The posterior layer carries its 95% credible
+# interval as range bars:
+risk_summary.county_id = 1:nrow(risk_summary)
+risk_layers =
+    mapping(:county_id => "County", :q2_5, :q97_5) *
+    visual(Rangebars, color = (:steelblue, 0.3), whiskerwidth = 0) +
+    mapping(:county_id => "County", :SIR => "Risk ratio", color = direct("Crude SIR")) *
+    visual(Scatter, markersize = 6) +
+    mapping(
+    :county_id => "County", :median => "Risk ratio",
+    color = direct("Posterior median (BYM)"),
+) * visual(Scatter, markersize = 8)
+draw(
+    data(risk_summary) * risk_layers;
+    axis = (title = "Crude SIR vs posterior relative risk",),
 )
 
-scatter!(
-    ax1, 1:nrow(county_data), risk_summary.SIR,
-    color = :gray60, markersize = 6
-)
-hlines!(ax1, [1.0], color = :black, linestyle = :dash, linewidth = 1)
-
-rangebars!(
-    ax2, 1:nrow(county_data),
-    risk_summary.q2_5, risk_summary.q97_5,
-    color = (:steelblue, 0.3), whiskerwidth = 0
-)
-scatter!(
-    ax2, 1:nrow(county_data), risk_summary.median,
-    color = :steelblue, markersize = 4
-)
-hlines!(ax2, [1.0], color = :black, linestyle = :dash, linewidth = 1)
-fig
-
-# The difference is striking! The posterior estimates are much more stable than the crude SIRs.
-# Extreme values get shrunk toward 1.0 (the overall mean), neighboring counties end up with
-# similar estimates due to spatial smoothing, and we get proper uncertainty quantification
-# through the 95% credible intervals.
+# The posterior estimates are more stable than the crude SIRs. Extreme values shrink
+# toward 1.0, spatial smoothing pulls neighboring counties toward similar estimates, and
+# the 95% credible intervals quantify the remaining uncertainty.
 
 # ## Visualizing posterior distributions with joyplots
 #
-# Credible intervals are useful, but they only show two numbers. Let's visualize the full
-# posterior distributions for selected counties using a joyplot. We'll pick the 5 highest
-# and 5 lowest risk counties to see how the distributions differ:
+# Credible intervals report two numbers; a joyplot shows the full posterior. Picking the
+# 5 highest- and 5 lowest-risk counties brings out how the distributions differ.
+#
+# The fitted-count marginals live on the county-specific count scale, so their densities
+# span very different widths (a county with thousands of cases has a much flatter density
+# than one with fifty). Stacked as-is, every ridge would be nearly flat. Dividing each
+# marginal by its expected count puts all of them on the common relative-risk scale, where
+# the curves are comparable and legible. `pushforward` carries the full distribution
+# through the `Y_i / E_i` map, not just its summaries:
+using Bijectors: Scale
 sorted_by_risk = sortperm(risk_summary.median, rev = true)
 selected_indices = vcat(
     sorted_by_risk[1:5],      # 5 highest risk
     sorted_by_risk[(end - 4):end]
 ) # 5 lowest risk
 
-selected_dists = [obs_marginals[i] for i in selected_indices]
+selected_dists = [
+    pushforward(obs_marginals[i], Scale(1.0 / county_data.expected[i]))
+        for i in selected_indices
+]
 selected_labels = [county_data.county[i] for i in selected_indices]
 
 fig_joy = joyplot(
     selected_dists;
     labels = selected_labels,
-    title = "Fitted-count distributions (selected counties)",
-    xlabel = "Fitted expected count",
+    title = "Posterior relative-risk distributions (selected counties)",
+    xlabel = "Relative risk",
 )
 fig_joy
 
-# You can see how the high-risk counties have distributions shifted to the right,
-# while low-risk counties cluster near or below 1.0. The width of each distribution tells
-# you about uncertainty - counties with smaller populations tend to have wider, more uncertain
-# distributions.
+# The high-risk counties have relative-risk distributions sitting above 1.0, the low-risk
+# counties below it. The width of each distribution reflects uncertainty: counties with
+# smaller populations have wider, less certain distributions.
 
 # ## Identifying high-risk counties
 #
-# Which counties have significantly elevated risk? Those where the entire
-# 95% credible interval is above 1.0:
+# A county shows significantly elevated risk when its entire 95% credible interval lies
+# above 1.0:
 high_risk = risk_summary[
     risk_summary.q2_5 .> 1.0,
     [:county, :median, :q2_5, :q97_5],
 ]
 
-println("Counties with significantly elevated lung cancer risk:")
-println(high_risk)
-
-# Similarly for low-risk counties:
+# Reduced risk is the mirror image: the whole interval below 1.0.
 low_risk = risk_summary[
     risk_summary.q97_5 .< 1.0,
     [:county, :median, :q2_5, :q97_5],
 ]
 
-println("\nCounties with significantly reduced lung cancer risk:")
-println(low_risk)
-
 # ## Exceedance probabilities
 #
-# For each county, we can compute the probability that relative risk exceeds
-# a threshold (e.g., 1.1 for 10% elevated risk). Since the marginals are on
-# the fitted-count scale, $\mathbb{P}(\text{RR} > t)$ equals
-# $\mathbb{P}(\text{fitted} > t \cdot E_i)$:
+# For each county we can compute the probability that relative risk exceeds a threshold,
+# say 1.1 for 10% elevated risk. The marginals are on the fitted-count scale, so
+# $\mathbb{P}(\text{RR} > t)$ equals $\mathbb{P}(\text{fitted} > t \cdot E_i)$:
 threshold = 1.1
 risk_summary.exc_prob = [
     1 - cdf(obs_marginals[i], threshold * county_data.expected[i])
@@ -357,28 +332,17 @@ risk_summary.exc_prob = [
 ]
 data(risk_summary) * mapping(:geometry, color = :exc_prob) * visual(Poly) |> draw
 
-# Counties with high probability of elevated risk:
-high_prob = findall(risk_summary.exc_prob .> 0.95)
-println("\nCounties with >95% probability of RR > ", threshold, ":")
-for i in high_prob
-    println(
-        "  ", county_data.county[i], ": P(RR > $threshold) = ",
-        round(risk_summary.exc_prob[i], digits = 3)
-    )
-end
+# The counties where that probability exceeds 0.95:
+risk_summary[
+    risk_summary.exc_prob .> 0.95,
+    [:county, :median, :exc_prob],
+]
 
 # ## Model diagnostics and comparison
 #
-# Let's examine model fit statistics:
-println("\nBYM model fit:")
-println("  DIC: ", round(inla_result.accumulators[1].DIC, digits = 2))
-println("  Effective parameters (p_D): ", round(inla_result.accumulators[1].p_D, digits = 2))
-println("  Log marginal likelihood: ", round(inla_result.accumulators[2].log_marginal_likelihood, digits = 2))
-
-# ## Comparing with simpler models
-#
-# To appreciate the spatial component's value, let's fit a model with only
-# unstructured random effects (no spatial structure):
+# The default accumulators report the DIC (with its effective parameter count `p_D`) and
+# the log marginal likelihood. To judge whether the spatial component earns its place, we
+# fit a second model with only unstructured random effects:
 @latte function iid_only(cases, expected, n)
     τ_iid ~ PCPrior.Precision(1.0, α = 0.01)
     β ~ MvNormal(zeros(1), 100.0 * I(1))
@@ -391,35 +355,75 @@ end
 lgm_iid = iid_only(county_data.cases, county_data.expected, n)
 inla_result_iid = inla(lgm_iid, county_data.cases; progress = false)
 
-# Compare model fit:
-println("\nModel comparison:")
-println("BYM (spatial + unstructured):")
-println("  DIC: ", round(inla_result.accumulators[1].DIC, digits = 2))
-println("  Log ML: ", round(inla_result.accumulators[2].log_marginal_likelihood, digits = 2))
-println("\nIID only (no spatial structure):")
-println("  DIC: ", round(inla_result_iid.accumulators[1].DIC, digits = 2))
-println("  Log ML: ", round(inla_result_iid.accumulators[2].log_marginal_likelihood, digits = 2))
+# Putting the two fits side by side:
+DataFrame(
+    model = ["BYM (spatial + unstructured)", "IID only"],
+    DIC = round.(
+        [inla_result.accumulators[1].DIC, inla_result_iid.accumulators[1].DIC],
+        digits = 2,
+    ),
+    p_D = round.(
+        [inla_result.accumulators[1].p_D, inla_result_iid.accumulators[1].p_D],
+        digits = 2,
+    ),
+    log_ML = round.(
+        [
+            inla_result.accumulators[2].log_marginal_likelihood,
+            inla_result_iid.accumulators[2].log_marginal_likelihood,
+        ],
+        digits = 2,
+    ),
+)
 
-# The BYM model should have lower DIC (better fit) and higher marginal likelihood
-# if spatial structure is present in the data.
+# A lower DIC and higher marginal likelihood for the BYM model would indicate that the
+# data carry spatial structure the IID model cannot capture.
 
 # ## Summary
 #
-# And that's disease mapping with Latte.jl! We started with raw lung cancer data from
-# Pennsylvania counties and used the BYM model to separate genuine spatial patterns
-# from noise. The model gave us stable risk estimates by borrowing strength from
-# neighboring counties, which is especially important when dealing with small populations.
+# We started from raw Pennsylvania lung cancer counts and used the BYM model to separate
+# spatial pattern from noise. Borrowing strength across neighboring counties produced
+# more stable risk estimates than the crude SIRs, which matters most where populations
+# are small.
 #
-# We saw how the spatial component captures smooth geographic variation while the
-# unstructured component picks up county-specific quirks. The joyplots really brought
-# this decomposition to life, showing how uncertainty varies across the risk spectrum.
-# And by computing exceedance probabilities, we could make concrete statements about
-# which counties are likely experiencing elevated risk - exactly what public health
-# officials need for resource allocation.
+# The spatial component captured smooth geographic variation and the unstructured
+# component the county-specific deviations. Looking at the full posteriors through
+# joyplots showed how uncertainty changes across the risk spectrum, and exceedance
+# probabilities turned the posteriors into direct statements about which counties are
+# likely above a given risk threshold.
 #
-# The BYM model shows up everywhere in spatial epidemiology, from disease surveillance
-# to environmental health studies. Any time you're working with count data in small
-# areas and suspect your neighbors matter, this is the model to reach for.
+# The BYM model is a standard tool in spatial epidemiology for count data over small
+# areas where neighboring regions are expected to be similar.
 #
-# Want to dig deeper? Check out [Getting started with Latte.jl](@ref)
-# for the INLA basics, or explore how hyperparameter priors work in the main documentation.
+# To go further, see [Getting started with Latte.jl](@ref) for the INLA basics, or the
+# main documentation for how hyperparameter priors work.
+#
+# ## References
+#
+# ```@raw html
+# <div class="ref-grid-2">
+# <PaperCite
+#   tag="BYM"
+#   title="Bayesian Image Restoration, with Two Applications in Spatial Statistics"
+#   authors="J. Besag, J. York & A. Mollié"
+#   venue="Ann. Inst. Statist. Math." year="1991"
+#   doi="10.1007/BF00116466"
+#   url="https://doi.org/10.1007/BF00116466"
+#   abstract="Introduces the Besag-York-Mollié model: an areal count model combining a spatially structured intrinsic CAR effect with an unstructured IID effect, the standard decomposition for disease mapping." />
+# <PaperCite
+#   tag="Besag"
+#   title="Spatial Interaction and the Statistical Analysis of Lattice Systems"
+#   authors="J. Besag"
+#   venue="J. R. Statist. Soc. B" year="1974"
+#   doi="10.1111/j.2517-6161.1974.tb00999.x"
+#   url="https://doi.org/10.1111/j.2517-6161.1974.tb00999.x"
+#   abstract="The foundational paper on conditional autoregressive (CAR) models, the intrinsic Gaussian Markov random field that the spatial component of the BYM model is built from." />
+# <PaperCite
+#   tag="PC priors"
+#   title="Penalising Model Component Complexity: A Principled, Practical Approach to Constructing Priors"
+#   authors="D. Simpson, H. Rue, A. Riebler, T. G. Martins & S. H. Sørbye"
+#   venue="Statistical Science" year="2017"
+#   doi="10.1214/16-STS576"
+#   url="https://doi.org/10.1214/16-STS576"
+#   abstract="Penalised Complexity priors shrink each model component toward a simpler base model, with interpretable scaling such as P(σ > U) = α; the priors used on both BYM precisions here." />
+# </div>
+# ```

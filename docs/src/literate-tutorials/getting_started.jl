@@ -1,37 +1,49 @@
 # # Getting started with Latte.jl
 #
-# Welcome!
-# In this hands-on tutorial we will walk through a very simple Bayesian analysis
-# of mortality rates following surgery in some hospitals.
-# In the process, you will learn the basics of Latte.jl enabling
-# you to get started with your own analyses.
+# This tutorial walks through a small Bayesian analysis of mortality rates
+# following cardiac surgery across twelve hospitals. We write the model once
+# and then run it through all three of Latte's inference engines, INLA, TMB,
+# and HMC-Laplace, swapping a single function call each time. That "define
+# once, run any engine" workflow is the thread this tutorial pulls on.
 #
 # ## Installation
-# If you haven't done so already, you need to install both Julia and this package.
-# See the instructions on the home page.
+# If you haven't done so already, you need to install both
+# [Julia](https://julialang.org/install/) and this package. Latte is not yet
+# in the General registry, so install it from the GitHub URL:
 #
-# ## What are integrated nested Laplace approximations?
+# ```julia
+# using Pkg
+# Pkg.add(url = "https://github.com/timweiland/Latte.jl")
+# ```
 #
-# Integrated Nested Laplace Approximations (INLA) is a computational method for
-# fast approximate Bayesian inference in latent Gaussian models. Instead of using
-# slow MCMC sampling, INLA uses a combination of Laplace approximations and numerical
-# integration to quickly compute posterior marginal distributions for parameters and
-# hyperparameters.
+# Once Latte is registered, `Pkg.add("Latte")` will be the one-liner.
 #
-# INLA is particularly well-suited for:
-# - **Hierarchical models** with structured latent effects (random intercepts, spatial fields, etc.)
-# - **Generalized linear mixed models** with exponential family likelihoods
-# - **Geostatistical and spatio-temporal models** with Gaussian Markov random fields
-# - **Problems requiring speed** where you need results in seconds rather than hours
+# ## Latent Gaussian models and the three engines
 #
-# This package, Latte.jl, provides a modern Julia implementation
-# of INLA with emphasis on clarity, flexibility, and composability.
+# Latte targets *latent Gaussian models* (LGMs): hierarchical models with a
+# Gaussian latent field, such as random intercepts, smooth temporal trends, or
+# spatial fields, observed through an exponential-family likelihood. This is a
+# broad class. It covers generalized linear mixed models, geostatistics, and
+# spatio-temporal models built on Gaussian Markov random fields.
+#
+# For these models the latent field can be integrated out with a Laplace
+# approximation, which is the shared backbone of all three engines Latte
+# ships. They differ only in how they handle the remaining *hyperparameters*:
+#
+# - **INLA** spreads a small grid of hyperparameter points and integrates over
+#   them. Deterministic, fast, and the default.
+# - **TMB** finds the most likely hyperparameters and fits one Gaussian at that
+#   mode. The fastest engine; it reports a mode and standard errors.
+# - **HMC-Laplace** samples the hyperparameters with NUTS. The most faithful
+#   when the hyperparameter posterior is awkward, and the slowest.
+#
+# Because they all consume the same `LatentGaussianModel`, you write the model
+# once and pick the engine afterwards. The rest of this tutorial does exactly
+# that.
 #
 # ## The dataset
-# We're going to analyze a very simple dataset that contains mortality rates following
-# cardiac surgery on babies in twelve different hospitals.
-#
-# This is our dataset:
+# The data records, for each hospital, the number of operations `n` and the
+# number of deaths `r` following cardiac surgery on infants. Here it is:
 using DataFrames
 surg_data = DataFrame(
     hospital = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"],
@@ -48,7 +60,9 @@ draw(
         (:r, :n) => ((r, n) -> r ./ n) => "Observed mortality rate"
     ) *
         visual(BarPlot),
-    axis = (xticklabelrotation = π / 4, title = "Observed surgery mortality rates by hospital")
+    axis = (
+        xticklabelrotation = π / 4, title = "Observed surgery mortality rates by hospital",
+    )
 )
 
 # ## Modelling
@@ -65,14 +79,11 @@ draw(
 # is a hospital-specific random effect with a Gaussian prior. The number
 # of deaths in each hospital is then Binomial.
 #
-# A couple of modelling details worth calling out:
-# - `u` uses Latte's `IIDModel(H, constraint = :sumtozero)(τ = τ_u)` — an
-#   IID Gaussian random effect with a sum-to-zero constraint, which keeps
-#   `β` and `u` identified.
-# - We give `τ_u` (the random-effect precision) a `Gamma(2, 1)` prior. It
-#   puts mild mass on moderate precisions; nothing fancy.
-# - We use `logistic` from `StatsFuns` for the inverse-logit link, mirroring
-#   the Turing idiom.
+# A few modelling details are worth calling out. The hospital effect `u` uses
+# `IIDModel(H, constraint = :sumtozero)(τ = τ_u)`, an IID Gaussian random effect
+# whose sum-to-zero constraint keeps `β` and `u` identified. The random-effect
+# precision `τ_u` gets a `Gamma(2, 1)` prior, which places mild mass on moderate
+# precisions. The inverse-logit link comes from `logistic` in `StatsFuns`.
 using Latte
 using Distributions
 using GaussianMarkovRandomFields: IIDModel
@@ -99,50 +110,37 @@ hospital_idx = 1:H |> collect
 lgm = surg_mortality(surg_data.r, surg_data.n, hospital_idx, H)
 
 # ## Running INLA
-# We have our data, we've specified the model, and we've chosen a prior for its hyperparameter.
-# Without further ado, let's run INLA:
+# With the model in hand, the default engine is one call away:
 inla_result = inla(lgm, surg_data.r)
 
-# The output is of type `INLAResult`, which contains the results of the analysis
-# (and spits out a nice summary).
+# The output is an `INLAResult`. It holds the full analysis and prints a short
+# summary when displayed.
 #
-# Let's dissect the results.
+# Every marginal Latte computes implements the Distributions.jl interface, so
+# you can call Distributions.jl methods on these objects directly. The
+# accessor functions return marginals as blocks: one distribution per
+# hyperparameter, one per latent variable. We read them back through these
+# accessors rather than the result's fields, since the accessors behave the
+# same regardless of how the result was stored internally.
 #
-# ## Exploring the Results
-#
-# All marginals computed by Latte.jl implement the Distributions.jl interface.
-# This means that you can simply call methods from Distributions.jl directly on these objects.
-# Let's try this for the marginal of the IID model's precision:
-τ_marginal = inla_result.hyperparameter_marginals.τ_u
+# For a quick table of key statistics, `summary_df` collects a block of
+# marginals into a DataFrame. Here are the hyperparameter and latent-field
+# marginals:
+summary_df(hyperparameter_marginals(inla_result))
 
-# Let's compute the median and a confidence interval:
-median(τ_marginal), quantile(τ_marginal, 0.025), quantile(τ_marginal, 0.975)
+#-
+summary_df(latent_marginals(inla_result))
 
-# We can also sample:
-rand(τ_marginal, 3)
-
-# If you'd prefer to get a quick summary of key statistics, the helper method `summary_df` is your friend:
-summary_df(inla_result.hyperparameter_marginals)
-
-# We can do the same for the marginals of the latent field. These are exactly the
-# variables we specified in the model: the intercept `β` plus the 12 hospital
-# effects, 13 in total.
-summary_df(inla_result.latent_marginals)
-
-# We can also ask for the per-hospital linear predictors `η = β + u[hospital]`.
-# These aren't latent variables we sampled directly, so Latte derives them from
-# the latent posterior on demand:
-summary_df(linear_predictor_marginals(inla_result))
-
-# And the posterior predictive marginals, which map the linear predictors through
-# the inverse link function onto the mortality-rate scale:
+# We can also map the per-hospital linear predictors `η = β + u[hospital]`
+# through the inverse link onto the mortality-rate scale, the posterior
+# predictive marginals, and plot them against the data with AlgebraOfGraphics:
 pred_df = summary_df(observation_marginals(inla_result))
-
-# We can use AlgebraOfGraphics again to visualize our results nicely:
 pred_df.hospital = surg_data.hospital
 data(pred_df) * (
-    mapping(:hospital => "Hospital", :q2_5, :q97_5) * visual(Rangebars, whiskerwidth = 8, color = :gray80) +
-        mapping(:hospital => "Hospital", :median => "Median") * visual(Scatter, markersize = 10)
+    mapping(:hospital => "Hospital", :q2_5, :q97_5) *
+        visual(Rangebars, whiskerwidth = 8, color = :gray80) +
+        mapping(:hospital => "Hospital", :median => "Median") *
+        visual(Scatter, markersize = 10)
 ) |> draw(;
     axis = (
         xticklabelrotation = π / 4,
@@ -151,24 +149,108 @@ data(pred_df) * (
     )
 )
 
-# ... so it'd be wise to avoid Hospital H :)
-#
-# Lastly, let's take a look at accumulators.
-# These get called for each integration point of the hyperparameter posterior.
-# Two accumulators are included by default, to compute the Deviance Information Criterion (DIC) and the marginal likelihood.
-# You saw their output in the `INLAResult` summary, but you can also access their results directly:
-inla_result.accumulators[1]
+# Hospital H stands out, with the highest fitted rate and an interval well
+# above the others. The companion tutorial,
+# [Getting familiar with INLA](inla_in_depth.md), goes deeper on these
+# accessors, on model-comparison criteria like DIC and WAIC, and on drawing
+# joint posterior samples.
 
-#
-inla_result.accumulators[1].DIC, inla_result.accumulators[1].p_D
+# ## The same model through TMB
+# `tmb` runs the fast point-estimate engine: it finds the hyperparameter mode
+# (the MAP) and fits a single Gaussian there, giving a MAP value and a standard
+# error for each hyperparameter. Note that the model object is the same `lgm`,
+# only the entry-point function changes:
+tmb_result = tmb(lgm, surg_data.r)
 
-#
-inla_result.accumulators[2]
+# The same accessors work on the result, returning the same Distributions.jl
+# marginals. TMB's marginal for `τ_u` is a single Gaussian (in the working,
+# here log, space) reported back on the natural scale, so its median is the MAP
+# estimate and its spread the standard error:
+τ_tmb = hyperparameter_marginals(tmb_result, :τ_u)[1]
+median(τ_tmb), std(τ_tmb)
 
-# These two quantities are most valuable for Bayesian model selection.
-# If we run INLA on the same data for two different models, these quantities help us decide between the two.
+# TMB is exact when the hyperparameter posterior is close to Gaussian in the
+# working (here log) space, which is often the case for well-identified models.
+# Its single Gaussian cannot bend to follow a skewed posterior, though, which
+# is the trade-off against INLA's grid.
+
+# ## The same model through HMC-Laplace
+# `hmc_laplace` keeps the inner Laplace approximation for the latent field but
+# replaces the deterministic hyperparameter treatment with NUTS, sampling the
+# hyperparameter posterior directly. It is the most faithful engine when that
+# posterior is genuinely non-Gaussian, at the cost of running an MCMC chain. We
+# seed the RNG for a reproducible chain:
+using Random
+hmc_result = hmc_laplace(
+    lgm, surg_data.r; n_samples = 500, n_warmup = 200, rng = MersenneTwister(0)
+)
+
+# Check that the chain behaved before trusting the marginals, then read `τ_u`
+# back through the same accessor. Here the marginal is an empirical one built
+# from the NUTS draws, summarised by its median and a 95% credible interval:
+converged(hmc_result), divergences(hmc_result)
+
+#-
+τ_hmc = hyperparameter_marginals(hmc_result, :τ_u)[1]
+median(τ_hmc), quantile(τ_hmc, 0.025), quantile(τ_hmc, 0.975)
+
+# ## Which engine, when?
+# All three approximate the same posterior; they differ in how they handle the
+# hyperparameters and therefore in speed and faithfulness.
+#
+# - Reach for **`inla`** by default. It is fast and accurate on the great
+#   majority of latent Gaussian models, and it recovers the hyperparameter skew
+#   that TMB misses.
+# - Reach for **`tmb`** when you want the quickest fit and a MAP-plus-standard-error
+#   summary is enough, or when the model has many hyperparameters and you are
+#   content with empirical Bayes at the mode.
+# - Reach for **`hmc_laplace`** when the hyperparameter posterior is curved or
+#   strongly skewed (scale-versus-correlation trade-offs, parameters pinned
+#   against a boundary) and you need faithful tails, and there are few enough
+#   hyperparameters that sampling stays affordable.
+#
+# The dedicated tutorials work each engine on a model built for its strengths:
+# [state-space stock assessment](fisheries_state_space.md) for TMB, and
+# [sampling hyperparameters](hmc_laplace_when.md) for HMC-Laplace. The
+# [TMB](../engines/tmb.md) and [HMC-Laplace](../engines/hmc_laplace.md) engine
+# pages cover the methods and their tuning in more detail.
 
 # ## Conclusion
-# Congratulations! You just learned the basic usage of Latte.jl.
+# That covers the core workflow: write one `@latte` model, then run `inla`,
+# `tmb`, or `hmc_laplace` on it and read the marginals back through the same
+# accessor functions. Next, [Getting familiar with INLA](inla_in_depth.md)
+# stays with this surgery model and digs into the result object: marginal
+# accessors in depth, model-comparison criteria, and posterior sampling. The
+# other tutorials build on this with spatial fields, temporal smoothing, custom
+# likelihoods, and more.
+
+# ## References
 #
-# Curious to learn more? Check our other tutorials.
+# ```@raw html
+# <div class="ref-grid-2">
+# <PaperCite
+#   tag="INLA"
+#   title="Approximate Bayesian Inference for Latent Gaussian Models by Using Integrated Nested Laplace Approximations"
+#   authors="H. Rue, S. Martino & N. Chopin"
+#   venue="J. R. Statist. Soc. B" year="2009"
+#   doi="10.1111/j.1467-9868.2008.00700.x"
+#   url="https://doi.org/10.1111/j.1467-9868.2008.00700.x"
+#   abstract="The original INLA paper: deterministic approximate Bayesian inference for latent Gaussian models via nested Laplace approximations and numerical integration over the hyperparameters." />
+# <PaperCite
+#   tag="TMB"
+#   title="TMB: Automatic Differentiation and Laplace Approximation"
+#   authors="K. Kristensen, A. Nielsen, C. W. Berg, H. Skaug & B. M. Bell"
+#   venue="Journal of Statistical Software" year="2016"
+#   doi="10.18637/jss.v070.i05"
+#   url="https://doi.org/10.18637/jss.v070.i05"
+#   abstract="The TMB R package: fast Laplace approximation of the marginal likelihood for latent-variable models, with automatic differentiation for the gradients and Hessians." />
+# <PaperCite
+#   tag="Embedded Laplace + HMC"
+#   title="Hamiltonian Monte Carlo using an Adjoint-differentiated Laplace Approximation"
+#   authors="C. C. Margossian, A. Vehtari, D. Simpson & R. Agrawal"
+#   venue="Advances in Neural Information Processing Systems (NeurIPS)" year="2020"
+#   arxiv="2004.12550"
+#   url="https://arxiv.org/abs/2004.12550"
+#   abstract="Hamiltonian Monte Carlo over the hyperparameters, with the latent Gaussian field marginalised by an embedded Laplace approximation and the gradient propagated through that inner solve. The method this engine implements." />
+# </div>
+# ```

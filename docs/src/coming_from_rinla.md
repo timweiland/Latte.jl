@@ -370,7 +370,7 @@ distribution objects that implement the `Distributions.jl` interface, so you cal
 # R: result$summary.fixed
 β = latent_marginals(result, :fixed)
 mean(β[1])                      # posterior mean of the intercept
-quantile(β[2], (0.025, 0.975))  # 95% credible interval of a coefficient
+quantile.(β[2], (0.025, 0.975))  # 95% credible interval of a coefficient
 
 # R: result$summary.random
 u = latent_marginals(result, :u)
