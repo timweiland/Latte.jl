@@ -1,22 +1,21 @@
 # # Temporal trend smoothing: Global earthquake activity
 #
 # Raw counts of rare events are noisy. Is the number of major earthquakes really
-# changing over time, or are we just seeing random fluctuation? In this tutorial
-# we use INLA with random walk models to smooth annual earthquake counts and
-# uncover long-term trends.
+# changing over time, or are we just seeing random fluctuation? Here we use INLA
+# with random walk models to smooth annual earthquake counts and look for a
+# long-term trend.
 #
-# Along the way you will learn:
-# - How to fit **Poisson models** with temporal random effects
-# - The difference between **RW1** (first-order) and **RW2** (second-order) random walks
-# - How the random walk **precision** controls the smoothness of the estimated trend
-# - How to compare models using **DIC** and **WAIC**
+# The tutorial covers a Poisson model with a temporal random effect, the
+# difference between first- and second-order random walks (RW1 and RW2), the role
+# of the random-walk precision in controlling smoothness, and model comparison via
+# DIC and WAIC.
 #
 # ## The dataset
 #
 # We use annual counts of major earthquakes (magnitude $\geq$ 7) from 1900 to 2006.
-# This classic dataset appears in Zucchini et al. (2016) and the
+# This dataset appears in [Zucchini et al. (2016)](#ref-zucchini) and the
 # [INLA gitbook](https://becarioprecario.bitbucket.io/inla-gitbook/ch-temporal.html).
-# With only 107 observations it fits comfortably in a code block:
+# With 107 observations it fits in a single code block:
 using DataFrames
 quake_counts = [
     13, 14, 8, 10, 16, 26, 32, 27, 18, 32, 36, 24, 20, 23, 23, 18, 12,
@@ -39,9 +38,9 @@ draw(
 )
 
 # The counts bounce around a lot year to year. There seems to be a broad hump in the
-# early-to-mid 20th century and perhaps a decline toward the end, but it is hard to
-# tell signal from noise by eye. This is exactly the kind of problem where temporal
-# smoothing shines.
+# early-to-mid 20th century and perhaps a decline toward the end, but by eye it is
+# hard to separate signal from noise. Temporal smoothing is one way to make that
+# separation explicit.
 #
 # ## Poisson model with a first-order random walk (RW1)
 #
@@ -62,10 +61,10 @@ draw(
 # high $\tau$ means small differences (smooth trend), low $\tau$ allows more
 # wiggle (follows the data closely).
 #
-# We express this as an `@latte` model. The random-walk prior is provided by
+# We express this as an `@latte` model. The random-walk prior comes from
 # [GaussianMarkovRandomFields.jl](https://github.com/timweiland/GaussianMarkovRandomFields.jl)'s
 # `RWModel{Order}`, which we call with `(τ = τ_rw)` to produce a GMRF prior that
-# `@latte` recognizes as a structured Gaussian. We write one model per order —
+# `@latte` recognizes as a structured Gaussian. We write one model per order:
 # `RWModel{1}` here, `RWModel{2}` below.
 using Latte
 using Distributions
@@ -89,12 +88,14 @@ n_years = nrow(eq_data)
 lgm_rw1 = quake_rw1(eq_data.quakes, n_years)
 result_rw1 = inla(lgm_rw1, eq_data.quakes; progress = false)
 
-# Let's look at the fitted trend. The observation marginals give us the posterior
+# Let's look at the fitted trend. The observation marginals give the posterior
 # distribution of $\lambda_t = \exp(\eta_t)$, the expected count per year:
 obs_rw1 = observation_marginals(result_rw1)
 fit_rw1 = summary_df(obs_rw1)
 fit_rw1.year = eq_data.year
+first(fit_rw1, 5)
 
+# Overlaying the posterior median and 95% interval on the raw counts:
 fig = Figure(size = (800, 400))
 ax = Axis(
     fig[1, 1],
@@ -107,9 +108,9 @@ lines!(ax, fit_rw1.year, fit_rw1.median, color = :steelblue, linewidth = 2, labe
 axislegend(ax, position = :rt, framevisible = false)
 fig
 
-# The RW1 trend is fairly wiggly — it tracks local fluctuations in the data.
-# This is characteristic of a first-order random walk: it penalises abrupt jumps
-# but is happy to change direction frequently.
+# The RW1 trend is fairly wiggly and tracks local fluctuations in the data. This
+# is characteristic of a first-order random walk: it penalises abrupt jumps in
+# level, but changing direction from year to year carries little cost.
 #
 # ## Poisson model with a second-order random walk (RW2)
 #
@@ -138,7 +139,9 @@ result_rw2 = inla(lgm_rw2, eq_data.quakes; progress = false)
 obs_rw2 = observation_marginals(result_rw2)
 fit_rw2 = summary_df(obs_rw2)
 fit_rw2.year = eq_data.year
+first(fit_rw2, 5)
 
+#
 fig = Figure(size = (800, 400))
 ax = Axis(
     fig[1, 1],
@@ -157,8 +160,8 @@ fig
 #
 # ## Side-by-side comparison
 #
-# The contrast between RW1 and RW2 is a vivid illustration of how model choice
-# affects inference. Let's overlay both:
+# The contrast between RW1 and RW2 shows how the smoothness assumption feeds
+# through to the fitted trend. Let's overlay both:
 fig = Figure(size = (900, 450))
 ax = Axis(
     fig[1, 1],
@@ -171,10 +174,10 @@ lines!(ax, fit_rw2.year, fit_rw2.median, color = :darkorange, linewidth = 2, lab
 axislegend(ax, position = :rt, framevisible = false)
 fig
 
-# The RW1 trend (blue) hugs the data more closely. The RW2 trend (orange) is
-# smoother and more conservative — it tells a simpler story about the underlying
-# process. Neither is "right" in an absolute sense; the choice depends on whether
-# you believe the true rate changes erratically or smoothly.
+# The RW1 trend (blue) hugs the data more closely, while the RW2 trend (orange) is
+# smoother and tells a simpler story about the underlying process. Neither is
+# "right" in an absolute sense; the choice depends on whether you believe the true
+# rate changes erratically or smoothly.
 #
 # ## Hyperparameter posteriors
 #
@@ -191,65 +194,76 @@ ax2 = Axis(
     xlabel = "Precision (τ)", ylabel = "Density",
     title = "RW2 precision posterior"
 )
-plot!(ax1, result_rw1.hyperparameter_marginals.τ_rw)
-plot!(ax2, result_rw2.hyperparameter_marginals.τ_rw)
+plot!(ax1, hyperparameter_marginals(result_rw1, :τ_rw)[1])
+plot!(ax2, hyperparameter_marginals(result_rw2, :τ_rw)[1])
 fig
 
 # Higher precision means smaller differences between consecutive time points,
-# which produces a smoother curve. Notice how the posteriors differ: the data
-# inform how much smoothing is appropriate for each model class.
+# which produces a smoother curve. The two posteriors sit in different places:
+# the data inform how much smoothing is appropriate within each model class.
 #
-# Let's look at the summary statistics:
-println("RW1 precision:")
-println(summary_df(result_rw1.hyperparameter_marginals))
-println("\nRW2 precision:")
-println(summary_df(result_rw2.hyperparameter_marginals))
+# The posterior mean of $\tau$ is read directly off the marginal, since
+# `@latte` reports hyperparameters on their declared (natural) scale:
+τ_rw1 = hyperparameter_marginals(result_rw1, :τ_rw)[1]
+τ_rw2 = hyperparameter_marginals(result_rw2, :τ_rw)[1]
+mean(τ_rw1), mean(τ_rw2)
+
+# A compact summary table for each model's precision:
+summary_df(hyperparameter_marginals(result_rw1))
+
+#
+summary_df(hyperparameter_marginals(result_rw2))
 
 # ## Model comparison
 #
 # Which model fits the data better? INLA computes several model comparison criteria
-# as part of inference. Let's look at three:
-# - **DIC** (Deviance Information Criterion): lower is better
-# - **WAIC** (Watanabe-Akaike Information Criterion): lower is better
-# - **Log marginal likelihood**: higher is better
-println("Model comparison:")
-println("─"^50)
+# as part of inference, and they land in `result.accumulators`. We pull out three.
+# The Deviance Information Criterion (DIC) and the Watanabe-Akaike Information
+# Criterion (WAIC) both balance fit against complexity, with lower values
+# preferred; the log marginal likelihood is a model-selection score where higher
+# is preferred. The default accumulator tuple orders them as DIC, log marginal
+# likelihood, then WAIC.
+comparison = DataFrame(
+    model = String[], DIC = Float64[], p_D = Float64[],
+    WAIC = Float64[], log_ML = Float64[],
+)
 for (name, res) in [("RW1", result_rw1), ("RW2", result_rw2)]
-    dic = res.accumulators[1].DIC
-    p_d = res.accumulators[1].p_D
-    mll = res.accumulators[2].log_marginal_likelihood
-    waic = res.accumulators[3].WAIC
-    println(
-        "$name: DIC = $(round(dic, digits = 1)) (p_D = $(round(p_d, digits = 1))), " *
-            "WAIC = $(round(waic, digits = 1)), " *
-            "log ML = $(round(mll, digits = 1))"
+    push!(
+        comparison, (
+            name,
+            round(res.accumulators[1].DIC, digits = 1),
+            round(res.accumulators[1].p_D, digits = 1),
+            round(res.accumulators[3].WAIC, digits = 1),
+            round(res.accumulators[2].log_marginal_likelihood, digits = 1),
+        )
     )
 end
+comparison
 
-# The DIC and WAIC tell us which model explains the data better while accounting
-# for complexity. The effective number of parameters ($p_D$) is lower for RW2,
-# reflecting its smoother fit. Together, these criteria help decide whether the
-# extra flexibility of RW1 is justified by the data.
+# DIC and WAIC weigh fit against complexity. The effective number of parameters
+# ($p_D$) is lower for RW2, reflecting its smoother fit, so the criteria let us ask
+# whether the extra flexibility of RW1 earns its keep on this data.
 #
 # ## Posterior predictive check
 #
-# Finally, let's check whether our models can reproduce the variability we see in
-# the data. We draw posterior predictive samples and compare their distribution
-# to the observed counts:
+# Finally, do the models reproduce the variability we see in the data? We draw
+# posterior predictive datasets with `posterior_predictive`, which returns an
+# `n_samples × n_obs` matrix where each row is one simulated dataset:
 using Random
 Random.seed!(42)
 
 n_obs = nrow(eq_data)
 n_samples = 200
-pp_rw1 = hcat([rand(result_rw1, 1; include_y = true)[1].y[1:n_obs] for _ in 1:n_samples]...)
-pp_rw2 = hcat([rand(result_rw2, 1; include_y = true)[1].y[1:n_obs] for _ in 1:n_samples]...)
+pp_rw1 = posterior_predictive(result_rw1, n_samples)
+pp_rw2 = posterior_predictive(result_rw2, n_samples)
 size(pp_rw1), size(pp_rw2)
 
-# For each year, compute the 2.5th and 97.5th percentiles of the replicated counts:
-pp_rw1_lo = [quantile(pp_rw1[t, :], 0.025) for t in 1:n_obs]
-pp_rw1_hi = [quantile(pp_rw1[t, :], 0.975) for t in 1:n_obs]
-pp_rw2_lo = [quantile(pp_rw2[t, :], 0.025) for t in 1:n_obs]
-pp_rw2_hi = [quantile(pp_rw2[t, :], 0.975) for t in 1:n_obs]
+# For each year, take the 2.5th and 97.5th percentiles over the replicated counts
+# (columns index years here):
+pp_rw1_lo = [quantile(pp_rw1[:, t], 0.025) for t in 1:n_obs]
+pp_rw1_hi = [quantile(pp_rw1[:, t], 0.975) for t in 1:n_obs]
+pp_rw2_lo = [quantile(pp_rw2[:, t], 0.025) for t in 1:n_obs]
+pp_rw2_hi = [quantile(pp_rw2[:, t], 0.975) for t in 1:n_obs];
 
 fig = Figure(size = (900, 500))
 ax1 = Axis(
@@ -273,23 +287,42 @@ fig
 #
 # ## Summary
 #
-# In this tutorial we used INLA to smooth earthquake counts over a century of data.
-# The key takeaways:
+# We used INLA to smooth earthquake counts over a century of data, with a few
+# points worth carrying forward:
 #
-# - **RW1** penalises first differences, producing a *locally adaptive* trend that can
-#   change direction easily. It is a good default when you expect irregular changes.
-# - **RW2** penalises second differences, producing a *globally smooth* trend. It is
-#   a good choice when you believe the underlying process varies slowly.
-# - The **precision hyperparameter** $\tau$ controls the smoothness within each model
-#   class. INLA estimates $\tau$ from the data rather than requiring you to choose it.
-# - **DIC**, **WAIC**, and the **marginal likelihood** provide principled ways to
-#   compare models with different smoothness assumptions.
+# - RW1 penalises first differences and gives a locally adaptive trend that can
+#   change direction easily, which suits a process you expect to move irregularly.
+# - RW2 penalises second differences for a globally smooth trend, a better match
+#   when the underlying rate varies slowly.
+# - Within each model class the precision $\tau$ sets the degree of smoothing, and
+#   INLA estimates it from the data rather than leaving it for you to pick.
+# - DIC, WAIC, and the marginal likelihood give principled ways to compare models
+#   with different smoothness assumptions.
 #
-# Random walks are fundamental building blocks in INLA. Once you are comfortable with
-# RW1 and RW2, you can build toward AR1 processes, seasonal models, and the separable
-# space-time models covered in the spatial disease mapping tutorial.
+# Random walks are basic building blocks in INLA ([Rue & Held, 2005](#ref-gmrf)).
+# From RW1 and RW2 you can build
+# toward AR1 processes, seasonal models, and the separable space-time models
+# covered in the spatial disease mapping tutorial.
 #
 # ## References
 #
-# - Zucchini, W., MacDonald, I. L., & Langrock, R. (2016). *Hidden Markov Models for Time Series*. Chapman & Hall/CRC.
-# - Rue, H. & Held, L. (2005). *Gaussian Markov Random Fields: Theory and Applications*. Chapman & Hall/CRC.
+# ```@raw html
+# <div class="ref-grid-2">
+# <PaperCite
+#   tag="Zucchini"
+#   title="Hidden Markov Models for Time Series: An Introduction Using R (2nd ed.)"
+#   authors="W. Zucchini, I. L. MacDonald & R. Langrock"
+#   venue="Chapman & Hall/CRC" year="2016"
+#   doi="10.1201/b20790"
+#   url="https://doi.org/10.1201/b20790"
+#   abstract="Source of the annual major-earthquake counts (1900–2006) used here as the competing-trend example." />
+# <PaperCite
+#   tag="GMRF"
+#   title="Gaussian Markov Random Fields: Theory and Applications"
+#   authors="H. Rue & L. Held"
+#   venue="Chapman & Hall/CRC" year="2005"
+#   doi="10.1201/9780203492024"
+#   url="https://doi.org/10.1201/9780203492024"
+#   abstract="The reference on GMRFs, including the random-walk priors (RW1/RW2) used here as temporal smoothers for the latent trend." />
+# </div>
+# ```

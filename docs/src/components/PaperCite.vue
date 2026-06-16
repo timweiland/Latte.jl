@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 // A clickable citation card. Use anywhere (globally registered):
 //   <PaperCite
 //     tag="SBC"
@@ -8,7 +9,7 @@
 //     arxiv="1804.06788"
 //     url="https://arxiv.org/abs/1804.06788"
 //     abstract="…one or two sentences…" />
-defineProps<{
+const props = defineProps<{
   title: string
   authors: string
   url: string
@@ -19,10 +20,15 @@ defineProps<{
   abstract?: string
   tag?: string
 }>()
+
+// Stable anchor so prose can deep-link to a card, e.g. tag="BYM2" -> id="ref-bym2".
+const anchorId = computed(() =>
+  props.tag ? 'ref-' + props.tag.toLowerCase().replace(/[^a-z0-9]+/g, '-') : undefined
+)
 </script>
 
 <template>
-  <a class="paper" :href="url" target="_blank" rel="noopener noreferrer">
+  <a class="paper" :id="anchorId" :href="url" target="_blank" rel="noopener noreferrer">
     <div class="paper-tag" v-if="tag">{{ tag }}</div>
     <div class="paper-title">{{ title }}<span class="paper-arrow" aria-hidden="true">↗</span></div>
     <div class="paper-authors">{{ authors }}</div>

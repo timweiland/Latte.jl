@@ -1,20 +1,17 @@
 # # Spatio-temporal disease surveillance
 #
 # Disease incidence varies across both space and time. An additive model can capture
-# *where* risk is high and *when* it peaks, but it assumes every region follows the
-# same temporal trend. In reality, spatial patterns often shift over time — an
-# emerging epidemic may spread outward from a focus, or public-health interventions
-# may reduce risk in some regions earlier than others.
+# where risk is high and when it peaks, but it assumes every region follows the
+# same temporal trend. In practice spatial patterns often shift over time: an
+# emerging epidemic may spread outward from a focus, or an intervention may reduce
+# risk in some regions earlier than others.
 #
-# In this tutorial we use **separable space-time models** to capture these interactions.
-# You will learn:
-# - How to specify a **Separable** interaction via a DynamicPPL `@model`
-# - How the **Kronecker product** structure `Q_time ⊗ Q_space` enforces smoothness
-#   in both dimensions simultaneously
-# - Why a structured interaction term **requires main effects** — and what goes
-#   wrong if you leave them out
-# - How to compare models using **DIC**, **WAIC**, and the **marginal likelihood**
-# - How to visualise space-time effects using **heatmaps** and **animations**
+# This tutorial uses separable space-time models to capture those interactions. It
+# covers how to specify a separable interaction in a `@latte` model, how the
+# Kronecker-product structure `Q_time ⊗ Q_space` enforces smoothness in both
+# dimensions at once, why a structured interaction term needs accompanying main
+# effects, and how DIC, WAIC, and the marginal likelihood help choose between the
+# fitted models.
 #
 # ## Simulating spatio-temporal data
 #
@@ -87,7 +84,7 @@ for t in 1:n_time, r in 1:n_regions
     count = rand(Poisson(pop[r] * exp(η)))
     push!(df, (time = t, region = r, y = count, expected = Float64(pop[r])))
 end
-println("$(nrow(df)) observations, mean count = $(round(mean(df.y), digits = 1))")
+(observations = nrow(df), mean_count = round(mean(df.y), digits = 1))
 
 # ## Exploratory visualisation
 #
@@ -106,24 +103,24 @@ hm = heatmap!(ax, 1:n_regions, 1:n_time, rate_matrix', colormap = Reverse(:RdYlB
 Colorbar(fig[1, 2], hm)
 fig
 
-# You can see both a spatial gradient (left vs right) and a temporal arc (middle rows
-# brighter). Importantly, the bright patch shifts across regions over time — this is
-# the interaction signal that an additive model cannot capture.
+# Both a spatial gradient (left vs right) and a temporal arc (middle rows brighter)
+# are visible. The bright patch also shifts across regions over time, which is the
+# interaction signal that an additive model cannot capture.
 
 using Latte
 using Distributions
 using GaussianMarkovRandomFields: BesagModel, RWModel, SeparableModel
 using LinearAlgebra
 
-# For the three multi-hyperparameter models below we share a set of `inla`
-# keyword arguments: automatic exploration-strategy selection, a Gaussian
-# latent marginalisation, and explicit accumulator strategies.
-# `AutoExplorationStrategy` is the important one here — a Cartesian grid scales
-# as (points-per-dim)^(n_hp), which is fine for the 2-hyperparameter models but
-# explodes to hundreds of points for the 4-hyperparameter `full_model` below.
-# Auto keeps a grid in 2-D and switches to a Central Composite Design (~25
-# points) in 4-D. Strategies are immutable configs; `inla()` materialises them
-# into fresh accumulator state on each call, so this tuple is safely reused.
+# The three multi-hyperparameter models below share a set of `inla` keyword
+# arguments: automatic exploration-strategy selection, a Gaussian latent
+# marginalisation, and an explicit set of accumulator strategies.
+# `AutoExplorationStrategy` matters most here. A Cartesian grid scales as
+# (points-per-dim)^(n_hp), which is manageable for the 2-hyperparameter models
+# but reaches hundreds of points for the 4-hyperparameter `full_model`. Auto keeps
+# a grid in 2-D and switches to a Central Composite Design (~25 points) in 4-D.
+# The strategies are immutable configs; `inla()` materialises them into fresh
+# accumulator state on each call, so this tuple is safely reused.
 const INLA_KWARGS = (
     progress = false,
     exploration_strategy = AutoExplorationStrategy(),
@@ -143,8 +140,9 @@ const INLA_KWARGS = (
 # \log \lambda_{t,r} = \mu + u_r + v_t
 # ```
 #
-# The spatial component is a Besag (ICAR) model and the temporal component is a
-# first-order random walk. In DPPL:
+# The spatial component is a [Besag (ICAR)](#ref-besag) model and the temporal
+# component is a first-order random walk, each with a [PC prior](#ref-pc-priors)
+# on its precision:
 @latte function additive_model(y, expected, region, time, n_regions, n_time, W)
     τ_besag ~ PCPrior.Precision(1.0, α = 0.01)
     τ_rw1 ~ PCPrior.Precision(1.0, α = 0.01)
@@ -161,11 +159,11 @@ end
 lgm_add = additive_model(df.y, df.expected, df.region, df.time, n_regions, n_time, W)
 result_additive = inla(lgm_add, df.y; INLA_KWARGS...)
 
-# Let's visualise the fitted rates:
+# The fitted rates come from `observation_marginals`, which reports fitted counts
+# with the exposure included; dividing by `expected` recovers a relative-risk
+# equivalent for the heatmap.
 obs_add = observation_marginals(result_additive)
 fit_add = summary_df(obs_add)
-# observation_marginals reports fitted counts (exposure included); divide by
-# `expected` to get a relative-risk equivalent for the heatmap.
 fitted_add = reshape(fit_add.median ./ df.expected, n_regions, n_time)'
 fig = Figure(size = (800, 400))
 ax = Axis(
@@ -184,16 +182,15 @@ fig
 #
 # ## Model 2: Interaction-only (a cautionary tale)
 #
-# Our first instinct might be to replace the additive model with a single
-# **separable** interaction term. The precision matrix is a Kronecker product
+# A tempting alternative is to replace the additive model with a single separable
+# interaction term. Its precision matrix is a Kronecker product
 #
 # ```math
 # Q = Q_{\text{time}} \otimes Q_{\text{space}}
 # ```
 #
 # With `RWModel{1}` for time and `BesagModel(W)` for space, this enforces
-# smoothness in *both* dimensions simultaneously. Let's try it as the sole
-# random effect.
+# smoothness in both dimensions at once. We try it here as the sole random effect.
 #
 # The Separable field has size `n_time × n_regions`, flattened in
 # row-major order (`δ[(t-1)*n_regions + r]` for region `r` at time `t`). This
@@ -230,35 +227,34 @@ hm = heatmap!(ax, 1:n_regions, 1:n_time, fitted_int_only', colormap = Reverse(:R
 Colorbar(fig[1, 2], hm)
 fig
 
-# Surprisingly, this model fits *worse* than the additive model! The fitted rates
-# are over-smoothed and barely capture any structure.
+# This model fits worse than the additive one. The fitted rates are over-smoothed
+# and barely capture any structure.
 #
 # ### Why interaction-only fails: the constraint story
 #
-# The answer lies in how **constraints** work in Kronecker product models.
+# The explanation lies in how the constraints of the two components compose under
+# the Kronecker product.
 #
-# Both the RW1 and the Besag components are **rank-deficient** — each has a
-# sum-to-zero constraint. When combined via `Q_time ⊗ Q_space`, these constraints
-# compose:
+# Both the RW1 and the Besag components are rank-deficient: each carries a
+# sum-to-zero constraint. Combining them through `Q_time ⊗ Q_space` makes those
+# constraints compose. The RW1 part contributes $\sum_t x_{t,s} = 0$ for each region
+# $s$ (25 constraints), and the Besag part contributes $\sum_s x_{t,s} = 0$ for each
+# time $t$ (12 constraints, one of them redundant).
 #
-# - From RW1: $\sum_t x_{t,s} = 0$ for each region $s$ (25 constraints)
-# - From Besag: $\sum_s x_{t,s} = 0$ for each time $t$ (12 constraints, minus 1 redundant)
-#
-# That gives **36 constraints** total. The crucial consequence: the Besag constraints
-# force the **spatial mean to be zero at every time point**. This means the
-# interaction field $\delta_{t,r}$ cannot capture any temporal main effect $v_t$
+# That leaves 36 constraints in total. The consequence that matters is that the
+# Besag constraints force the spatial mean to zero at every time point. The
+# interaction field $\delta_{t,r}$ then cannot carry any temporal main effect $v_t$
 # (which shifts all regions up or down together) or spatial main effect $u_r$
-# (which shifts all time points). It can only represent *pure interaction* —
-# deviations from additivity.
+# (which shifts all time points), so it represents pure interaction: deviations
+# from additivity and nothing else.
 #
-# Without separate main effect terms to capture $u_r$ and $v_t$, the model is
-# left trying to explain the entire signal through pure interaction alone, which
-# it cannot do.
+# With no separate main-effect terms for $u_r$ and $v_t$, the model is left trying
+# to explain the entire signal through pure interaction, which it cannot do.
 #
 # ## Model 3: Main effects + interaction (the right way)
 #
-# The correct formulation adds the interaction term **alongside** main effects,
-# following Knorr-Held's (2000) Type IV interaction structure:
+# The correct formulation adds the interaction term alongside main effects,
+# following [Knorr-Held's (2000)](#ref-knorr-held) Type IV interaction structure:
 #
 # ```math
 # \log \lambda_{t,r} = \mu + u_r + v_t + \delta_{t,r}
@@ -305,14 +301,14 @@ hm = heatmap!(ax, 1:n_regions, 1:n_time, fitted_full', colormap = Reverse(:RdYlB
 Colorbar(fig[1, 2], hm)
 fig
 
-# The full model captures the shifting wave pattern beautifully. Main effects
-# handle the spatial gradient and temporal arc, while the interaction term adds
-# the region-specific temporal deviations.
+# The full model recovers the shifting wave. Main effects handle the spatial
+# gradient and temporal arc, and the interaction term adds the region-specific
+# temporal deviations.
 #
 # ## Spatial snapshots at selected time points
 #
-# To make the interaction even more vivid, let's look at spatial maps at four
-# time points. We reshape each time slice back into the 5×5 grid:
+# Spatial maps at four time points show the interaction directly. We reshape each
+# time slice back into the 5×5 grid:
 snapshot_times = [1, 4, 8, 12]
 
 fig = Figure(size = (900, 250))
@@ -329,8 +325,8 @@ for (k, t) in enumerate(snapshot_times)
 end
 fig
 
-# You can see the high-risk area migrating across the grid over time — exactly
-# the wave we simulated.
+# The high-risk area migrates across the grid over time, tracing the wave we
+# simulated.
 #
 # ## Side-by-side comparison
 #
@@ -358,35 +354,43 @@ fig
 
 # ## Model comparison
 #
-# INLA computes several model comparison criteria. Let's see which model the data
-# prefer:
-println("Model comparison:")
-println("─"^70)
+# INLA computes several model comparison criteria as part of inference, and they
+# land in `result.accumulators`. DIC and WAIC both weigh fit against complexity,
+# with lower values preferred; the log marginal likelihood is a model-selection
+# score where higher is preferred. The accumulator tuple we configured in
+# `INLA_KWARGS` orders them as DIC, log marginal likelihood, then WAIC.
+comparison = DataFrame(
+    model = String[], DIC = Float64[], p_D = Float64[],
+    WAIC = Float64[], log_ML = Float64[],
+)
 for (name, res) in [
-        ("Additive        ", result_additive),
-        ("Interaction only ", result_interaction_only),
+        ("Additive", result_additive),
+        ("Interaction only", result_interaction_only),
         ("Full (main+inter)", result_full),
     ]
-    dic = res.accumulators[1].DIC
-    p_d = res.accumulators[1].p_D
-    mll = res.accumulators[2].log_marginal_likelihood
-    waic = res.accumulators[3].WAIC
-    println(
-        "$name:  DIC = $(round(dic, digits = 1)) (p_D = $(round(p_d, digits = 1))),  " *
-            "WAIC = $(round(waic, digits = 1)),  " *
-            "log ML = $(round(mll, digits = 1))"
+    push!(
+        comparison, (
+            name,
+            round(res.accumulators[1].DIC, digits = 1),
+            round(res.accumulators[1].p_D, digits = 1),
+            round(res.accumulators[3].WAIC, digits = 1),
+            round(res.accumulators[2].log_marginal_likelihood, digits = 1),
+        )
     )
 end
+comparison
 
-# The full model dominates on every criterion: lowest DIC and WAIC, highest marginal
-# likelihood. The interaction-only model is the worst — confirming that a structured
-# interaction term cannot substitute for main effects.
+# The full model leads on every criterion: lowest DIC and WAIC, highest marginal
+# likelihood. The interaction-only model trails both others, confirming that a
+# structured interaction term cannot substitute for main effects.
 #
 # ## Hyperparameter posteriors
 #
-# The full model has four hyperparameters. Let's examine what the data tell us
-# about the smoothness in each component:
-summary_df(result_full.hyperparameter_marginals)
+# The full model has four hyperparameters. The summary table reads each marginal
+# off the natural (declared) scale; we add a column naming the components in
+# declared order:
+hp_full = summary_df(hyperparameter_marginals(result_full))
+insertcols!(hp_full, 1, :parameter => collect(keys(hyperparameter_groups(result_full))))
 
 # The main-effect precisions ($\tau_\text{besag}$, $\tau_\text{rw1}$) control the
 # smoothness of the spatial and temporal main effects. The interaction precisions
@@ -396,25 +400,53 @@ summary_df(result_full.hyperparameter_marginals)
 # ## Summary
 #
 # Separable space-time models capture interactions that additive models cannot,
-# but they must be specified correctly. The key ideas:
+# but they have to be specified correctly. The points worth keeping:
 #
-# - **Additive models** assume every region follows the same temporal pattern.
-#   They are simpler and work well when there is no space-time interaction.
-# - **Separable interaction terms** use a Kronecker product $Q_\text{time} \otimes
+# - An additive model assumes every region follows the same temporal pattern. It
+#   is simpler and works well when there is no space-time interaction.
+# - A separable interaction term uses a Kronecker product $Q_\text{time} \otimes
 #   Q_\text{space}$ to enforce smoothness in both dimensions while allowing
 #   region-specific temporal patterns.
-# - Structured spatial components like **Besag** impose **sum-to-zero constraints**
-#   that make the interaction a *pure* interaction — it can only represent deviations
-#   from additive structure. **Main effects must be included separately** to capture
-#   the marginal spatial and temporal patterns.
-# - `SeparableModel(time_component, space_component)` composes the two
-#   precision matrices via Kronecker product; in a DPPL `@model` it lives on an
+# - A structured spatial component like Besag imposes sum-to-zero constraints that
+#   make the interaction pure: it represents only deviations from additive
+#   structure, so the main effects have to be included separately to capture the
+#   marginal spatial and temporal patterns.
+# - `SeparableModel(time_component, space_component)` composes the two precision
+#   matrices via Kronecker product; inside the `@latte` block it lives on an
 #   `n_time × n_regions` flat vector indexed by `(time-1)*n_regions + region`.
-# - **DIC**, **WAIC**, and the **marginal likelihood** help decide whether the
-#   extra flexibility of the interaction model is justified by the data.
+# - DIC, WAIC, and the marginal likelihood help decide whether the extra
+#   flexibility of the interaction model is justified by the data.
 #
-# These models are fundamental tools in spatial epidemiology, environmental
-# monitoring, and any application where spatial patterns evolve over time.
-# For background on the interaction taxonomy (Types I–IV), see
-# Knorr-Held (2000), *Bayesian modelling of inseparable space-time variation
-# in disease risk*.
+# These models see use in spatial epidemiology, environmental monitoring, and other
+# settings where spatial patterns evolve over time. For background on the
+# interaction taxonomy (Types I–IV), see [Knorr-Held (2000)](#ref-knorr-held).
+#
+# ## References
+#
+# ```@raw html
+# <div class="ref-grid-2">
+# <PaperCite
+#   tag="Knorr-Held"
+#   title="Bayesian Modelling of Inseparable Space-Time Variation in Disease Risk"
+#   authors="L. Knorr-Held"
+#   venue="Statistics in Medicine" year="2000"
+#   url="https://pubmed.ncbi.nlm.nih.gov/10960871/"
+#   abstract="Introduces the Type I–IV taxonomy of space-time interaction priors as Kronecker products of the spatial and temporal main-effect structures; the Type IV (Besag ⊗ RW) interaction used in the full model here." />
+# <PaperCite
+#   tag="Besag"
+#   title="Spatial Interaction and the Statistical Analysis of Lattice Systems"
+#   authors="J. Besag"
+#   venue="J. R. Statist. Soc. B" year="1974"
+#   doi="10.1111/j.2517-6161.1974.tb00999.x"
+#   url="https://doi.org/10.1111/j.2517-6161.1974.tb00999.x"
+#   abstract="The foundational paper on conditional autoregressive (CAR) models, the intrinsic Gaussian Markov random field that the spatial (Besag/ICAR) component is built from." />
+# <PaperCite
+#   tag="PC priors"
+#   title="Penalising Model Component Complexity: A Principled, Practical Approach to Constructing Priors"
+#   authors="D. Simpson, H. Rue, A. Riebler, T. G. Martins & S. H. Sørbye"
+#   venue="Statistical Science" year="2017"
+#   doi="10.1214/16-STS576"
+#   url="https://doi.org/10.1214/16-STS576"
+#   abstract="Penalised Complexity priors shrink each model component toward a simpler base model, with interpretable scaling such as P(σ > U) = α; the priors used on every precision hyperparameter here." />
+# </div>
+# ```

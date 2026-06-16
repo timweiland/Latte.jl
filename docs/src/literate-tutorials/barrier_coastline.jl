@@ -1,34 +1,32 @@
 # # Barrier Models: Spatial Fields That Respect Coastlines
 #
-# A stationary spatial field correlates two locations purely by the
-# **straight-line distance** between them. For a marine quantity — fish
-# abundance, salinity, a pollutant — that assumption breaks down near a
-# coastline: two points on opposite sides of a peninsula are close as the crow
-# flies, but a fish cannot swim through land. A stationary Matérn field happily
-# *smooths across the land* anyway, borrowing strength between water bodies that
-# are physically disconnected. Bakka et al. (2019) call this the **coastline
-# problem**.
+# A stationary spatial field correlates two locations by the straight-line
+# distance between them. For a marine quantity such as fish abundance, salinity,
+# or a pollutant, that assumption breaks down near a coastline. Two points on
+# opposite sides of a peninsula are close as the crow flies, but a fish cannot
+# swim through land. A stationary Matérn field smooths across the land anyway,
+# borrowing strength between water bodies that are physically disconnected.
+# [Bakka et al. (2019)](#ref-barrier) call this the coastline problem.
 #
-# The **barrier model** fixes it. It is a non-stationary variant of the Matérn
-# SPDE in which designated *barrier* regions (land) are given a tiny correlation
-# range, so the field decorrelates sharply across them. Correlation must then
-# flow *around* the coast through water rather than straight across the land —
-# all while keeping the same sparse precision structure, the same computational
-# cost, and **no extra hyperparameter** (the barrier range is a fixed fraction
-# of the water range, not something we infer).
+# The barrier model addresses it. It is a non-stationary variant of the Matérn
+# SPDE ([Lindgren, Rue & Lindström, 2011](#ref-spde)) in which designated barrier
+# regions (land) are given a tiny correlation
+# range, so the field decorrelates sharply across them. Correlation then flows
+# around the coast through water rather than straight across the land, while
+# keeping the same sparse precision structure and computational cost. The barrier
+# range is a fixed fraction of the water range, not a quantity we infer, so the
+# model adds no extra hyperparameter.
 #
-# In this tutorial we map a fish-abundance surface around the **Florida
-# peninsula**, which cleanly separates two basins — the Gulf of Mexico to the
-# west and the Atlantic to the east, connected only around the Keys to the
-# south. We
+# In this tutorial we map a fish-abundance surface around the Florida peninsula,
+# which separates two basins: the Gulf of Mexico to the west and the Atlantic to
+# the east, connected only around the Keys to the south. The plan is to
 #
 # 1. download a real coastline and tag the land triangles of a mesh as barriers,
 # 2. simulate a survey whose true abundance hot spot sits in the Gulf,
-# 3. fit the same log-Gaussian Cox process twice — once with a **barrier**
-#    field, once with a **stationary** Matérn field, and
-# 4. show, with held-out data, that the stationary model confidently bleeds the
-#    Gulf hot spot across the peninsula into the Atlantic, while the barrier
-#    model does not.
+# 3. fit the same log-Gaussian Cox process twice, once with a barrier field and
+#    once with a stationary Matérn field, and
+# 4. check, on held-out data, whether the stationary model bleeds the Gulf hot
+#    spot across the peninsula into the Atlantic.
 
 # ## The model
 #
@@ -41,10 +39,9 @@
 # ```
 #
 # where ``\beta_0`` is a global intercept and ``u(s)`` is the latent spatial
-# field. Everything below is identical whether ``u`` is a stationary Matérn
-# field or a barrier field — only the *prior* on ``u`` changes. That is the
-# whole point: the barrier model is a drop-in replacement that swaps how
-# correlation propagates through the domain.
+# field. Everything below is identical whether ``u`` is a stationary Matérn field
+# or a barrier field; only the prior on ``u`` changes. The barrier model is a
+# drop-in replacement that changes how correlation propagates through the domain.
 
 # ## Downloading a real coastline
 #
@@ -59,15 +56,15 @@ geojson_path = joinpath(tempdir(), "ne_10m_land.geojson")
 isfile(geojson_path) || Downloads.download(NE_URL, geojson_path)
 filesize(geojson_path)
 
-# GeoJSON stores each landmass as one or more closed coordinate *rings*. We only
+# GeoJSON stores each landmass as one or more closed coordinate rings. We only
 # need the rings near Florida, and we only ever test mesh-triangle centroids
-# against them, so we never have to clip the (enormous) North-America polygon —
-# we just keep every ring whose bounding box overlaps our region.
+# against them, so we never have to clip the large North-America polygon. We keep
+# every ring whose bounding box overlaps our region.
 #
-# Two parsing details are worth flagging. First, the North-America ring has
-# ~66k vertices; a single regex over the whole file backtracks catastrophically
-# and silently drops it, so we split on the ring delimiter `]],[[` *first* and
-# scan each chunk separately. Second, a handful of Natural Earth coordinates use
+# Two parsing details are worth flagging. The North-America ring has ~66k
+# vertices, and a single regex over the whole file backtracks catastrophically
+# and silently drops it, so we split on the ring delimiter `]],[[` first and scan
+# each chunk separately. A handful of Natural Earth coordinates also use
 # scientific notation (e.g. `6.8e-05`), so the number pattern must allow it.
 function extract_rings(geojson_str::AbstractString, bbox; pad = 2.0)
     lon0, lat0, lon1, lat1 = bbox
@@ -94,24 +91,24 @@ function extract_rings(geojson_str::AbstractString, bbox; pad = 2.0)
     return rings
 end
 
-## (lon0, lat0, lon1, lat1) — a window over Florida with open water on both
-## sides: the Gulf of Mexico to the west, the Atlantic to the east.
+## (lon0, lat0, lon1, lat1): a window over Florida with open water on both
+## sides, the Gulf of Mexico to the west and the Atlantic to the east.
 const BBOX = (-87.0, 24.0, -78.0, 31.0)
 land_rings = extract_rings(read(geojson_path, String), BBOX)
 println("kept $(length(land_rings)) land ring(s) overlapping the region")
 
 # ## Building the mesh and tagging barriers
 #
-# The barrier model lives on a triangular finite-element mesh, exactly like the
+# The barrier model lives on a triangular finite-element mesh, like the
 # stationary Matérn SPDE. We lay a structured triangular grid over the whole
-# window — covering water *and* land — because the latent field is defined on
-# every mesh node; the barrier only changes how the precision matrix is
-# assembled over the land triangles.
+# window, covering both water and land, because the latent field is defined on
+# every mesh node; the barrier only changes how the precision matrix is assembled
+# over the land triangles.
 #
 # Loading `Ferrite, FerriteGmsh, Gmsh, LibGEOS` activates the FEM machinery in
-# GaussianMarkovRandomFields. We do **not** actually mesh anything with Gmsh
-# here — a uniform grid plus a land polygon is all the barrier model needs — but
-# the extension is gated behind those packages being present.
+# GaussianMarkovRandomFields. We do not actually mesh anything with Gmsh here, as
+# a uniform grid plus a land polygon is all the barrier model needs, but the
+# extension is gated behind those packages being present.
 using GaussianMarkovRandomFields
 using Ferrite, FerriteGmsh, Gmsh, LibGEOS
 
@@ -196,17 +193,17 @@ fig
 
 # ## A barrier-respecting ground truth
 #
-# To judge the two models we need a known truth. We place a single abundance
-# **hot spot** — think of a spawning ground — in the Gulf, just off the
-# west-central coast, and let its influence decay *through water*. The barrier
-# field's own covariance is the natural way to express "influence that travels
-# around the coast, not across it": a column of its covariance matrix, read off
-# from the hot-spot node, is high near the hot spot, falls off through the Gulf,
-# and is essentially zero on the Atlantic side of the peninsula.
+# To judge the two models we need a known truth. We place a single abundance hot
+# spot, think of a spawning ground, in the Gulf just off the west-central coast,
+# and let its influence decay through water. The barrier field's own covariance
+# expresses "influence that travels around the coast, not across it": a column of
+# its covariance matrix, read off from the hot-spot node, is high near the hot
+# spot, falls off through the Gulf, and is essentially zero on the Atlantic side
+# of the peninsula.
 #
-# This is the situation barrier models are designed for — a field whose
-# correlation genuinely respects the coastline. The question the rest of the
-# tutorial asks is: starting from noisy survey counts, which model recovers it?
+# This is the situation barrier models are designed for, a field whose
+# correlation respects the coastline. The rest of the tutorial asks which model
+# recovers it from noisy survey counts.
 using LinearAlgebra, SparseArrays, Statistics, Random
 
 const TRUE_RANGE = 2.5    # spatial range of the truth, in degrees (≈ 1/4 of the window)
@@ -232,12 +229,12 @@ true_log_intensity = TRUE_INTERCEPT .+ TRUE_AMP .* kernel;
 
 # ## Simulating the survey
 #
-# Our research vessel only worked the **Gulf shelf** — it never sampled the
-# Atlantic side. We scatter survey stations over the water west of the peninsula,
-# then draw a Poisson count at each from the true intensity. We also reserve two
-# held-out sets to score predictions later: extra Gulf stations (a control,
-# where both models have nearby data) and Atlantic stations (the test, separated
-# from every survey station by land).
+# Our research vessel only worked the Gulf shelf and never sampled the Atlantic
+# side. We scatter survey stations over the water west of the peninsula, then
+# draw a Poisson count at each from the true intensity. We also reserve two
+# held-out sets to score predictions later: extra Gulf stations (a control, where
+# both models have nearby data) and Atlantic stations (the test, separated from
+# every survey station by land).
 Random.seed!(20260613)
 
 ## Uniformly sample water points, then route them into survey / control / test.
@@ -305,7 +302,7 @@ Colorbar(fig[1, 2], hm; label = "intensity (expected count)")
 fig
 
 # The hot spot sits in the Gulf; the survey covers the Gulf shelf and captures
-# it. The Atlantic side is true background — and, crucially, unobserved.
+# it. The Atlantic side is true background, and it goes unobserved.
 
 # ## Fitting the two models
 #
@@ -327,11 +324,11 @@ using Latte
     end
 end
 
-# The **barrier** prior tags the Florida land triangles; the **stationary**
-# Matérn (`smoothness = 0`, the ν = 1 case the barrier model generalises) is the
-# exact same field with no barriers. We use `SimplifiedLaplace` for the latent
-# marginals — its skewness correction matters for count data, especially at the
-# many zero-count stations.
+# The barrier prior tags the Florida land triangles. The stationary Matérn
+# (`smoothness = 0`, the ν = 1 case the barrier model generalises) is the same
+# field with no barriers. We fit both with `SimplifiedLaplace` latent marginals,
+# whose skewness correction matters for count data and especially at the many
+# zero-count stations.
 barrier_prior = BarrierModel(disc; barrier_cells = barrier_cells, range_fraction = 0.1)
 matern_prior = MaternModel(disc; smoothness = 0)
 
@@ -343,11 +340,11 @@ result_matern = inla(
     fish_lgcp(survey_counts, matern_prior, A_obs), survey_counts;
     progress = false, latent_marginalization_method = SimplifiedLaplace(),
 )
-summary_df(result_barrier.hyperparameter_marginals)
+summary_df(hyperparameter_marginals(result_barrier))
 
-# Both models infer the field precision `τ` and the spatial `range`; the barrier
-# range fraction is fixed at construction (0.1) and is *not* a hyperparameter,
-# so the two models have exactly the same parameters to estimate.
+# Both models infer the field precision `τ` and the spatial `range`. The barrier
+# range fraction is fixed at construction (0.1) rather than inferred, so the two
+# models estimate exactly the same parameters.
 
 # ## Predicted intensity surfaces
 #
@@ -355,7 +352,7 @@ summary_df(result_barrier.hyperparameter_marginals)
 # which assembles the posterior of ``\beta_0 + A_\text{fine} \cdot \text{field}``
 # at every grid point.
 pred_barrier = linear_combinations(result_barrier; β = 1.0, field = A_fine)
-pred_matern = linear_combinations(result_matern; β = 1.0, field = A_fine)
+pred_matern = linear_combinations(result_matern; β = 1.0, field = A_fine);
 
 intensity_barrier = reshape(exp.(mean.(pred_barrier)), n_fine, n_fine) .* water_mask
 intensity_matern = reshape(exp.(mean.(pred_matern)), n_fine, n_fine) .* water_mask
@@ -387,12 +384,12 @@ for (col, (ttl, surf)) in enumerate(
 end
 fig
 
-# This is the heart of the tutorial. Both models agree in the Gulf, where the
-# data live. But look at the **Atlantic coast**, directly east of the hot spot:
-# the stationary Matérn smooths the high Gulf intensity straight across the
-# peninsula, predicting a phantom hot spot in water it has no evidence for. The
-# barrier model refuses to carry signal across the land, so the Atlantic stays
-# at its background level — which is the truth.
+# Both models agree in the Gulf, where the data live. The difference is on the
+# Atlantic coast, directly east of the hot spot. The stationary Matérn smooths
+# the high Gulf intensity straight across the peninsula, predicting a phantom hot
+# spot in water it has no evidence for. The barrier model does not carry signal
+# across the land, so the Atlantic stays at its background level, which is the
+# truth.
 
 # ## Where each model is confident
 #
@@ -423,10 +420,10 @@ end
 fig
 
 # Both models report low posterior SD over the surveyed Gulf and high SD across
-# the unobserved Atlantic — neither pretends to know the field where it has no
-# data. The more telling difference between the two is quantitative rather than
-# visual, and we turn to it next: across the barrier, the stationary model is
-# actually the *more confident* of the two, even though its mean is badly wrong.
+# the unobserved Atlantic, so neither pretends to know the field where it has no
+# data. The more telling difference is quantitative rather than visual. Across
+# the barrier, the stationary model is the more confident of the two, even though
+# its mean is badly wrong. We turn to that next.
 
 # ## Quantitative validation on held-out data
 #
@@ -466,40 +463,55 @@ scores = DataFrame(
 )
 scores
 
-# In the **Gulf**, where both models have nearby data, they are
-# interchangeable — the barrier prior costs nothing when no barrier separates the
-# data from the prediction. **Across the peninsula in the Atlantic** it is
-# decisive: the stationary model predicts a mean intensity nearly 4× the truth
-# (its RMSE is roughly 2.5× the barrier model's), having carried the Gulf hot
-# spot straight across the land. And note the posterior SD — matching Bakka et
-# al.'s archipelago finding, the barrier model is *more* uncertain in the
-# Atlantic (it has no information reaching across the land and says so), while
-# the stationary model is more confident there despite being badly wrong. The
-# barrier model's advantage shows up exactly where it should: at the coastline.
+# In the Gulf, where both models have nearby data, they are interchangeable. The
+# barrier prior costs nothing when no barrier separates the data from the
+# prediction. Across the peninsula in the Atlantic the picture changes. The
+# stationary model predicts a mean intensity nearly 4x the truth, with an RMSE
+# roughly 2.5x the barrier model's, having carried the Gulf hot spot straight
+# across the land. The posterior SD tells the same story as Bakka et al.'s
+# archipelago finding: the barrier model is more uncertain in the Atlantic, since
+# it has no information reaching across the land and reports as much, while the
+# stationary model is more confident there despite being badly wrong. The barrier
+# model's advantage shows up where it should, at the coastline.
 
 # ## Summary
 #
-# - A **stationary** spatial field correlates points by straight-line distance,
-#   so it smooths across land that physically separates two water bodies — the
-#   coastline problem (Bakka et al., 2019).
-# - `BarrierModel(disc; barrier_cells, range_fraction)` gives the land triangles
-#   a tiny range, so correlation flows around the coast instead. It is a drop-in
-#   replacement for `MaternModel` in the same `@latte` model: same parameters,
-#   same sparse cost, no extra hyperparameter.
-# - `barrier_triangles(disc, polygon)` tags the land triangles from any polygon
-#   — here, real coastline rings from Natural Earth.
-# - With data on only one side of a barrier, the difference is decisive: the
-#   stationary model invents a phantom hot spot across the land — and is more
-#   confident there than the barrier model, despite being wrong — while the
-#   barrier model stays accurate and honestly uncertain where it has no
-#   information.
+# - A stationary spatial field correlates points by straight-line distance, so it
+#   smooths across land that physically separates two water bodies. This is the
+#   coastline problem ([Bakka et al., 2019](#ref-barrier)).
+# - `BarrierModel(disc; barrier_cells, range_fraction)` gives the land triangles a
+#   tiny range, so correlation flows around the coast instead. It drops into the
+#   same `@latte` model in place of `MaternModel`, with the same parameters, the
+#   same sparse cost, and no extra hyperparameter.
+# - `barrier_triangles(disc, polygon)` tags the land triangles from any polygon,
+#   here the real coastline rings from Natural Earth.
+# - With data on only one side of a barrier, the two models diverge. The
+#   stationary model invents a phantom hot spot across the land and is more
+#   confident there than the barrier model despite being wrong, while the barrier
+#   model stays accurate and honestly uncertain where it has no information.
 #
 # ## References
 #
-# - Bakka, H., Vanhatalo, J., Illian, J. B., Simpson, D. & Rue, H. (2019).
-#   Non-stationary Gaussian models with physical barriers. *Spatial Statistics*,
-#   29, 268–288.
-# - Lindgren, F., Rue, H. & Lindström, J. (2011). An explicit link between
-#   Gaussian fields and Gaussian Markov random fields: the stochastic partial
-#   differential equation approach. *JRSS-B*, 73(4), 423–498.
-# - Natural Earth. [naturalearthdata.com](https://www.naturalearthdata.com/)
+# Data source: [Natural Earth](https://www.naturalearthdata.com/) (public-domain
+# coastlines).
+#
+# ```@raw html
+# <div class="ref-grid-2">
+# <PaperCite
+#   tag="Barrier"
+#   title="Non-stationary Gaussian models with physical barriers"
+#   authors="H. Bakka, J. Vanhatalo, J. B. Illian, D. Simpson & H. Rue"
+#   venue="Spatial Statistics" year="2019"
+#   doi="10.1016/j.spasta.2019.01.002"
+#   url="https://doi.org/10.1016/j.spasta.2019.01.002"
+#   abstract="The barrier model: a non-stationary Matérn SPDE that gives physical barriers a tiny correlation range, so a spatial field decorrelates across coastlines and islands instead of smoothing straight through them." />
+# <PaperCite
+#   tag="SPDE"
+#   title="An explicit link between Gaussian fields and Gaussian Markov random fields: the stochastic partial differential equation approach"
+#   authors="F. Lindgren, H. Rue & J. Lindström"
+#   venue="J. R. Statist. Soc. B" year="2011"
+#   doi="10.1111/j.1467-9868.2011.00777.x"
+#   url="https://doi.org/10.1111/j.1467-9868.2011.00777.x"
+#   abstract="The SPDE approach: representing a continuously indexed Matérn field as a Gaussian Markov random field on a triangular mesh, giving geostatistical flexibility with sparse precision matrices." />
+# </div>
+# ```

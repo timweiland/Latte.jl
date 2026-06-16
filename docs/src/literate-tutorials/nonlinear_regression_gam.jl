@@ -1,28 +1,28 @@
 # # Nonlinear regression: Bayesian smoothing with INLA
 #
 # When the relationship between a predictor and a response is nonlinear and of
-# unknown form, we need a flexible model that can adapt to the data. Generalized
-# additive models (GAMs) are a popular frequentist approach, but they do not
-# provide full posterior uncertainty on the smoothness of the curve. In this
-# tutorial we use INLA with a second-order random walk (RW2) to fit a nonlinear
-# curve with proper Bayesian uncertainty quantification — a fully Bayesian
-# alternative to GAMs.
+# unknown form, we need a model flexible enough to adapt to the data without
+# committing to a parametric shape. Generalized additive models (GAMs) are the
+# usual frequentist tool, but they do not return full posterior uncertainty on
+# the smoothness of the curve. Here we use INLA with a second-order random walk
+# (RW2) prior, which gives a Bayesian counterpart to the smooth term in a GAM
+# and propagates uncertainty about smoothness through to the fitted curve.
 #
-# Along the way you will learn:
-# - How to fit a **Gaussian** observation model (the first tutorial to use one!)
-# - How an **RW2 prior** acts as a nonparametric smooth, analogous to a cubic
-#   smoothing spline
-# - How two hyperparameters — **observation noise** and **RW2 precision** —
-#   jointly control the bias-variance tradeoff
-# - How to compare a nonparametric model against a simple linear baseline
+# Along the way the tutorial covers:
+# - fitting a Gaussian observation model (our first one)
+# - using an RW2 prior as a nonparametric smooth, the discrete analogue of a
+#   cubic smoothing spline
+# - reading off the two hyperparameters, observation noise and RW2 precision,
+#   that jointly set the bias-variance tradeoff
+# - comparing the nonparametric fit against a linear baseline
 #
 # ## The dataset
 #
-# We use the classic `mcycle` dataset (Silverman, 1985): 133 accelerometer
-# readings from a simulated motorcycle crash test. The response is head
-# acceleration (in g) measured at various times (in milliseconds) after impact.
-# This dataset appears in every GAM textbook and is arguably the most iconic
-# example in nonparametric regression.
+# We use the `mcycle` dataset ([Silverman, 1985](#ref-smoothing-spline)): 133 accelerometer readings from
+# a simulated motorcycle crash test. The response is head acceleration (in g)
+# measured at various times (in milliseconds) after impact. It is a standard
+# benchmark for nonparametric regression and turns up across the smoothing
+# literature.
 using DataFrames
 times = [
     2.4, 2.6, 3.2, 3.6, 4.0, 6.2, 6.6, 6.8, 7.8, 8.2, 8.8, 8.8, 9.6,
@@ -53,7 +53,7 @@ accel = [
     5.4, -1.3, -21.5, -13.3, 30.8, -10.7, 29.4, 0.0, -10.7, 14.7, -1.3,
     0.0, 10.7, 10.7, -26.8, -14.7, -13.3, 0.0, 10.7, -14.7, -2.7, 10.7,
     -2.7, 10.7,
-]
+];
 # The RW2 model needs integer-valued time indices. We rank the unique time
 # values so the random walk operates on evenly spaced discrete positions.
 unique_times = sort(unique(times))
@@ -73,11 +73,11 @@ draw(
     axis = (title = "Motorcycle crash test: accelerometer data",),
 )
 
-# The acceleration curve is highly nonlinear — a sharp negative spike around
-# 15–25 ms followed by a rebound and damped oscillation. No polynomial will
-# capture this shape well. This is exactly the kind of problem where
-# nonparametric smoothing shines, and where a fully Bayesian approach gives us
-# proper uncertainty on the estimated curve.
+# The acceleration trace is strongly nonlinear: a sharp negative spike around
+# 15-25 ms, then a rebound and a damped oscillation. A low-order polynomial will
+# not capture this shape, which is the setting nonparametric smoothing is built
+# for, and where the Bayesian treatment buys us uncertainty on the estimated
+# curve rather than a single point estimate.
 #
 # ## Smoothing with random walks
 #
@@ -88,12 +88,13 @@ draw(
 # f_{t+2} - 2f_{t+1} + f_t \sim \mathcal{N}(0, \tau^{-1})
 # ```
 #
-# This is the discrete analogue of penalizing the second derivative — exactly
-# the same principle underlying cubic smoothing splines. The precision $\tau$
-# plays the role of the smoothing parameter: high $\tau$ forces the function to
-# be nearly linear (small second differences), while low $\tau$ allows more
-# curvature. The key advantage of the Bayesian approach is that $\tau$ is
-# *estimated from the data* rather than chosen by cross-validation.
+# This penalizes the discretized second derivative, the same principle that
+# underlies cubic smoothing splines; the RW2 prior is its discrete GMRF
+# counterpart ([Rue & Held, 2005](#ref-rw2)). The precision $\tau$ plays the role of the
+# smoothing parameter: a high $\tau$ forces the function towards a straight line
+# (small second differences), while a low $\tau$ admits more curvature. In the
+# Bayesian treatment $\tau$ is estimated from the data with its own posterior,
+# rather than fixed by cross-validation.
 #
 # ## Fitting the model
 #
@@ -119,15 +120,15 @@ using LinearAlgebra
     end
 end
 
-# Two hyperparameters:
+# The model has two hyperparameters. The first, `σ`, is the observation-noise
+# standard deviation; the [PC prior](#ref-pc-priors) `PCPrior.Sigma(50.0, α = 0.01)` puts only a
+# 1% prior probability on the noise SD exceeding 50 g. The second, `τ_rw2`, is
+# the RW2 precision, with a PC prior that penalises curvature relative to a
+# linear baseline. Both are declared on their natural scale, so we read them
+# back later without any transform.
 #
-# - `σ` — the observation noise standard deviation. The PC prior
-#   `PCPrior.Sigma(50.0, α = 0.01)` says "I believe there is only a 1% chance
-#   that the noise SD exceeds 50 g."
-# - `τ_rw2` — the RW2 precision. Its PC prior penalises complexity relative to
-#   a linear baseline.
-#
-# We build the LGM (calling the `@latte` function) and run INLA:
+# Calling the `@latte` function builds the latent Gaussian model, which we then
+# pass to `inla`:
 lgm = rw2_smooth(df.accel, df.time_idx, H)
 result = inla(lgm, df.accel; progress = false)
 
@@ -138,28 +139,30 @@ result = inla(lgm, df.accel; progress = false)
 # with a 95% credible band:
 obs = observation_marginals(result)
 fit = summary_df(obs)
-fit.times = df.times
+fit.times = df.times;
 
-fig = Figure(size = (800, 400))
-ax = Axis(
-    fig[1, 1],
-    xlabel = "Time after impact (ms)", ylabel = "Head acceleration (g)",
-    title = "RW2 smooth: posterior fit with 95% credible band",
+layers =
+    data(df) * mapping(:times, :accel) *
+    visual(Scatter, color = :gray70, markersize = 5) +
+    data(fit) * mapping(:times, :q2_5, :q97_5) *
+    visual(Band, color = (:steelblue, 0.25)) +
+    data(fit) * mapping(:times, :median) *
+    visual(Lines, color = :steelblue, linewidth = 2)
+draw(
+    layers,
+    axis = (
+        xlabel = "Time after impact (ms)", ylabel = "Head acceleration (g)",
+        title = "RW2 smooth: posterior fit with 95% credible band",
+    ),
 )
-scatter!(ax, df.times, df.accel, color = :gray70, markersize = 5, label = "Observed")
-band!(ax, fit.times, fit.q2_5, fit.q97_5, color = (:steelblue, 0.25), label = "95% CI")
-lines!(ax, fit.times, fit.median, color = :steelblue, linewidth = 2, label = "Posterior median")
-axislegend(ax, position = :rb, framevisible = false)
-fig
 
-# The smooth captures the sharp deceleration spike and subsequent rebound.
-# Notice how the credible band is narrow where data is dense — the mean curve
-# is well-determined there. **Important:** this band shows uncertainty in the
-# *mean function* $\mu(t)$, not a prediction interval for new observations.
-# Since $y_i \sim N(\mu_i, \sigma^2)$ with $\sigma \approx 25$ g, individual
-# data points are expected to scatter well beyond this band. The posterior
-# predictive check later in this tutorial shows the wider prediction interval
-# that accounts for observation noise.
+# The smooth tracks the sharp deceleration spike and the subsequent rebound, and
+# the band narrows where the data is dense and the mean curve is well-determined.
+# One point is worth stressing: the band shows uncertainty in the mean function
+# $\mu(t)$, not a prediction interval for new observations. Since
+# $y_i \sim N(\mu_i, \sigma^2)$ with $\sigma \approx 25$ g, individual readings
+# scatter well beyond it. The posterior predictive check at the end of the
+# tutorial gives the wider interval that folds in observation noise.
 #
 # ## Hyperparameter posteriors
 #
@@ -169,29 +172,27 @@ fig
 # is. Their ratio determines the effective bias-variance tradeoff: high
 # $\tau / \sigma^2$ favours a smooth curve, while low $\tau / \sigma^2$ lets the
 # curve track the data more closely.
-fig = Figure(size = (900, 400))
-ax1 = Axis(
-    fig[1, 1],
-    xlabel = "σ (noise SD)", ylabel = "Density",
-    title = "Observation noise σ",
+## Evaluate each marginal's density on a grid spanning its 0.1%–99.9% quantiles,
+## then stack into one tidy frame faceted by hyperparameter.
+function density_df(dist, label)
+    xs = range(quantile(dist, 0.001), quantile(dist, 0.999); length = 200)
+    return DataFrame(x = xs, density = pdf.(Ref(dist), xs), parameter = label)
+end
+hp_density = vcat(
+    density_df(hyperparameter_marginals(result, :σ)[1], "Observation noise σ"),
+    density_df(hyperparameter_marginals(result, :τ_rw2)[1], "RW2 precision τ_rw2"),
 )
-ax2 = Axis(
-    fig[1, 2],
-    xlabel = "Precision (τ)", ylabel = "Density",
-    title = "RW2 precision τ_rw2",
-)
-plot!(ax1, result.hyperparameter_marginals.σ)
-plot!(ax2, result.hyperparameter_marginals.τ_rw2)
-fig
+data(hp_density) *
+    mapping(:x => "value", :density => "Density", layout = :parameter) *
+    visual(Lines) |> draw(; facet = (; linkxaxes = :none))
 
-# Let's look at the summary statistics:
-println("Hyperparameter posteriors:")
-println(summary_df(result.hyperparameter_marginals))
+# And the summary statistics for the two hyperparameters:
+summary_df(hyperparameter_marginals(result))
 
 # ## Comparison with a linear model
 #
-# To appreciate the value of the nonparametric smooth, let's fit a simple
-# linear model $\mu_i = \beta_0 + \beta_1 t_i$ and compare:
+# For a baseline, fit a straight-line mean $\mu_i = \beta_0 + \beta_1 t_i$ with
+# the same Gaussian noise and compare it against the smooth:
 @latte function linear_model(y, x)
     σ ~ PCPrior.Sigma(50.0, α = 0.01)
     β ~ MvNormal(zeros(2), 100.0 * I(2))
@@ -206,99 +207,136 @@ result_linear = inla(lgm_linear, df.accel; progress = false)
 # Let's overlay both fits:
 obs_linear = observation_marginals(result_linear)
 fit_linear = summary_df(obs_linear)
-fit_linear.times = df.times
+fit_linear.times = df.times;
 
-fig = Figure(size = (900, 450))
-ax = Axis(
-    fig[1, 1],
-    xlabel = "Time after impact (ms)", ylabel = "Head acceleration (g)",
-    title = "Linear model vs RW2 smooth",
+## Stack the two posterior-median curves into one long frame, coloured by model.
+fits = vcat(
+    DataFrame(times = fit_linear.times, median = fit_linear.median, model = "Linear"),
+    DataFrame(times = fit.times, median = fit.median, model = "RW2 smooth"),
 )
-scatter!(ax, df.times, df.accel, color = :gray70, markersize = 5, label = "Observed")
-lines!(ax, fit_linear.times, fit_linear.median, color = :firebrick, linewidth = 2, label = "Linear")
-lines!(ax, fit.times, fit.median, color = :steelblue, linewidth = 2, label = "RW2 smooth")
-axislegend(ax, position = :rb, framevisible = false)
-fig
+layers =
+    data(df) * mapping(:times, :accel) *
+    visual(Scatter, color = :gray70, markersize = 5) +
+    data(fits) * mapping(:times, :median, color = :model => "") *
+    visual(Lines, linewidth = 2)
+draw(
+    layers,
+    axis = (
+        xlabel = "Time after impact (ms)", ylabel = "Head acceleration (g)",
+        title = "Linear model vs RW2 smooth",
+    ),
+)
 
-# The linear model completely misses the nonlinear structure. Let's confirm
-# this with model comparison criteria:
-println("Model comparison:")
-println("─"^50)
-for (name, res) in [("Linear", result_linear), ("RW2", result)]
-    dic = res.accumulators[1].DIC
-    p_d = res.accumulators[1].p_D
-    mll = res.accumulators[2].log_marginal_likelihood
-    waic = res.accumulators[3].WAIC
-    println(
-        "$name: DIC = $(round(dic, digits = 1)) (p_D = $(round(p_d, digits = 1))), " *
-            "WAIC = $(round(waic, digits = 1)), " *
-            "log ML = $(round(mll, digits = 1))",
-    )
-end
+# The linear model misses the nonlinear structure entirely. The default
+# accumulators give us DIC, WAIC, and the log marginal likelihood to put numbers
+# on the difference. We collect them into a small table:
+comparison = DataFrame(
+    model = ["Linear", "RW2"],
+    DIC = [res.accumulators[1].DIC for res in (result_linear, result)],
+    p_D = [res.accumulators[1].p_D for res in (result_linear, result)],
+    WAIC = [res.accumulators[3].WAIC for res in (result_linear, result)],
+    log_ML = [log_marginal_likelihood(res) for res in (result_linear, result)],
+)
 
-# The RW2 model dramatically outperforms the linear model on every criterion.
-# The effective number of parameters ($p_D$) for the RW2 is much larger,
-# reflecting its flexibility, but this additional complexity is overwhelmingly
-# justified by the data.
+# Every criterion favours the RW2 model by a wide margin. Its effective number
+# of parameters ($p_D$) is much larger, reflecting the extra flexibility, and the
+# data justify that complexity rather than penalising it.
 #
 # ## Posterior predictive check
 #
-# Finally, let's verify that the RW2 model can reproduce the variability we see
-# in the data. We draw posterior predictive samples and check whether the
-# observed data falls within the predictive distribution:
+# To check that the model reproduces the variability in the data, we draw from
+# the posterior predictive and see whether the observations fall inside it.
+# `rand(result, n; include_y = true)` returns joint draws whose `y` field is an
+# `n × n_obs` matrix of replicated responses:
 using Random
 Random.seed!(42)
 
 n_obs = nrow(df)
 n_samples = 200
-pp = hcat([rand(result, 1; include_y = true)[1].y[1:n_obs] for _ in 1:n_samples]...)
+pp = rand(result, n_samples; include_y = true).y
 size(pp)
 
-# For each observation, compute the 2.5th and 97.5th percentiles of the
-# replicated values:
-pp_lo = [quantile(pp[i, :], 0.025) for i in 1:n_obs]
-pp_hi = [quantile(pp[i, :], 0.975) for i in 1:n_obs]
-
-fig = Figure(size = (800, 400))
-ax = Axis(
-    fig[1, 1],
-    xlabel = "Time after impact (ms)", ylabel = "Head acceleration (g)",
-    title = "Posterior predictive check",
+# For each observation, take the 2.5th and 97.5th percentiles of the replicated
+# values across draws (one column per observation):
+pp_df = DataFrame(
+    times = df.times,
+    accel = df.accel,
+    pp_lo = [quantile(pp[:, i], 0.025) for i in 1:n_obs],
+    pp_hi = [quantile(pp[:, i], 0.975) for i in 1:n_obs],
 )
-band!(ax, df.times, pp_lo, pp_hi, color = (:steelblue, 0.2), label = "95% predictive interval")
-scatter!(ax, df.times, df.accel, color = :gray40, markersize = 4, label = "Observed")
-axislegend(ax, position = :rb, framevisible = false)
-fig
 
-# The observed data sits comfortably within the predictive bands, indicating
-# that the model captures both the mean structure and the variability well.
+layers =
+    data(pp_df) * mapping(:times, :pp_lo, :pp_hi) *
+    visual(Band, color = (:steelblue, 0.2)) +
+    data(pp_df) * mapping(:times, :accel) *
+    visual(Scatter, color = :gray40, markersize = 4)
+draw(
+    layers,
+    axis = (
+        xlabel = "Time after impact (ms)", ylabel = "Head acceleration (g)",
+        title = "Posterior predictive check",
+    ),
+)
+
+# The observed data sit inside the predictive bands, so the model accounts for
+# both the mean structure and the spread.
 #
 # ## Summary
 #
-# In this tutorial we used INLA with a Gaussian observation model and an RW2
-# smooth to perform nonlinear regression on the classic motorcycle crash
-# dataset. The key takeaways:
+# We fitted a nonlinear regression to the motorcycle crash data with INLA, using
+# a Gaussian observation model and an RW2 smooth. A few points are worth
+# carrying forward.
 #
-# - A **second-order random walk (RW2)** prior is the discrete analogue of a
-#   cubic smoothing spline. It penalises second differences, producing a smooth
-#   curve that adapts to the data.
-# - The **Gaussian family** introduces an observation noise parameter $\sigma$
-#   alongside the latent smoothness precision $\tau$. Together they determine the
-#   bias-variance tradeoff: how much structure is attributed to the true curve
-#   versus measurement noise.
-# - INLA estimates both hyperparameters from the data with full posterior
-#   uncertainty — no cross-validation or manual tuning required.
-# - This approach is a fully Bayesian alternative to frequentist GAMs
-#   (e.g., `mgcv::gam()` in R). The Bayesian version provides proper posterior
-#   uncertainty on both the fitted curve and the degree of smoothness.
+# The second-order random walk prior is the discrete analogue of a cubic
+# smoothing spline: it penalises second differences and yields a smooth curve
+# that adapts to the data. The Gaussian family adds an observation-noise
+# parameter $\sigma$ next to the smoothness precision $\tau$, and together they
+# set the bias-variance tradeoff between structure attributed to the curve and
+# variation attributed to noise. INLA estimates both from the data and returns
+# full posterior uncertainty, so the smoothness is inferred rather than tuned by
+# cross-validation. This gives a Bayesian counterpart to a frequentist
+# [GAM](#ref-gam) (`mgcv::gam()` in R), with posterior uncertainty on both the
+# fitted curve and the degree of smoothness.
 #
-# Once you are comfortable with RW2 smoothing, natural extensions include
-# heteroscedastic noise models, multiple smooth terms (additive models with
-# several covariates), and spatial smoothing via the SPDE approach.
+# Natural extensions from here include heteroscedastic noise models, additive
+# models with several smooth terms, and spatial smoothing via the SPDE approach.
 #
 # ## References
 #
-# - Silverman, B. W. (1985). Some aspects of the spline smoothing approach to
-#   non-parametric regression curve fitting. *JRSS-B*, 47(1), 1–52.
-# - Rue, H. & Held, L. (2005). *Gaussian Markov Random Fields: Theory and
-#   Applications*. Chapman & Hall/CRC.
+# ```@raw html
+# <div class="ref-grid-2">
+# <PaperCite
+#   tag="Smoothing spline"
+#   title="Some Aspects of the Spline Smoothing Approach to Non-Parametric Regression Curve Fitting"
+#   authors="B. W. Silverman"
+#   venue="J. R. Statist. Soc. B" year="1985"
+#   doi="10.1111/j.2517-6161.1985.tb01327.x"
+#   url="https://doi.org/10.1111/j.2517-6161.1985.tb01327.x"
+#   abstract="Spline smoothing for non-parametric regression, and the source of the motorcycle-crash accelerometer dataset used here." />
+# <PaperCite
+#   tag="RW2"
+#   title="Gaussian Markov Random Fields: Theory and Applications"
+#   authors="H. Rue & L. Held"
+#   venue="Chapman & Hall/CRC" year="2005"
+#   doi="10.1201/9780203492024"
+#   url="https://doi.org/10.1201/9780203492024"
+#   abstract="The reference on GMRFs, including the random-walk priors (RW1/RW2) that act as discrete smoothing splines for the latent field." />
+# <PaperCite
+#   tag="PC priors"
+#   title="Penalising Model Component Complexity: A Principled, Practical Approach to Constructing Priors"
+#   authors="D. Simpson, H. Rue, A. Riebler, T. G. Martins & S. H. Sørbye"
+#   venue="Statistical Science" year="2017"
+#   arxiv="1403.4630"
+#   doi="10.1214/16-STS576"
+#   url="https://doi.org/10.1214/16-STS576"
+#   abstract="Penalised-complexity (PC) priors: weakly informative priors that shrink a model component towards a simpler base model, used here for both the noise SD and the RW2 precision." />
+# <PaperCite
+#   tag="GAM"
+#   title="Generalized Additive Models: An Introduction with R (2nd ed.)"
+#   authors="S. N. Wood"
+#   venue="Chapman & Hall/CRC" year="2017"
+#   doi="10.1201/9781315370279"
+#   url="https://doi.org/10.1201/9781315370279"
+#   abstract="Generalized additive models and their penalised-spline smooths, the frequentist counterpart (mgcv::gam) to the Bayesian RW2 smooth fitted here." />
+# </div>
+# ```
