@@ -35,6 +35,7 @@ Laplace estimate of `log p(y)`.
 function tmb(
         model::LatentGaussianModel, y;
         diff_strategy = ADStrategy(),
+        latent_init = ZeroLatentStart(),
     )
     t_start = time()
 
@@ -46,7 +47,7 @@ function tmb(
 
     # ─── Step 1: MAP of the hyperparameters ─────────────────────────────
     θ̂_wh, _, _, mode_info = find_hyperparameter_mode(
-        model, y_obs; diff_strategy = diff_strategy
+        model, y_obs; diff_strategy = diff_strategy, latent_init = latent_init
     )
     θ̂ = θ̂_wh.θ
     is_converged = hasproperty(mode_info, :converged) ? mode_info.converged : true
@@ -73,9 +74,15 @@ function tmb(
     logL = -objective(θ̂)
 
     # ─── Step 4: inner Laplace — latent posterior at the MAP ────────────
-    prior_gmrf = model.latent_prior(; θ̂_natural_nt...)
     obs_lik = model.observation_model(y_obs; θ̂_natural_nt...)
-    x_post = gaussian_approximation(prior_gmrf, obs_lik)
+    x_post = if model.latent_prior isa NonGaussianLatentPrior
+        # No fixed GMRF to materialise; run the iterated-Laplace GA directly (θ̂ is primal,
+        # so the workspace is safe). Seed from latent_init (prior mode / explicit x0).
+        x0 = resolve_latent_start(latent_init, model, θ̂_natural_nt)
+        gaussian_approximation(model.latent_prior, obs_lik; θ = θ̂_natural_nt, ws = ws, x0 = x0)
+    else
+        gaussian_approximation(model.latent_prior(; θ̂_natural_nt...), obs_lik)
+    end
 
     x_mean = Vector(mean(x_post))
     Σ_x = selinv_mat(x_post)
@@ -116,9 +123,14 @@ function Random.rand(rng::AbstractRNG, r::TMBResult, n::Int; include_y::Bool = f
     # propagation. Full joint sampling is a follow-up.
     θ̂_wh = WorkingHyperparameters(r.θ_map, r.model.hyperparameter_spec)
     θ̂_natural_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ̂_wh))
-    prior_gmrf = r.model.latent_prior(; θ̂_natural_nt...)
     obs_lik = r.model.observation_model(r.observations; θ̂_natural_nt...)
-    x_post = gaussian_approximation(prior_gmrf, obs_lik)
+    x_post = if r.model.latent_prior isa NonGaussianLatentPrior
+        # Seed from the fit's converged mode so the reconstructed GA lands on the same
+        # mode cheaply, instead of re-walking the Newton iterates from zeros.
+        gaussian_approximation(r.model.latent_prior, obs_lik; θ = θ̂_natural_nt, x0 = copy(r.x_mean))
+    else
+        gaussian_approximation(r.model.latent_prior(; θ̂_natural_nt...), obs_lik)
+    end
 
     n_x = length(r.x_mean)
     x_mat = Matrix{Float64}(undef, n, n_x)
