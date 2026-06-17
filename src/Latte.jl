@@ -141,6 +141,7 @@ include("posterior/observation_marginals.jl")
 include("posterior/sampling.jl")
 include("posterior/posterior_predictive.jl")
 include("posterior/linear_combinations.jl")
+include("posterior/derived.jl")
 
 include("diagnostics/sbc/types.jl")
 include("diagnostics/sbc/prior_simulate.jl")
