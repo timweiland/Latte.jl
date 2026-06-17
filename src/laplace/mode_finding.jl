@@ -39,6 +39,18 @@ fooling BFGS into early convergence.
     e isa LinearAlgebra.ZeroPivotException
 
 """
+    _theta_has_dual(θ_nt) -> Bool
+
+True when the natural-space hyperparameter NamedTuple carries non-`AbstractFloat`
+values — i.e. `ForwardDiff.Dual`s during an AD hyperparameter-gradient pass. For a
+`NonGaussianLatentPrior` the IFT θ-gradient path cannot yet reuse a `GMRFWorkspace`
+(GMRFs #174), so we drop `ws` on Dual evals (the workspace-less IFT cache path) and
+keep it for primal evals. Detected via `eltype` rather than importing ForwardDiff:
+`Dual <: Real` but not `<: AbstractFloat`.
+"""
+_theta_has_dual(θ_nt::NamedTuple) = !all(v -> v isa AbstractFloat, values(θ_nt))
+
+"""
     initial_hyperparameter_guess(spec::HyperparameterSpec)
 
 Compute an initial guess for hyperparameter optimization in working space.
@@ -186,6 +198,27 @@ function hyperparameter_logpdf(
     θ_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ))
 
     obs_lik = model.observation_model(y; θ_nt...)
+
+    # Non-Gaussian latent prior (e.g. AutoDiffLatentPrior): there is no fixed GMRF to
+    # materialise via `latent_gmrf`. Run the iterated-Laplace GA directly on the prior
+    # and route the marginal through GMRFs' `marginal_loglikelihood`, which uses the
+    # EXACT prior log-density at the mode (not a once-linearised Gaussian surrogate).
+    # The Gaussian branch below is untouched (incl. its factor-reuse term ordering).
+    if model.latent_prior isa NonGaussianLatentPrior
+        prior = model.latent_prior
+        # Keep the workspace on primal evals (factor reuse across the θ-grid); drop it only on a
+        # Dual-θ AD-gradient eval (the IFT path can't take a ws yet — GMRFs #174). The workspace
+        # is seeded with the prior∪obs Hessian pattern (see the make_workspace call site), so a
+        # nonlinear obs (SAM's Baranov logN×logF coupling) stays inside the workspace pattern.
+        ws_arg = (ws !== nothing && _theta_has_dual(θ_nt)) ? nothing : ws
+        x_G = ga === nothing ?
+            gaussian_approximation(prior, obs_lik; θ = θ_nt, ws = ws_arg, x0 = x0) : ga
+        x_star = mean(x_G)
+        mode_out !== nothing && eltype(x_star) <: AbstractFloat && (mode_out[] = collect(x_star))
+        ml = marginal_loglikelihood(prior, obs_lik, x_G; θ_nt...)
+        return isfinite(ml) ? log_prior_θ + ml : -Inf
+    end
+
     latent_prior = latent_gmrf(model, ws, θ_nt)
 
     # Use provided Gaussian approximation or compute it
@@ -262,6 +295,7 @@ function find_hyperparameter_mode(
         collect_points = true, progress_callback = nothing,
         diff_strategy::DifferentiationStrategy = ADStrategy(),
         mode_init = PriorModeStart(),
+        latent_init = ZeroLatentStart(),
         executor::ParallelExecutor = SequentialExecutor(),
         warm_start::Union{Nothing, Bool} = nothing,
     )
@@ -282,6 +316,13 @@ function find_hyperparameter_mode(
 
     starts = resolve_mode_starts(mode_init, spec)
     n_starts = length(starts)
+
+    # Resolve the FIRST inner-Newton latent start (latent_init). Subsequent θ-steps warm-start
+    # from the previous mode; this only seeds each start's first GA solve. Resolved once at the
+    # first θ start (the prior mode is a basin-correct seed for all starts).
+    _latent_x0 = resolve_latent_start(
+        latent_init, model, convert(NamedTuple, convert(NaturalHyperparameters, first(starts))),
+    )
 
     if progress_callback === nothing
         progress_callback = (; kwargs...) -> nothing
@@ -311,7 +352,9 @@ function find_hyperparameter_mode(
         # Shared warm-start state: the last primal GA mode, reused as the Newton
         # seed by both the value and gradient evaluations. Only primal (Float64)
         # value evals update it; gradient (Dual) evals read it.
-        last_mode = Ref{Union{Nothing, Vector{Float64}}}(nothing)
+        last_mode = Ref{Union{Nothing, Vector{Float64}}}(
+            _latent_x0 === nothing ? nothing : copy(_latent_x0),
+        )
         mode_buf = Ref(Float64[])
 
         objective = let _spec = spec, _model = model, _y = y, _ws = ws,
