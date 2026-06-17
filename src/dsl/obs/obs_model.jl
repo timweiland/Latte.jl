@@ -31,12 +31,11 @@ function extract_obs_model(
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     cond_probe = DynamicPPL.fix(dppl_model, probe_hp)
     vnt_cached = DynamicPPL._default_vnt(cond_probe, DynamicPPL.UnlinkAll())
-
-    # Detect scalar (univariate) latents so `pointwise_loglik` seeds them as
-    # scalars, not 1-vectors — DPPL's body for `phase ~ Normal(0, π)` needs
-    # scalar `phase`, mirroring the seeding done in
-    # `try_exponential_family_fast_path` and DAG extraction.
-    is_scalar = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
+    # Flat-vector → VarName ranges from the SAME layout the main `loglik` uses. This lets
+    # the pointwise path seed its VarInfo via `InitFromVector` (below), which reconstructs
+    # scalar / vector / matrix-indexed latents alike (e.g. `logF[a,y]`) — a flat
+    # `InitFromParams` NamedTuple cannot place a matrix-indexed latent from a 1-D vector.
+    ranges_cached = DynamicPPL.get_ranges_and_linked(vnt_cached)
 
     function loglik(x; kwargs...)
         hp_nt = NamedTuple{hp_names}(Tuple(kwargs[k] for k in hp_names))
@@ -47,28 +46,17 @@ function extract_obs_model(
         return LogDensityProblems.logdensity(ldf, x)
     end
 
-    # Pointwise likelihood: split x into named components, use DPPL's
-    # `pointwise_loglikelihoods` to grab per-site log-likelihoods.
-    offsets = Dict{Symbol, UnitRange{Int}}()
-    off = 0
-    for s in random_syms
-        offsets[s] = (off + 1):(off + dims[s])
-        off += dims[s]
-    end
-
+    # Pointwise likelihood: seed a VarInfo from the flat x via the cached vnt ranges
+    # (same layout as `loglik`), then ask DPPL for per-site log-likelihoods.
     function pointwise_loglik(x; kwargs...)
         hp_nt = NamedTuple{hp_names}(Tuple(kwargs[k] for k in hp_names))
-        rand_nt = NamedTuple{Tuple(random_syms)}(
-            Tuple(
-                is_scalar[s] ? x[first(offsets[s])] : Vector(x[offsets[s]])
-                    for s in random_syms
-            )
-        )
         cond = DynamicPPL.fix(dppl_model, hp_nt)
-        # Build a VarInfo seeded with `rand_nt`; then ask DPPL for per-site
-        # likelihoods. (DPPL's `pointwise_loglikelihoods` requires an
-        # AbstractVarInfo, not an init strategy directly.)
-        vi = DynamicPPL.VarInfo(cond, InitFromParams(rand_nt, nothing))
+        # `InitFromVector` maps x onto the model's VarNames through `ranges_cached`,
+        # reconstructing scalar / vector / matrix-indexed latents alike — unlike a flat
+        # `InitFromParams` NamedTuple, which cannot place `logF[a,y]` from a 1-D vector.
+        vi = DynamicPPL.VarInfo(
+            cond, DynamicPPL.InitFromVector(x, ranges_cached, DynamicPPL.UnlinkAll())
+        )
         pointwise = DynamicPPL.pointwise_loglikelihoods(cond, vi)
         # `collect(values(::Dict))` gives `Vector{Any}` here because DPPL's
         # pointwise dict isn't statically typed on its value type. Tighten
