@@ -208,11 +208,15 @@ struct _TildeBlock
     family::Union{Symbol, Nothing}        # the RHS callee Symbol if recognisable
     marker::Symbol                         # :random, :fixed, or :auto
     rhs::Any                               # the raw RHS Expr (for recognition); may be `nothing`
+    indexed::Bool                          # LHS was `x[i] ~ …` (an indexed/array latent), not scalar `x`
 end
 
-# 5-arg form (no raw RHS) for synthetic blocks built outside the walker.
+# Convenience forms defaulting `indexed=false` (and `rhs=nothing`): the 6-arg walker form
+# and the 5-arg form for synthetic blocks built outside the walker.
+_TildeBlock(lhs_sym, rhs_free, is_dotted, family, marker, rhs) =
+    _TildeBlock(lhs_sym, rhs_free, is_dotted, family, marker, rhs, false)
 _TildeBlock(lhs_sym, rhs_free, is_dotted, family, marker) =
-    _TildeBlock(lhs_sym, rhs_free, is_dotted, family, marker, nothing)
+    _TildeBlock(lhs_sym, rhs_free, is_dotted, family, marker, nothing, false)
 
 """
 Detect `(L ~ R)` or `(L .~ R)` in an Expr; return `(L, R, is_dotted)` or
@@ -313,7 +317,8 @@ function _walk_tilde!(out, e, bound, aliases, current_marker)
         if lhs_sym !== nothing
             free = _free_symbols(rhs, bound, aliases)
             family = _rhs_family(rhs)
-            push!(out, _TildeBlock(lhs_sym, free, dotted, family, current_marker, rhs))
+            indexed = lhs isa Expr && lhs.head === :ref   # `x[i] ~ …`
+            push!(out, _TildeBlock(lhs_sym, free, dotted, family, current_marker, rhs, indexed))
         end
         return
     end
@@ -434,6 +439,11 @@ function _classify_block(blk::_TildeBlock, posargs::Tuple)
     # LatentModel prior. Classify as random by shape; the runtime isa-check
     # falls back to the DAG path if it isn't actually a LatentModel.
     blk.rhs !== nothing && _recognize_latent_rhs(blk.rhs) !== nothing && return :random
+    # An INDEXED or broadcast non-positional LHS (`x[i] ~ …`, `x .~ …`) is an array/latent
+    # field, not a scalar hyperparameter — promote to :random. The value-level gate in
+    # build_latent_model then routes it to the Gaussian (:dag / :sparse_ad) or non-Gaussian
+    # (:sparse_nongaussian) path. Scalar non-positional `x ~ Normal(…)` stays :fixed (a hp).
+    (blk.indexed || blk.is_dotted) && return :random
     return :fixed
 end
 
