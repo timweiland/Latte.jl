@@ -1,7 +1,8 @@
 using Distributions
 using OrderedCollections: OrderedDict
 using GaussianMarkovRandomFields
-using GaussianMarkovRandomFields: LatentModel, hyperparameters, precision_matrix, constraints, model_name
+using GaussianMarkovRandomFields: LatentModel, AbstractLatentPrior, NonGaussianLatentPrior,
+    hyperparameters, precision_matrix, constraints, model_name
 using Random
 using SparseArrays: SparseMatrixCSC, sparse
 
@@ -73,7 +74,8 @@ The alias `LGM` is available for brevity.
 
 # Type Parameters
 - `HP`: Type of the hyperparameter specification (HyperparameterSpec)
-- `F <: LatentModel`: Type of the latent prior (wrap a function with `FunctionLatentModel`)
+- `F <: AbstractLatentPrior`: Type of the latent prior — a Gaussian `LatentModel` (wrap a function with
+  `FunctionLatentModel`), or a `NonGaussianLatentPrior` (e.g. `AutoDiffLatentPrior`) for nonlinear state-space priors
 - `O <: ObservationModel`: Type of the observation model
 
 # Fields
@@ -105,7 +107,7 @@ obs_model = ExponentialFamily(Normal)
 model = LatentGaussianModel(hp_spec, FunctionLatentModel(latent_gmrf, 100), obs_model)
 ```
 """
-struct LatentGaussianModel{HP, F <: LatentModel, O <: ObservationModel}
+struct LatentGaussianModel{HP, F <: AbstractLatentPrior, O <: ObservationModel}
     hyperparameter_spec::HP
     latent_prior::F
     observation_model::O
