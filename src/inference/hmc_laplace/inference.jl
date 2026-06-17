@@ -151,9 +151,13 @@ function hmc_laplace(
         θ_samples[k, :] = θ_vec
         θ_wh = WorkingHyperparameters(θ_vec, spec)
         θ_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_wh))
-        prior = model.latent_prior(ws; θ_nt...)
         obs_lik = model.observation_model(y_obs; θ_nt...)
-        x_post = gaussian_approximation(prior, obs_lik)
+        # θ_nt is a concrete sample here (primal), so the workspace is always safe.
+        x_post = if model.latent_prior isa NonGaussianLatentPrior
+            gaussian_approximation(model.latent_prior, obs_lik; θ = θ_nt, ws = ws)
+        else
+            gaussian_approximation(model.latent_prior(ws; θ_nt...), obs_lik)
+        end
         x_cond_means[k, :] = Vector(mean(x_post))
         Σ_x = selinv_mat(x_post)
         x_cond_stds[k, :] = sqrt.(max.(diag(Σ_x), 0.0))
@@ -199,9 +203,12 @@ function Random.rand(rng::AbstractRNG, r::HMCLaplaceResult, n::Int; include_y::B
         # Free hyperparameters only — the θ matrix has one column per free hp
         # (θ_nt also carries any fixed values, used below for the densities).
         θ_nat_vec = collect(convert(NaturalHyperparameters, θ_wh))
-        prior = r.model.latent_prior(ws; θ_nt...)
         obs_lik = r.model.observation_model(r.observations; θ_nt...)
-        x_post = gaussian_approximation(prior, obs_lik)
+        x_post = if r.model.latent_prior isa NonGaussianLatentPrior
+            gaussian_approximation(r.model.latent_prior, obs_lik; θ = θ_nt, ws = ws)
+        else
+            gaussian_approximation(r.model.latent_prior(ws; θ_nt...), obs_lik)
+        end
 
         for i in findall(==(k), idxs)
             θ_mat[i, :] = θ_nat_vec
