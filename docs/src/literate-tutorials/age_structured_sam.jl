@@ -218,6 +218,46 @@ summary_hp = DataFrame(
     posterior_median = [exp(median(hyperparameter_marginals(result, k)[1])) for k in hp_keys],
 )
 
+# ## Management quantities
+#
+# Assessments are run to inform management, and the quantities managers act on — spawning-stock
+# biomass (SSB) and the average fishing mortality on the exploited ages (Fbar) — are *nonlinear*
+# functions of the latent field. `derived` pushes posterior draws through any such function and
+# returns its full marginal, so these summaries carry the posterior uncertainty of the latent
+# field rather than a single plug-in value. It is the sampling-based, nonlinear counterpart to
+# `linear_combinations`.
+#
+# SSB weights numbers-at-age by weight and maturity; Fbar averages F over a reference age range
+# (here ages 2–4). The closure receives one posterior draw as a `NamedTuple` of the latent
+# groups; we reshape each flattened field back to age × year and return one value per year:
+weight_at_age = [0.1, 0.4, 0.9, 1.5]      # illustrative weight-at-age
+maturity_at_age = [0.0, 0.5, 1.0, 1.0]    # proportion mature at age
+
+ssb = derived(result; n_samples = 2000) do z
+    logN = reshape(z.logN, nA, nY)
+    [sum(weight_at_age .* maturity_at_age .* exp.(logN[:, y])) for y in 1:nY]
+end
+fbar = derived(result; n_samples = 2000) do z
+    logF = reshape(z.logF, nA, nY)
+    [mean(exp.(logF[2:nA, y])) for y in 1:nY]
+end
+
+# Each entry of `ssb` and `fbar` is a `SampleMarginal`, so `mean`, `std`, and `quantile` work
+# directly. Against the truth, with 95% credible bands:
+ssb_true = [sum(weight_at_age .* maturity_at_age .* exp.(logN_t[:, y])) for y in 1:nY]
+fbar_true = [mean(exp.(logF_t[2:nA, y])) for y in 1:nY]
+
+fig3 = Figure(size = (1000, 380))
+ax_ssb = Axis(fig3[1, 1], title = "Spawning-stock biomass", xlabel = "year", ylabel = "SSB")
+ax_fbar = Axis(fig3[1, 2], title = "Average F (ages 2–4)", xlabel = "year", ylabel = "Fbar")
+for (ax, q, qt) in ((ax_ssb, ssb, ssb_true), (ax_fbar, fbar, fbar_true))
+    band!(ax, 1:nY, [quantile(qi, 0.025) for qi in q], [quantile(qi, 0.975) for qi in q]; color = (:steelblue, 0.25))
+    lines!(ax, 1:nY, mean.(q); color = :steelblue, linewidth = 2, label = "posterior mean")
+    lines!(ax, 1:nY, qt; color = :black, linestyle = :dash, label = "truth")
+end
+axislegend(ax_ssb; position = :rt, framevisible = false)
+fig3
+
 # ## The same model through `tmb`
 #
 # Swapping the engine needs no change to the model. `tmb` finds the hyperparameter MAP,
@@ -252,9 +292,8 @@ mF_tmb = reshape(mean.(latent_marginals(result_tmb, :logF)), nA, nY)
 #   `~` block with its own catchability and noise — the device the
 #   [surplus-production tutorial](fisheries_state_space.md) used to anchor absolute
 #   stock size.
-# - Management quantities — spawning-stock biomass and average fishing mortality are
-#   nonlinear functions of the recovered latent field, recoverable with uncertainty by
-#   pushing posterior draws through them.
+# - Reference points (MSY, F_MSY, B_MSY) and short-term forecasts, both further `derived`
+#   quantities built on the SSB and Fbar marginals above.
 #
 # For the inference protocol shared across `inla`, `tmb`, and `hmc_laplace`, see the
 # [Main Interface](../main_interface.md) reference.
