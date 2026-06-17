@@ -26,6 +26,7 @@ makedocs(;
             "Nonlinear regression" => "tutorials/nonlinear_regression_gam.md",
             "Custom likelihoods: Tweedie" => "tutorials/tweedie_insurance.md",
             "State-space stock assessment (TMB)" => "tutorials/fisheries_state_space.md",
+            "Age-structured assessment (SAM)" => "tutorials/age_structured_sam.md",
             "Spatial SPDE: earthquake intensity" => "tutorials/spatial_spde.md",
             "Spatial barrier models: coastlines" => "tutorials/barrier_coastline.md",
             "Spatial survival: leukemia" => "tutorials/spatial_survival_leukemia.md",
