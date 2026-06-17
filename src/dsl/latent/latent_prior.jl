@@ -30,7 +30,8 @@ using SparseConnectivityTracer: TracerLocalSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
 using DynamicPPL: getlogprior
 using LogDensityProblems
-using GaussianMarkovRandomFields: ConstrainedGMRF
+using GaussianMarkovRandomFields: ConstrainedGMRF, AutoDiffLatentPrior, NonGaussianLatentPrior,
+    local_quadratic, known_pattern_hessian_backend
 import ReverseDiff
 import ForwardDiff
 
@@ -136,9 +137,70 @@ function build_latent_model(
         end
     end
 
+    # Not all-atomic-linear-Gaussian. Probe (with a tracer-backed AutoDiffLatentPrior) whether the
+    # joint is genuinely NONLINEAR — a value-dependent prior Hessian → iterated-Laplace path; else
+    # Gaussian-but-non-atomic → the existing linearise-once `:sparse_ad` path (exact for a
+    # constant-Hessian prior).
+    ng_probe = _build_nongaussian_latent(
+        dppl_model, n_latent, hp_names, joint_constraint, _tracer_hess_backend()
+    )
+    nonlinear, prior_pat = _prior_nonlinearity(ng_probe, n_latent, probe_hp)
+    if nonlinear
+        # Build the prior so its `local_quadratic` Q carries the PRIOR ∪ OBS Hessian pattern (via a
+        # known-pattern backend). That makes obs ⊆ prior pattern, so the per-iterate prior Q lines up
+        # positionally with the workspace Q and the obs Hessian fits inside it — ONE fixed symbolic
+        # factorisation, reused across Newton iterates and θ-grid points (the workspace-reuse premise).
+        union_pat = _union_patterns(prior_pat, lik_pattern)
+        ng = _build_nongaussian_latent(
+            dppl_model, n_latent, hp_names, joint_constraint,
+            known_pattern_hessian_backend(union_pat),
+        )
+        return ng, :sparse_nongaussian
+    end
+
     return _build_joint_sparse_ad_latent(
             dppl_model, random_syms, n_latent, hp_names, lik_pattern, joint_constraint
         ), :sparse_ad
+end
+
+# Value-aware LOCAL sparsity detector backend (a DPPL `getlogprior` builds `Normal(μ,σ)` whose
+# `check_args` branches on a value, which the default GLOBAL detector cannot trace), matching
+# `_build_joint_sparse_ad_latent`. Used only to DISCOVER the prior Hessian pattern.
+_tracer_hess_backend() = AutoSparse(
+    SecondOrder(AutoForwardDiff(), AutoReverseDiff());
+    sparsity_detector = TracerLocalSparsityDetector(),
+    coloring_algorithm = GreedyColoringAlgorithm(),
+)
+
+# Build a `GMRFs.AutoDiffLatentPrior` from the DPPL model's conditioned log-prior, with the
+# hyperparameters kept OPEN as keywords (the seam validated in prototypes/p1_seam.jl): this lets
+# the prior's eltype-keyed prep cache and the IFT θ-gradient path work. `hess_backend` controls the
+# Hessian sparsity (tracer for discovery; known-pattern for the union once it's computed).
+function _build_nongaussian_latent(dppl_model, n_latent, hp_names, joint_constraint, hess_backend)
+    logp_func = function (x; hp...)
+        cond = DynamicPPL.fix(dppl_model, NamedTuple(hp))
+        ldf = DynamicPPL.LogDensityFunction(cond, getlogprior)
+        return LogDensityProblems.logdensity(ldf, x)
+    end
+    return AutoDiffLatentPrior(
+        logp_func; n = n_latent, hyperparams = hp_names,
+        grad_backend = AutoForwardDiff(), hessian_backend = hess_backend,
+        constraints = joint_constraint,
+    )
+end
+
+# The confirming gate (design §II.2, demoted to nonlinearity-only): the prior is non-Gaussian iff
+# its local-quadratic precision differs between two distinct latent points (a Gaussian prior has an
+# x-independent Hessian). A shifted sparsity pattern also counts as non-Gaussian. Two deterministic
+# probe points keep the build decision reproducible. Returns `(nonlinear, prior_pattern)`.
+function _prior_nonlinearity(prior, n_latent, probe_hp)
+    xa = 0.2 .* sin.(1:n_latent)
+    xb = -0.3 .* cos.(1:n_latent)
+    Qa = local_quadratic(prior, xa; probe_hp...).Q
+    Qb = local_quadratic(prior, xb; probe_hp...).Q
+    same_pattern = Qa.colptr == Qb.colptr && Qa.rowval == Qb.rowval
+    nonlinear = !same_pattern || !isapprox(Qa.nzval, Qb.nzval; rtol = 1.0e-6, atol = 1.0e-10)
+    return nonlinear, Qa
 end
 
 function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint)

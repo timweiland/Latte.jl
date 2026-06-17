@@ -1,6 +1,6 @@
 using Test
 using Latte
-using Latte: CachedSparseADLatentModel
+using GaussianMarkovRandomFields: NonGaussianLatentPrior, AutoDiffLatentPrior, local_quadratic
 using Distributions
 using DynamicPPL
 using LinearAlgebra
@@ -9,18 +9,19 @@ using Random
 import ForwardDiff
 import GaussianMarkovRandomFields as GMRFs
 
-# Phase 2 of the joint-precision caching work: pattern-cache the sparse-AD
-# fallback path (`_build_joint_sparse_ad_latent`). The path is triggered
-# when the analyzer can't conclude all-atomic-Gaussian-with-linear-edges
-# (e.g. non-linear DAG edge). It used to allocate a fresh sparse Hessian
-# on every call; the cached version fills a pre-allocated buffer.
+# Recognition of a NONLINEAR latent coupling. A genuinely non-Gaussian prior (its Hessian
+# depends on the latent) is recognised as a `NonGaussianLatentPrior` (GMRFs `AutoDiffLatentPrior`)
+# and fit by iterated Laplace — NOT linearised once at x=0. This supersedes the earlier
+# linearise-once `:sparse_ad` fallback (`CachedSparseADLatentModel`), which silently treated such
+# priors as Gaussian; the value-level gate in `build_latent_model` now routes them to the
+# iterated-Laplace path, and the previous outer-AD-over-hyperparameters limitation is gone.
 
-@testset "Sparse-AD plan" begin
+@testset "Non-linear prior coupling" begin
     Random.seed!(20260513)
 
-    @testset "Non-linear edge forces sparse-AD path" begin
-        # `v[i]` depends nonlinearly on `u[i]` → `extract_linear_map`
-        # rejects, falling through to the sparse-AD path.
+    @testset "Non-linear edge → iterated-Laplace (AutoDiffLatentPrior) path" begin
+        # `v[i]` depends nonlinearly on `u[i]` → the prior Hessian is value-dependent, so the
+        # joint is non-Gaussian and is recognised as such.
         @latte function nonlinear_edge(y)
             σ ~ Gamma(2.0, 1.0)
             @random u ~ MvNormal(zeros(2), 1.0)
@@ -32,27 +33,22 @@ import GaussianMarkovRandomFields as GMRFs
 
         y = [0.1, 0.2]
         lgm = nonlinear_edge(y)
-        base = lgm.latent_prior isa CachedSparseADLatentModel ?
-            lgm.latent_prior : lgm.latent_prior.base_model
-        @test base isa CachedSparseADLatentModel
+        @test lgm.latent_prior isa NonGaussianLatentPrior
 
-        # At x = 0 the prior log-density is
-        #   logp = -0.5(||u||² + ||v - u²||²) (+ const)
-        # ∇²logp w.r.t. (u; v) at 0 = -I(4), so Q = I(4) and μ = 0.
-        σ_val = 0.8
-        μ_new = mean(base; σ = σ_val)
-        Q_new = GMRFs.precision_matrix(base; σ = σ_val)
-        @test μ_new ≈ zeros(4) atol = 1.0e-10
-        @test Matrix(Q_new) ≈ Matrix(I, 4, 4) atol = 1.0e-10
+        # At x = 0 the prior log-density is logp = -0.5(‖u‖² + ‖v - u²‖²) (+ const), so the local
+        # quadratic there has Q = -∇²logp|₀ = I(4) and gradient 0 (⇒ natural coefficient h = 0).
+        # This matches what the old linearise-once path computed *at the mode-zero point*; the
+        # difference is that the new path re-linearises per Newton iterate away from zero.
+        lq = local_quadratic(lgm.latent_prior, zeros(4); σ = 0.8)
+        @test Matrix(lq.Q) ≈ Matrix(I, 4, 4) atol = 1.0e-10
+        @test lq.h ≈ zeros(4) atol = 1.0e-10
     end
 
-    @testset "Sparse-AD path under outer AD over hp (known limitation)" begin
-        # The sparse-AD backend uses SparseConnectivityTracer for sparsity
-        # detection. Under nested ForwardDiff over hp, SCT's tracer hits
-        # method ambiguities with ForwardDiff.Dual. This is a pre-existing
-        # limitation independent of the assembly-plan refactor; users with
-        # outer-AD-incompatible kernel libraries pass
-        # `diff_strategy = FiniteDiffStrategy()` to avoid this code path.
+    @testset "Non-linear prior works under outer AD over hyperparameters" begin
+        # Previously this model hit a SparseConnectivityTracer / ForwardDiff.Dual clash on the
+        # linearise-once path and could only be fit with `FiniteDiffStrategy`. The iterated-Laplace
+        # path differentiates the marginal likelihood through the Implicit Function Theorem, so the
+        # default `ADStrategy` (ForwardDiff over the hyperparameters) now runs end to end.
         @latte function nonlinear_edge_dual(y)
             τ ~ Gamma(2.0, 1.0)
             σ ~ Gamma(2.0, 1.0)
@@ -65,17 +61,10 @@ import GaussianMarkovRandomFields as GMRFs
 
         y = [0.1, 0.2]
         lgm = nonlinear_edge_dual(y)
-        base = lgm.latent_prior isa CachedSparseADLatentModel ?
-            lgm.latent_prior : lgm.latent_prior.base_model
-        @test base isa CachedSparseADLatentModel
+        @test lgm.latent_prior isa NonGaussianLatentPrior
 
-        # Float64 call works.
-        Q_primal = GMRFs.precision_matrix(base; τ = 2.0, σ = 0.7)
-        @test eltype(Q_primal) === Float64
-
-        # Dual hp throws (SCT/ForwardDiff method ambiguity). Track as
-        # @test_throws so we notice if upstream ever fixes this.
-        τ_dual = ForwardDiff.Dual{:tag}(2.0, 1.0)
-        @test_throws Exception GMRFs.precision_matrix(base; τ = τ_dual, σ = 0.7)
+        # Default ADStrategy (outer ForwardDiff over τ, σ) — must run, not throw.
+        result = inla(lgm, y; progress = false)
+        @test all(isfinite, mean.(latent_marginals(result)))
     end
 end
