@@ -71,6 +71,7 @@ function inla(
         mode_method = BFGS(linesearch = Optim.LineSearches.BackTracking(order = 3, maxstep = 5.0)),
         mode_iterations::Int = 1000,
         mode_init = PriorModeStart(),
+        latent_init = ZeroLatentStart(),
         mode_diagnostic::Symbol = :warn,
         mode_diagnostic_tol::Float64 = 1.0,
         progress::Bool = true,
@@ -89,6 +90,16 @@ function inla(
     # default to the VBC mean correction, everything else to simplified Laplace.
     if latent_marginalization_method === nothing
         latent_marginalization_method = default_marginalization(model_pred)
+    elseif model_pred.latent_prior isa NonGaussianLatentPrior &&
+            !(latent_marginalization_method isa GaussianMarginal)
+        throw(
+            ArgumentError(
+                "latent_marginalization_method = $(typeof(latent_marginalization_method)) is not " *
+                    "yet supported for a non-Gaussian latent prior; only GaussianMarginal is " *
+                    "available (its mean and precision are exact — skew correction for " *
+                    "non-Gaussian priors is a planned follow-up)."
+            )
+        )
     end
 
     accumulators = map(materialize, accumulators)
@@ -117,6 +128,7 @@ function inla(
         progress_callback = mode_callback,
         diff_strategy = diff_strategy,
         mode_init = mode_init,
+        latent_init = latent_init,
         executor = executor,
     )
 
