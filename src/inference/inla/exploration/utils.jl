@@ -22,8 +22,10 @@ end
 function _grid_point_ga(model::LatentGaussianModel, y, θ_natural_nt, ws, x0)
     obs_lik = model.observation_model(y; θ_natural_nt...)
     if model.latent_prior isa NonGaussianLatentPrior
-        ws_arg = _theta_has_dual(θ_natural_nt) ? nothing : ws
-        ga = gaussian_approximation(model.latent_prior, obs_lik; θ = θ_natural_nt, ws = ws_arg, x0 = x0)
+        # `ws` is forwarded even on Dual-θ AD-gradient evals: GMRFs' IFT path threads it into
+        # its primal Newton (#174), so one symbolic factorisation is reused across the θ-grid
+        # and through the gradient passes.
+        ga = gaussian_approximation(model.latent_prior, obs_lik; θ = θ_natural_nt, ws = ws, x0 = x0)
         return (nothing, obs_lik, ga)
     end
     prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)

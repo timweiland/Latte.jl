@@ -39,18 +39,6 @@ fooling BFGS into early convergence.
     e isa LinearAlgebra.ZeroPivotException
 
 """
-    _theta_has_dual(θ_nt) -> Bool
-
-True when the natural-space hyperparameter NamedTuple carries non-`AbstractFloat`
-values — i.e. `ForwardDiff.Dual`s during an AD hyperparameter-gradient pass. For a
-`NonGaussianLatentPrior` the IFT θ-gradient path cannot yet reuse a `GMRFWorkspace`
-(GMRFs #174), so we drop `ws` on Dual evals (the workspace-less IFT cache path) and
-keep it for primal evals. Detected via `eltype` rather than importing ForwardDiff:
-`Dual <: Real` but not `<: AbstractFloat`.
-"""
-_theta_has_dual(θ_nt::NamedTuple) = !all(v -> v isa AbstractFloat, values(θ_nt))
-
-"""
     initial_hyperparameter_guess(spec::HyperparameterSpec)
 
 Compute an initial guess for hyperparameter optimization in working space.
@@ -206,13 +194,13 @@ function hyperparameter_logpdf(
     # The Gaussian branch below is untouched (incl. its factor-reuse term ordering).
     if model.latent_prior isa NonGaussianLatentPrior
         prior = model.latent_prior
-        # Keep the workspace on primal evals (factor reuse across the θ-grid); drop it only on a
-        # Dual-θ AD-gradient eval (the IFT path can't take a ws yet — GMRFs #174). The workspace
-        # is seeded with the prior∪obs Hessian pattern (see the make_workspace call site), so a
-        # nonlinear obs (SAM's Baranov logN×logF coupling) stays inside the workspace pattern.
-        ws_arg = (ws !== nothing && _theta_has_dual(θ_nt)) ? nothing : ws
+        # The workspace is reused across the whole θ-grid AND through the Dual-θ AD-gradient
+        # evals: GMRFs' IFT path forwards `ws` to its primal Newton (#174), so one symbolic
+        # factorisation backs both. The workspace carries the prior∪obs Hessian pattern (see the
+        # make_workspace call site), so a nonlinear obs (SAM's Baranov logN×logF coupling) stays
+        # inside the workspace pattern.
         x_G = ga === nothing ?
-            gaussian_approximation(prior, obs_lik; θ = θ_nt, ws = ws_arg, x0 = x0) : ga
+            gaussian_approximation(prior, obs_lik; θ = θ_nt, ws = ws, x0 = x0) : ga
         x_star = mean(x_G)
         mode_out !== nothing && eltype(x_star) <: AbstractFloat && (mode_out[] = collect(x_star))
         ml = marginal_loglikelihood(prior, obs_lik, x_G; θ_nt...)
