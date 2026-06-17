@@ -269,6 +269,44 @@ mF_tmb = reshape(mean.(latent_marginals(result_tmb, :logF)), nA, nY)
 
 (inla_vs_tmb_maxdiff = maximum(abs.(mF .- mF_tmb)),)
 
+# ## Validation against NUTS
+#
+# Both engines are Laplace approximations, so agreeing with each other is reassuring but not
+# conclusive. To check the approximation itself we sample the same model with NUTS — full
+# Hamiltonian Monte Carlo, no Gaussian approximation anywhere — through the `@latte` →
+# DynamicPPL handoff. `Latte.dppl_model` returns the underlying generative model, which Turing
+# samples directly.
+using Turing
+
+dppl = Latte.dppl_model(sam)(logC, nA, nY)
+nuts_chain = sample(dppl, NUTS(500, 0.8), 1000; progress = false)
+mN_nuts = reshape([mean(nuts_chain[Symbol("logN[$a, $y]")]) for y in 1:nY for a in 1:nA], nA, nY)
+mF_nuts = reshape([mean(nuts_chain[Symbol("logF[$a, $y]")]) for y in 1:nY for a in 1:nA], nA, nY)
+
+(logN_max_abs_diff = maximum(abs.(mN .- mN_nuts)), logF_max_abs_diff = maximum(abs.(mF .- mF_nuts)))
+
+# The iterated-Laplace posterior means match the MCMC gold standard across the whole latent
+# field, to within Monte Carlo error. The left panel plots every cell's posterior mean, INLA
+# against NUTS, on the `y = x` line; the right panel overlays the full INLA marginal for one
+# fishing-mortality cell on the NUTS samples.
+mF_marg = reshape(latent_marginals(result, :logF), nA, nY)
+m = mF_marg[2, nY]
+fcell = vec(Array(nuts_chain[Symbol("logF[2, $nY]")]))
+
+fig4 = Figure(size = (1000, 380))
+ax_s = Axis(fig4[1, 1], title = "Posterior means: INLA vs NUTS", xlabel = "NUTS", ylabel = "INLA")
+ablines!(ax_s, 0, 1; color = :black, linestyle = :dash)
+scatter!(ax_s, vec(mN_nuts), vec(mN); color = (:steelblue, 0.6), label = "log N")
+scatter!(ax_s, vec(mF_nuts), vec(mF); color = (:firebrick, 0.6), label = "log F")
+axislegend(ax_s; position = :lt, framevisible = false)
+
+ax_m = Axis(fig4[1, 2], title = "Marginal: log F (age 2, year $nY)", xlabel = "log F", ylabel = "density")
+hist!(ax_m, fcell; normalization = :pdf, bins = 30, color = (:firebrick, 0.3), label = "NUTS")
+xs = range(minimum(fcell), maximum(fcell); length = 100)
+lines!(ax_m, xs, pdf.(Normal(mean(m), std(m)), xs); color = :steelblue, linewidth = 2, label = "INLA")
+axislegend(ax_m; position = :rt, framevisible = false)
+fig4
+
 # ## What this demonstrates
 #
 # The nonlinear survival recursion makes the latent prior non-Gaussian, and `@latte`
@@ -276,7 +314,8 @@ mF_tmb = reshape(mean.(latent_marginals(result_tmb, :logF)), nA, nY)
 # one coupled field, detects the `exp(logF)` curvature, and routes the fit to an iterated
 # Laplace approximation. The same `sam` model runs unchanged through `inla` (full
 # hyperparameter posterior) and `tmb` (MAP with standard errors), so the choice of engine
-# is a runtime decision, not a modelling one.
+# is a runtime decision, not a modelling one. The NUTS comparison above is the check that
+# matters: the approximation reproduces the full-MCMC posterior across the latent field.
 #
 # The age-year latent fields are written with natural matrix indexing, `logN[a, y]`,
 # rather than hand-flattened vectors, and the sparse structure of the survival recursion
