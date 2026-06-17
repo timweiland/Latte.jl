@@ -59,6 +59,17 @@ onto the slower, less accurate non-diagonal AD path, and the GA mode is already
 accurate for the smooth fields this case typically arises from.
 """
 function default_marginalization(model)
+    # A non-Gaussian latent prior has no fixed precision matrix, so the current SLA / VBC /
+    # full-Laplace skew corrections — implemented against `precision_matrix(prior_gmrf)` and
+    # (VBC) a linear-predictor hub — do not yet generalise to it. Default to GaussianMarginal:
+    # the GA mode/precision are exact (iterated Laplace re-linearises the prior at every step);
+    # only the higher-moment skew is dropped. A hub-free skew correction using the prior's own
+    # higher derivatives is a known follow-up, not a theoretical limit.
+    if model.latent_prior isa NonGaussianLatentPrior
+        @warn "Non-Gaussian latent prior: latent marginals use GaussianMarginal (mean and " *
+            "precision exact); posterior skew is not yet corrected for non-Gaussian priors." maxlog = 1
+        return GaussianMarginal()
+    end
     (
         model.augmentation_info === nothing &&
             model.observation_model isa LinearlyTransformedObservationModel
