@@ -47,6 +47,9 @@ Distributions.var(d::SampleMarginal) = Statistics.var(d.samples)
 Distributions.std(d::SampleMarginal) = Statistics.std(d.samples)
 Distributions.median(d::SampleMarginal) = Statistics.median(d.samples)
 Distributions.quantile(d::SampleMarginal, q::Real) = Statistics.quantile(d.samples, q)
+# Mode as the peak of the kernel-density estimate; the continuous samples have no
+# meaningful "most frequent value". Lets `summary_df` accept a SampleMarginal.
+Distributions.mode(d::SampleMarginal) = (k = _get_kde(d); k.x[argmax(k.density)])
 Distributions.minimum(d::SampleMarginal) = minimum(d.samples)
 Distributions.maximum(d::SampleMarginal) = maximum(d.samples)
 Distributions.insupport(d::SampleMarginal, x::Real) =
@@ -66,3 +69,13 @@ Distributions.logpdf(d::SampleMarginal, x::Real) = log(pdf(d, x))
 # smoothing assumption on draws.
 Base.rand(rng::AbstractRNG, d::SampleMarginal) = d.samples[rand(rng, 1:length(d.samples))]
 Base.rand(d::SampleMarginal) = rand(Random.default_rng(), d)
+
+# Compact summary — never dump the raw sample vector (it bloats REPL / rendered docs output).
+function Base.show(io::IO, d::SampleMarginal)
+    print(
+        io, "SampleMarginal(n=", length(d.samples),
+        ", mean=", round(mean(d); digits = 4), ", std=", round(std(d); digits = 4), ")",
+    )
+    return
+end
+Base.show(io::IO, ::MIME"text/plain", d::SampleMarginal) = show(io, d)
