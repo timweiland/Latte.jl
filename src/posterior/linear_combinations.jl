@@ -43,8 +43,16 @@ natural-space NamedTuple. Used by `linear_combinations` and `rand(::INLAResult)`
 function _reconstruct_ga(model, y_obs, θ, ws)
     θ_natural = convert(NaturalHyperparameters, θ)
     θ_natural_nt = convert(NamedTuple, θ_natural)
-    prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
     obs_lik = model.observation_model(y_obs; θ_natural_nt...)
+    if model.latent_prior isa NonGaussianLatentPrior
+        # No fixed GMRF to materialise; θ is a concrete integration point (primal), so the
+        # workspace is safe. `prior_gmrf` is `nothing` — only the VBC mean correction reads
+        # it, and that is gated off for non-Gaussian priors (the GaussianMarginal default
+        # leaves the latent mean uncorrected, so the downstream `x_shift` is zero).
+        ga = gaussian_approximation(model.latent_prior, obs_lik; θ = θ_natural_nt, ws = ws)
+        return ga, nothing, obs_lik, θ_natural_nt
+    end
+    prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
     return gaussian_approximation(prior_gmrf, obs_lik), prior_gmrf, obs_lik, θ_natural_nt
 end
 
