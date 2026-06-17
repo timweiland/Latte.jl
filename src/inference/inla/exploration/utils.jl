@@ -10,9 +10,25 @@ GA from x*(θ*) cuts its Newton iterations roughly in half (6 → 2–3 here) wi
 changing the converged marginals at each fixed θ.
 """
 function latent_mode(model::LatentGaussianModel, y, θ_natural_nt, ws)
-    prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
+    _, _, ga = _grid_point_ga(model, y, θ_natural_nt, ws, nothing)
+    return collect(mean(ga))
+end
+
+# Compute the per-grid-point Gaussian approximation, forking on the prior type. A Gaussian
+# `LatentModel` materialises to a GMRF then runs fixed-Q Newton; a `NonGaussianLatentPrior`
+# (no fixed GMRF) runs the iterated-Laplace GA directly on the prior. Returns
+# `(prior_gmrf_or_nothing, obs_lik, ga)`; `prior_gmrf` is `nothing` for the non-Gaussian path
+# (only VBC/SLA need it, and those are gated off for non-Gaussian priors).
+function _grid_point_ga(model::LatentGaussianModel, y, θ_natural_nt, ws, x0)
     obs_lik = model.observation_model(y; θ_natural_nt...)
-    return collect(mean(gaussian_approximation(prior_gmrf, obs_lik)))
+    if model.latent_prior isa NonGaussianLatentPrior
+        ws_arg = _theta_has_dual(θ_natural_nt) ? nothing : ws
+        ga = gaussian_approximation(model.latent_prior, obs_lik; θ = θ_natural_nt, ws = ws_arg, x0 = x0)
+        return (nothing, obs_lik, ga)
+    end
+    prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
+    ga = gaussian_approximation(prior_gmrf, obs_lik; x0 = x0)
+    return (prior_gmrf, obs_lik, ga)
 end
 
 """
@@ -70,9 +86,7 @@ function evaluate_at_grid_point(
     # ZeroPivotException, SingularException) that can occur at extreme
     # hyperparameter values — especially with CCD design points far from the mode.
     try
-        prior_gmrf = latent_gmrf(model, ws, θ_natural_nt)
-        obs_lik = model.observation_model(y; θ_natural_nt...)
-        ga = gaussian_approximation(prior_gmrf, obs_lik; x0 = x0)
+        prior_gmrf, obs_lik, ga = _grid_point_ga(model, y, θ_natural_nt, ws, x0)
         x_star = mean(ga)
 
         # VBC (compact mode): the corrected latent mean μ*, computed once. It is the
