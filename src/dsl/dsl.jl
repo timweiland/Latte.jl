@@ -26,5 +26,6 @@ include("adapter.jl")
 
 include("macro/markers_and_meta.jl")
 include("macro/ast_walker.jl")
+include("macro/factor_extraction.jl")
 include("macro/latte.jl")
 include("macro/prelude_lift.jl")
