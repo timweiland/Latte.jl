@@ -45,12 +45,10 @@ function variable_length(dppl_model, sym::Symbol, hp_values::NamedTuple)
     cond = DynamicPPL.fix(dppl_model, hp_values)
     priors = extract_priors(cond)
     matches = [d for (vn, d) in pairs(priors) if getsym(vn) === sym]
-    if length(matches) == 1
-        d = matches[1]
-        return d isa UnivariateDistribution ? 1 : length(d)
-    else
-        return length(matches)
-    end
+    # Total scalar dimension = sum of each `~` site's length (`length` is 1 for univariate, the
+    # dimension for multivariate). Covers a single MvNormal, a scalar loop (`n` sites × 1), and a
+    # block loop (`x[:, t] ~ MvNormal(d)` over `n` columns → `n × d`, not `n`).
+    return sum(length, matches; init = 0)
 end
 
 """
