@@ -139,4 +139,19 @@ import GaussianMarkovRandomFields as G
     fb3, _ = Latte.build_latent_model(dppl, latent_syms, hp_names; structured_spec = wrong_spec)
     @test !(fb3 isa G.StructuredLatentPrior)
     @test fb3 isa G.NonGaussianLatentPrior
+
+    # Falling back to the slow monolithic path must WARN, with an attributed reason — not silently.
+    @test_logs (:warn, r"non-Gaussian path") match_mode = :any Latte.build_latent_model(
+        dppl, latent_syms, hp_names; structured_spec = wrong_spec,
+    )
+    @test_logs (:warn, r"verification points") match_mode = :any Latte.build_latent_model(
+        dppl, latent_syms, hp_names; structured_spec = wrong_spec,
+    )
+    @test_logs (:warn, r"could not be built or evaluated") match_mode = :any Latte.build_latent_model(
+        dppl, latent_syms, hp_names; structured_spec = throwing_spec,
+    )
+    # No structured spec at all (e.g. a raw nonlinear model) also warns, pointing at @latte.
+    @test_logs (:warn, r"not built through @latte") match_mode = :any Latte.build_latent_model(
+        dppl, latent_syms, hp_names,
+    )
 end

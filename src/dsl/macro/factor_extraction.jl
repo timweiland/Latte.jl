@@ -235,13 +235,15 @@ function _factor_closure_expr(t::_FactorTemplate, hp_names, prelude, latent_syms
     return Expr(:->, Expr(:tuple, :vals, :θ), body)
 end
 
-function _factor_index_expr(t::_FactorTemplate)
+function _factor_index_expr(t::_FactorTemplate, latent_syms)
     flats = Any[_flatref(t.lsym, t.lidx)]
     for (s, ix) in t.parents
         push!(flats, _flatref(s, ix))
     end
     K = 1 + length(t.parents)
-    loopbody = Expr(:block, _index_locals(t.locals, ())..., Expr(:call, :push!, :__idx, Expr(:tuple, flats...)))
+    # Pass the real `latent_syms` so latent-touching loop-body locals are kept OUT of the index loop
+    # (they're inlined into the closure instead, with reads substituted) — parity with the obs side.
+    loopbody = Expr(:block, _index_locals(t.locals, latent_syms)..., Expr(:call, :push!, :__idx, Expr(:tuple, flats...)))
     for (v, rng) in reverse(t.loops)
         loopbody = Expr(:for, Expr(:(=), v, rng), loopbody)
     end
@@ -307,7 +309,7 @@ function _emit_structured_prior_builder(
             group_exprs,
             Expr(
                 :call, GlobalRef(_GMRFs, :LatentFactorGroup),
-                _factor_index_expr(t), _factor_closure_expr(t, hp_names, prelude, latent_syms),
+                _factor_index_expr(t, latent_syms), _factor_closure_expr(t, hp_names, prelude, latent_syms),
             ),
         )
     end
