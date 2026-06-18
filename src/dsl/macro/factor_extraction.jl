@@ -44,7 +44,8 @@ end
 struct _ObsFactorTemplate
     loops::Vector{Any}
     locals::Vector{Pair{Symbol, Any}}
-    oidx::Any                                       # LHS index expr (flat position into the data)
+    osym::Symbol                                    # observed (data) symbol
+    oidx::Vector{Any}                               # LHS index exprs into the data array
     dist::Any
     dargs::Vector{Any}
     parents::Vector{Tuple{Symbol, Vector{Any}}}     # latent reads (→ vals[1:])
@@ -159,11 +160,12 @@ function _record_tilde!(out, pair, loops, locals, latent_syms, obs_syms, mode)
             ),
         )
     elseif mode === :obs && lhs isa Expr && lhs.head === :ref &&
-            lhs.args[1] in obs_syms && length(lhs.args) == 2 && !isempty(parents)
+            lhs.args[1] in obs_syms && length(lhs.args) >= 2 && !isempty(parents)
         push!(
             out,
             _ObsFactorTemplate(
-                copy(loops), copy(locals), lhs.args[2], rhs.args[1], dargs, parents,
+                copy(loops), copy(locals), lhs.args[1], collect(lhs.args[2:end]),
+                rhs.args[1], dargs, parents,
             ),
         )
     end
@@ -264,17 +266,24 @@ function _obs_group_expr(t::_ObsFactorTemplate, hp_names, prelude, latent_syms)
 
     K = length(t.parents)
     var_flats = Any[_flatref(s, ix) for (s, ix) in t.parents]
+    # The observation's flat (column-major) position in its data array, via `LinearIndices` so a
+    # multi-indexed datum `y[i, j]` maps correctly (and a flat `y[k]` stays `k`). `__obs_li` is the
+    # data array's linear-index map, hoisted out of the loop; the data symbol is a builder param.
+    oidx_expr = Expr(:ref, :__obs_li, t.oidx...)
     loopbody = Expr(
         :block, _index_locals(t.locals, latent_syms)...,
         Expr(:call, :push!, :__vars, Expr(:tuple, var_flats...)),
-        Expr(:call, :push!, :__oidx, t.oidx),
+        Expr(:call, :push!, :__oidx, oidx_expr),
     )
     for (v, rng) in reverse(t.loops)
         loopbody = Expr(:for, Expr(:(=), v, rng), loopbody)
     end
     group = Expr(
         :let,
-        Expr(:block, :(__vars = NTuple{$K, Int}[]), :(__oidx = Int[])),
+        Expr(
+            :block, :(__vars = NTuple{$K, Int}[]), :(__oidx = Int[]),
+            :(__obs_li = LinearIndices(size($(t.osym)))),
+        ),
         Expr(:block, loopbody, Expr(:call, GlobalRef(_GMRFs, :ObsFactorGroup), :__vars, :__oidx, closure)),
     )
     return group, needed_hp
@@ -388,43 +397,35 @@ function _split_top_level_locals(body, hp_names, posargs, latent_syms)
     return closure_prelude, model_consts
 end
 
-# Dimension exprs of an array-constructor RHS: `Matrix{T}(undef, d1, d2)` → `[d1, d2]`,
-# `zeros(d1, d2)` → `[d1, d2]`, `Vector{T}(undef, n)` → `[n]`. `nothing` if not recognised.
-function _array_ctor_dims(rhs)
-    (rhs isa Expr && rhs.head === :call) || return nothing
-    dims = rhs.args[2:end]
-    (!isempty(dims) && dims[1] === :undef) && (dims = dims[2:end])
-    isempty(dims) && return nothing
-    return collect(dims)
-end
-
-# Recover each latent array's shape exprs from its allocation (`logN = Matrix{Real}(undef, nA, nY)`).
-# `nothing` unless every latent symbol has a recovered shape.
-function _extract_latent_shapes(body, latent_syms)
+# Recover each latent array's allocation RHS (`logN = Matrix{Real}(undef, nA, nY)` → the RHS expr).
+# The layout builder takes `size(...)` of it at build time, which is robust to the allocator form
+# (Matrix/Vector/Array `undef`, `zeros`/`ones`/`fill` with or without an eltype, comprehensions,
+# `similar`). `nothing` unless every latent symbol has a top-level allocation.
+function _extract_latent_allocs(body, latent_syms)
     (body isa Expr && body.head === :block) || return nothing
-    shapes = Dict{Symbol, Vector{Any}}()
+    allocs = Dict{Symbol, Any}()
     for stmt in body.args
         (stmt isa Expr && stmt.head === :(=)) || continue
         lhs = stmt.args[1]
         (lhs isa Symbol && lhs in latent_syms) || continue
-        dims = _array_ctor_dims(stmt.args[2])
-        dims === nothing && continue
-        haskey(shapes, lhs) || (shapes[lhs] = dims)
+        haskey(allocs, lhs) || (allocs[lhs] = stmt.args[2])
     end
-    all(s -> haskey(shapes, s), latent_syms) || return nothing
-    return shapes
+    all(s -> haskey(allocs, s), latent_syms) || return nothing
+    return allocs
 end
 
 # `(posargs...) -> Dict(sym => (offset, dims))`: the concatenated-latent layout the flat-index map
 # needs. `latent_syms` must be in base-latent concatenation order (offsets accumulate in that order).
+# Each latent's `dims` is `size(<its allocation>)`, evaluated once in builder scope.
 function _emit_structured_layout_builder(body, posargs, latent_syms, model_consts)
-    shapes = _extract_latent_shapes(body, latent_syms)
-    shapes === nothing && return nothing
+    allocs = _extract_latent_allocs(body, latent_syms)
+    allocs === nothing && return nothing
     stmts = Any[model_consts...; :(__off = 0); :(__layout = Dict{Symbol, Tuple{Int, Tuple}}())]
     for s in latent_syms
-        dtuple = Expr(:tuple, shapes[s]...)
-        push!(stmts, :(__layout[$(QuoteNode(s))] = (__off, $dtuple)))
-        push!(stmts, :(__off += prod($dtuple)))
+        dsym = Symbol("__dims_", s)
+        push!(stmts, :($dsym = size($(allocs[s]))))
+        push!(stmts, :(__layout[$(QuoteNode(s))] = (__off, $dsym)))
+        push!(stmts, :(__off += prod($dsym)))
     end
     push!(stmts, :__layout)
     return Expr(:->, Expr(:tuple, posargs...), Expr(:block, stmts...))

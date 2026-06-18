@@ -67,6 +67,47 @@ import GaussianMarkovRandomFields as G
     end
 end
 
+@testset "size()-inferred shapes and matrix-indexed observations" begin
+    # `Array{Real}(undef, …)` (not `Matrix{T}`) exercises the size()-based shape inference, and a
+    # matrix-indexed observation `logC[a, y]` exercises the LinearIndices obs mapping. Both must
+    # still auto-structure (each only via its guard, so `isa Structured*` confirms correctness).
+    nA, nY = 2, 3
+
+    @latte function sam_mobs(logC, nA, nY)
+        log_σN ~ Normal(-2.0, 0.5)
+        log_σF ~ Normal(-2.0, 0.5)
+        log_σc ~ Normal(-2.0, 0.5)
+        σN = exp(log_σN); σF = exp(log_σF); σc = exp(log_σc)
+        M = 0.2
+        logN = Array{Real}(undef, nA, nY)
+        logF = Array{Real}(undef, nA, nY)
+        for a in 1:nA
+            logN[a, 1] ~ Normal(8.0, 0.5)
+            logF[a, 1] ~ Normal(-1.5, 0.5)
+        end
+        for y in 2:nY
+            for a in 1:nA
+                logF[a, y] ~ Normal(logF[a, y - 1], σF)
+            end
+            logN[1, y] ~ Normal(logN[1, y - 1], σN)
+            for a in 2:nA
+                logN[a, y] ~ Normal(logN[a - 1, y - 1] - exp(logF[a - 1, y - 1]) - M, σN)
+            end
+        end
+        for y in 1:nY, a in 1:nA
+            Z = exp(logF[a, y]) + M
+            logC[a, y] ~ Normal(logN[a, y] + logF[a, y] - log(Z) + log1p(-exp(-Z)), σc)
+        end
+    end
+
+    Random.seed!(20260618)
+    logC = reshape(8.0 .- 1.5 .+ 0.1 .* randn(nA * nY), nA, nY)
+
+    lgm = sam_mobs(logC, nA, nY)
+    @test lgm.latent_prior isa G.StructuredLatentPrior
+    @test lgm.observation_model isa G.StructuredObservationModel
+end
+
 @testset "Latent-touching loop-body local in the prior structures" begin
     # A per-iteration prior local that READS a latent (`d = x[t-1] - 0.5 x[t-1]^2`) must be inlined
     # into the factor closure (reads substituted), not the index loop — parity with the obs side.
