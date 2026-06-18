@@ -260,8 +260,17 @@ function _assemble_lgm(
     # `StructuredObservationModel`. Accept it only if it reproduces the monolithic obs's
     # loglik/loggrad/loghessian at a probe point; otherwise keep the monolithic obs.
     if structured_spec !== nothing && !use_fast_path && !use_obs_groups && lift_spec === nothing
-        obs_structured = _try_structured_obs(structured_spec, length(latent), obs, dppl_model, hp_names)
-        obs_structured === nothing || (obs = obs_structured)
+        obs_structured, obs_reason = _try_structured_obs(structured_spec, length(latent), obs, dppl_model, hp_names)
+        if obs_structured === nothing
+            # Warn only when we actually tried to structure the obs (a builder existed) and failed,
+            # and the prior didn't already warn — `AutoDiffLatentPrior` is the monolithic prior that
+            # has its own warning, so skip here to avoid a duplicate.
+            if obs_reason !== nothing && !(latent isa AutoDiffLatentPrior)
+                _warn_slow_nongaussian(:observation, obs_reason)
+            end
+        else
+            obs = obs_structured
+        end
     end
 
     # Build a `sym → augmented-latent range` layout so downstream callers
@@ -291,15 +300,18 @@ end
 
 # Build the macro-extracted structured observation model and accept it only if it reproduces the
 # monolithic obs `obs_mono` at a probe point. `spec` carries `(; obs_builder, layout_builder,
-# obs_syms, posarg_vals, …)`. Returns the verified model, or `nothing` on any failure (no obs
-# builder, multiple observed symbols, a build error, a wrong type, or a likelihood mismatch).
+# obs_syms, posarg_vals, …)`. Returns `(model, nothing)` on success, or `(nothing, reason)` — where
+# `reason` is `nothing` when there was no obs builder to try (caller stays quiet) and a string when
+# a build error, wrong type, or likelihood mismatch caused a fall back.
 function _try_structured_obs(spec::NamedTuple, n_latent::Int, obs_mono, dppl_model, hp_names::Tuple)
-    spec.obs_builder === nothing && return nothing
-    length(spec.obs_syms) == 1 || return nothing
+    spec.obs_builder === nothing && return nothing, nothing
+    length(spec.obs_syms) == 1 ||
+        return nothing, "the structured observation path handles a single observed symbol; this model has $(length(spec.obs_syms))"
     try
         layout = Base.invokelatest(spec.layout_builder, spec.posarg_vals...)
         structured = Base.invokelatest(spec.obs_builder, layout, n_latent, spec.posarg_vals...)
-        structured isa ObservationModel || return nothing
+        structured isa ObservationModel ||
+            return nothing, "the structured obs builder did not return an observation model"
         y = getfield(dppl_model.args, only(spec.obs_syms))
         probe_hp = NamedTuple{hp_names}(ntuple(_ -> 1.0, length(hp_names)))
         lik_s = structured(y; probe_hp...)
@@ -312,10 +324,12 @@ function _try_structured_obs(spec::NamedTuple, n_latent::Int, obs_mono, dppl_mod
             Matrix(loghessian(xp, lik_s)), Matrix(loghessian(xp, lik_m));
             rtol = 1.0e-6, atol = 1.0e-8,
         )
-        return match ? structured : nothing
+        return match ?
+            (structured, nothing) :
+            (nothing, "the extracted observation factor graph did not reproduce the likelihood at the verification point")
     catch err
         @debug "structured observation builder failed; using monolithic obs" exception = (err, catch_backtrace())
-        return nothing
+        return nothing, "the extracted observation factor graph could not be built or evaluated ($(typeof(err)))"
     end
 end
 

@@ -161,9 +161,14 @@ function build_latent_model(
         # otherwise keep `ng`. This makes the structured path a pure performance refinement
         # that cannot change recognition behaviour.
         if structured_spec !== nothing
-            structured = _try_structured_prior(structured_spec, n_latent, union_pat, ng, probe_hp)
+            structured, reason = _try_structured_prior(structured_spec, n_latent, union_pat, ng, probe_hp)
             structured === nothing || return structured, :sparse_nongaussian
+        else
+            reason = "this model was not built through @latte, or @latte could not extract a factor graph from it"
         end
+        # We are about to use the monolithic non-Gaussian prior — the slow-to-compile path. Surface
+        # it (with the reason) so a slow first call isn't a silent surprise.
+        _warn_slow_nongaussian(:latent_prior, reason)
         return ng, :sparse_nongaussian
     end
 
@@ -215,8 +220,9 @@ end
 # Build the macro-extracted structured prior and accept it only if it reproduces the monolithic
 # prior `ng`. `spec` is `(; builder, layout_builder, posarg_vals)`: `layout_builder(posarg_vals...)`
 # yields the concatenated-latent layout and `builder(layout, n_latent, pattern, posarg_vals...)`
-# returns a `StructuredLatentPrior`. Both run under one guard, so any codegen imperfection (an
-# unresolved body-local, a wrong type, a `local_quadratic` mismatch) falls back to `ng`.
+# returns a `StructuredLatentPrior`. Returns `(prior, nothing)` on success, or `(nothing, reason)`
+# describing why it fell back. Both run under one guard, so any codegen imperfection (an unresolved
+# body-local, a wrong type, a `local_quadratic` mismatch) falls back to `ng`.
 function _try_structured_prior(spec::NamedTuple, n_latent, union_pat, ng, probe_hp)
     pattern_bool = SparseMatrixCSC{Bool, Int}(union_pat .!= 0)
     # Build AND verify under one guard: a generated factor closure can be well-formed to construct
@@ -226,19 +232,34 @@ function _try_structured_prior(spec::NamedTuple, n_latent, union_pat, ng, probe_
     try
         layout = Base.invokelatest(spec.layout_builder, spec.posarg_vals...)
         structured = Base.invokelatest(spec.builder, layout, n_latent, pattern_bool, spec.posarg_vals...)
-        structured isa NonGaussianLatentPrior || return nothing
+        structured isa NonGaussianLatentPrior ||
+            return nothing, "the structured builder did not return a factor-graph prior"
         # Deterministic probe points; the prior is value-dependent (nonlinear), so matching the local
         # quadratic at two distinct points is a strong equivalence check.
         for xp in (0.17 .* sin.(1:n_latent), -0.23 .* cos.(1:n_latent))
             lqs = local_quadratic(structured, xp; probe_hp...)
             lqm = local_quadratic(ng, xp; probe_hp...)
-            _matches_local_quadratic(lqs, lqm) || return nothing
+            _matches_local_quadratic(lqs, lqm) ||
+                return nothing, "the extracted factor graph did not reproduce the model's prior at the verification points"
         end
-        return structured
+        return structured, nothing
     catch err
         @debug "structured prior build/verification failed; using monolithic prior" exception = (err, catch_backtrace())
-        return nothing
+        return nothing,
+            "the extracted factor graph could not be built or evaluated ($(typeof(err)) — e.g. a loop variable used outside an array index, or a construct the extractor can't lower)"
     end
+end
+
+# A model is about to use a monolithic AD-defined non-Gaussian `component` (`:latent_prior` or
+# `:observation`) — the path with a slow first-call compile. Warn once at build time with an
+# actionable reason, so a slow first `inla` isn't a silent surprise.
+function _warn_slow_nongaussian(component::Symbol, reason)
+    label = component === :latent_prior ? "latent prior" : "observation likelihood"
+    form = component === :latent_prior ? "`x[i] ~ Dist(f(x[i-1], …), θ)`" : "`y[k] ~ Dist(f(x, θ))`"
+    return @warn "Latte: this model's $(label) uses the general non-Gaussian path, whose first `inla` " *
+        "call is slow to compile (tens of seconds to minutes for larger models); the run itself " *
+        "and subsequent calls are fast. Reason: $(reason). Writing it as indexed factors $(form) " *
+        "with array shapes Latte can infer takes a fast structured path that avoids this."
 end
 
 function _matches_local_quadratic(a, b; rtol = 1.0e-6, atol = 1.0e-8)

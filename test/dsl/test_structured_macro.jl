@@ -66,3 +66,41 @@ import GaussianMarkovRandomFields as G
         @test abs(lqs.logp_ref - lqm.logp_ref) < 1.0e-8
     end
 end
+
+@testset "Latent-touching loop-body local in the prior structures" begin
+    # A per-iteration prior local that READS a latent (`d = x[t-1] - 0.5 x[t-1]^2`) must be inlined
+    # into the factor closure (reads substituted), not the index loop — parity with the obs side.
+    # Before the parity fix this fell back to the monolithic prior; now it structures.
+    n = 20
+
+    @latte function ssm_local(y, n)
+        log_σ ~ Normal(0.0, 1.0)
+        σ = exp(log_σ)
+        x = Vector{Real}(undef, n)
+        x[1] ~ Normal(0.0, 1.0)
+        for t in 2:n
+            d = x[t - 1] - 0.5 * x[t - 1]^2
+            x[t] ~ Normal(d, σ)
+        end
+        for t in 1:n
+            y[t] ~ Normal(x[t], 0.1)
+        end
+    end
+
+    Random.seed!(20260618)
+    y = 0.1 .* randn(n)
+
+    lgm = ssm_local(y, n)
+    @test lgm.latent_prior isa G.StructuredLatentPrior
+
+    dppl = Latte._LATTE_DPPL_CONSTRUCTORS[ssm_local](y, n)
+    mono, _ = Latte.build_latent_model(dppl, (:x,), (:log_σ,))
+    hp = (log_σ = -1.0,)
+    for xv in (0.2 .* sin.(1:n), -0.3 .* cos.(1:n))
+        lqs = G.local_quadratic(lgm.latent_prior, xv; hp...)
+        lqm = G.local_quadratic(mono, xv; hp...)
+        @test maximum(abs.(Matrix(lqs.Q) .- Matrix(lqm.Q))) < 1.0e-10
+        @test maximum(abs.(lqs.h .- lqm.h)) < 1.0e-8
+        @test abs(lqs.logp_ref - lqm.logp_ref) < 1.0e-8
+    end
+end
