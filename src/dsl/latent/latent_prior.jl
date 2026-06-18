@@ -213,13 +213,15 @@ function _prior_nonlinearity(prior, n_latent, probe_hp)
 end
 
 # Build the macro-extracted structured prior and accept it only if it reproduces the monolithic
-# prior `ng`. `spec` is `(; builder, layout, posarg_vals)`: `builder(layout, n_latent, pattern,
-# posarg_vals...)` returns a `StructuredLatentPrior`. Returns the verified prior, or `nothing` on
-# any failure (builder error, wrong type, or a `local_quadratic` mismatch) → caller keeps `ng`.
+# prior `ng`. `spec` is `(; builder, layout_builder, posarg_vals)`: `layout_builder(posarg_vals...)`
+# yields the concatenated-latent layout and `builder(layout, n_latent, pattern, posarg_vals...)`
+# returns a `StructuredLatentPrior`. Both run under one guard, so any codegen imperfection (an
+# unresolved body-local, a wrong type, a `local_quadratic` mismatch) falls back to `ng`.
 function _try_structured_prior(spec::NamedTuple, n_latent, union_pat, ng, probe_hp)
     pattern_bool = SparseMatrixCSC{Bool, Int}(union_pat .!= 0)
     structured = try
-        Base.invokelatest(spec.builder, spec.layout, n_latent, pattern_bool, spec.posarg_vals...)
+        layout = Base.invokelatest(spec.layout_builder, spec.posarg_vals...)
+        Base.invokelatest(spec.builder, layout, n_latent, pattern_bool, spec.posarg_vals...)
     catch err
         @debug "structured prior builder failed; using monolithic prior" exception = (err, catch_backtrace())
         return nothing

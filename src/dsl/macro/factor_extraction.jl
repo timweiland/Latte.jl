@@ -1,46 +1,53 @@
-# Loop-preserving extraction of a non-Gaussian latent prior into a
-# factor-graph *builder*.
+# Loop-preserving extraction of a non-Gaussian latent prior / observation model into
+# factor-graph *builders*.
 #
-# The `@latte` macro normally hands the whole-model log-prior to a single
-# opaque `AutoDiffLatentPrior` closure. Differentiating that monolith is what
-# makes the first `inla()` call on a state-space model pay a large per-model
-# compile cost: the AD pipeline specialises on the closure type, so every new
-# user model recompiles from scratch.
+# The `@latte` macro normally hands the whole-model log-prior (and the observation
+# log-likelihood) to single opaque AD closures. Differentiating those monoliths is what makes
+# the first `inla()` call on a state-space model pay a large per-model compile cost: the AD
+# pipeline specialises on the closure type, so every new user model recompiles from scratch.
 #
-# Instead we walk the model body, recover each conditional-prior factor
-# `x_i ~ Dist(params(parents, θ))` together with its loop nest, and emit a
-# builder that assembles a `StructuredLatentPrior` (GMRFs): a tuple of small,
-# reusable per-factor log-densities. AD then specialises only on those tiny
-# factor functions, which compile once and are cheap.
+# Instead we walk the model body, recover each conditional factor `x_i ~ Dist(params(parents, θ))`
+# (prior) and `y_k ~ Dist(params(latents, θ))` (observation) together with its loop nest, and emit
+# builders that assemble a `StructuredLatentPrior` / `StructuredObservationModel` (GMRFs): tuples of
+# small, reusable per-factor log-densities. AD then specialises only on those tiny factor functions,
+# which compile once and are cheap.
 #
-# This is a *performance* refinement of the `:sparse_nongaussian` path — the
-# structured prior is verified against the monolithic one at build time and
-# falls back on any mismatch, so recognition correctness is unchanged.
+# This is a *performance* refinement — the structured prior/obs are verified against the monolithic
+# ones at build time and fall back on any mismatch, so recognition correctness is unchanged.
 #
-# Reuses `_detect_tilde_pair` from `ast_walker.jl`; defines a *new* walker
-# because `_walk_tilde_blocks` flattens away the loop nest and indices this
-# extraction needs.
+# Reuses `_detect_tilde_pair` / `_free_symbols` from `ast_walker.jl`; defines a *new* walker because
+# `_walk_tilde_blocks` flattens away the loop nest, indices, and intervening locals this needs.
 
 import GaussianMarkovRandomFields as _GMRFs
 import Distributions as _Distributions
 
 # Column-major flat index of the latent entry `x[sym][idx...]`.
-# `layout[sym] == (offset, dims)`: `offset` is where `sym`'s block starts in the
-# concatenated latent vector, `dims` its array shape (so `(n,)` for a vector,
-# `(nrows, ncols)` for a matrix).
+# `layout[sym] == (offset, dims)`: `offset` is where `sym`'s block starts in the concatenated
+# latent vector, `dims` its array shape (so `(n,)` for a vector, `(nrows, ncols)` for a matrix).
 function _factor_flat(layout, sym::Symbol, idx::Vararg{Int})
     off, dims = layout[sym]
     return off + LinearIndices(dims)[idx...]
 end
 
-# One conditional-prior factor *template* (one `~` site, before loop expansion).
+# One conditional-prior factor *template* (one latent `~` site, before loop expansion).
 struct _FactorTemplate
     loops::Vector{Any}                              # (loopvar, range_expr), outer→inner
+    locals::Vector{Pair{Symbol, Any}}               # loop-body locals lexically preceding this site
     lsym::Symbol                                    # LHS latent symbol
     lidx::Vector{Any}                               # LHS index exprs
     dist::Any                                       # distribution callee (Symbol/Expr)
     dargs::Vector{Any}                              # distribution argument exprs
-    parents::Vector{Tuple{Symbol, Vector{Any}}}     # latent reads in dargs (→ vals[2:])
+    parents::Vector{Tuple{Symbol, Vector{Any}}}     # latent reads in dargs/locals (→ vals[2:])
+end
+
+# One observation factor template (one `y[idx] ~ Dist(...)` site coupling latents to one datum).
+struct _ObsFactorTemplate
+    loops::Vector{Any}
+    locals::Vector{Pair{Symbol, Any}}
+    oidx::Any                                       # LHS index expr (flat position into the data)
+    dist::Any
+    dargs::Vector{Any}
+    parents::Vector{Tuple{Symbol, Vector{Any}}}     # latent reads (→ vals[1:])
 end
 
 _is_latent_ref(e, latent_syms) =
@@ -59,34 +66,44 @@ function _latent_reads(e, latent_syms, acc = Tuple{Symbol, Vector{Any}}[])
     return acc
 end
 
-# Walk a model body, recovering a `_FactorTemplate` for every latent `~` site
-# (`latent_syms[i][idx...] ~ Dist(args...)`), preserving the enclosing loops.
-# Non-latent `~` sites (hyperparameter priors, observations) are ignored.
+_has_latent(e, latent_syms) = !isempty(_latent_reads(e, latent_syms))
+
+# Parents = latent reads in the dist args, then any further latent reads in the closure-scope locals
+# (those whose RHS touches a latent). Order fixes the `vals` slot each read maps to.
+function _collect_parents(dargs, locals, latent_syms)
+    parents = Tuple{Symbol, Vector{Any}}[]
+    for a in dargs
+        _latent_reads(a, latent_syms, parents)
+    end
+    for (_l, r) in locals
+        _has_latent(r, latent_syms) && _latent_reads(r, latent_syms, parents)
+    end
+    return parents
+end
+
+# ── walker ──
+
+# Walk a model body, recovering prior factor templates (latent `~` sites). Loop-body locals
+# lexically preceding each site are captured for inlining.
 function _walk_factor_templates(body, latent_syms)
     out = _FactorTemplate[]
-    _walk_factors!(out, body, Any[], latent_syms)
+    _walk!(out, body, Any[], Pair{Symbol, Any}[], latent_syms, (), :prior)
     return out
 end
 
-function _walk_factors!(out, e, loops, latent_syms)
+# Walk a model body, recovering observation factor templates (`obs_syms[k][idx] ~ Dist(...)`).
+function _walk_obs_factor_templates(body, latent_syms, obs_syms)
+    out = _ObsFactorTemplate[]
+    _walk!(out, body, Any[], Pair{Symbol, Any}[], latent_syms, obs_syms, :obs)
+    return out
+end
+
+function _walk!(out, e, loops, locals, latent_syms, obs_syms, mode)
     e isa Expr || return
 
     pair = _detect_tilde_pair(e)
     if pair !== nothing
-        lhs, rhs, dotted = pair
-        if !dotted && _is_latent_ref(lhs, latent_syms) && rhs isa Expr && rhs.head === :call
-            parents = Tuple{Symbol, Vector{Any}}[]
-            for a in rhs.args[2:end]
-                _latent_reads(a, latent_syms, parents)
-            end
-            push!(
-                out,
-                _FactorTemplate(
-                    copy(loops), lhs.args[1], collect(lhs.args[2:end]),
-                    rhs.args[1], collect(rhs.args[2:end]), parents,
-                ),
-            )
-        end
+        _record_tilde!(out, pair, loops, locals, latent_syms, obs_syms, mode)
         return
     end
 
@@ -95,105 +112,204 @@ function _walk_factors!(out, e, loops, latent_syms)
         iters = iterspec isa Expr && iterspec.head === :block ? iterspec.args : Any[iterspec]
         pushed = 0
         for it in iters
-            it isa LineNumberNode && continue
             if it isa Expr && (it.head === :(=) || it.head === :in || it.head === :∈)
                 push!(loops, (it.args[1], it.args[2]))
                 pushed += 1
             end
         end
-        _walk_factors!(out, e.args[2], loops, latent_syms)
+        savelen = length(locals)
+        _walk!(out, e.args[2], loops, locals, latent_syms, obs_syms, mode)
+        resize!(locals, savelen)
         for _ in 1:pushed
             pop!(loops)
         end
     elseif e.head === :function || e.head === :(->)
         # Don't descend into nested function bodies.
+    elseif e.head === :block
+        savelen = length(locals)
+        for a in e.args
+            # Capture scalar assignments inside loops as candidate factor locals; recurse otherwise.
+            if !isempty(loops) && a isa Expr && a.head === :(=) && a.args[1] isa Symbol
+                push!(locals, a.args[1] => a.args[2])
+            else
+                _walk!(out, a, loops, locals, latent_syms, obs_syms, mode)
+            end
+        end
+        resize!(locals, savelen)
     else
         for a in e.args
-            _walk_factors!(out, a, loops, latent_syms)
+            _walk!(out, a, loops, locals, latent_syms, obs_syms, mode)
         end
     end
     return
 end
 
-# Substitute latent reads in a distribution-argument expr with `vals[k+1]`, where
-# `k` is the parent's position (the factor's own variable is `vals[1]`).
-function _factor_subst(e, parents, latent_syms)
+function _record_tilde!(out, pair, loops, locals, latent_syms, obs_syms, mode)
+    lhs, rhs, dotted = pair
+    dotted && return
+    (rhs isa Expr && rhs.head === :call) || return
+    dargs = collect(rhs.args[2:end])
+    parents = _collect_parents(dargs, locals, latent_syms)
+    if mode === :prior && _is_latent_ref(lhs, latent_syms)
+        push!(
+            out,
+            _FactorTemplate(
+                copy(loops), copy(locals), lhs.args[1], collect(lhs.args[2:end]),
+                rhs.args[1], dargs, parents,
+            ),
+        )
+    elseif mode === :obs && lhs isa Expr && lhs.head === :ref &&
+            lhs.args[1] in obs_syms && length(lhs.args) == 2 && !isempty(parents)
+        push!(
+            out,
+            _ObsFactorTemplate(
+                copy(loops), copy(locals), lhs.args[2], rhs.args[1], dargs, parents,
+            ),
+        )
+    end
+    return
+end
+
+# ── codegen helpers ──
+
+# Substitute latent reads with `vals[k + offset]` (`offset = 1` for priors, where `vals[1]` is the
+# factor's own variable; `offset = 0` for observations, where all `vals` are latent parents).
+function _subst(e, parents, latent_syms, offset)
     if _is_latent_ref(e, latent_syms)
         key = (e.args[1], collect(e.args[2:end]))
         for (k, (s, ix)) in enumerate(parents)
-            (s === key[1] && ix == key[2]) && return :(vals[$(k + 1)])
+            (s === key[1] && ix == key[2]) && return :(vals[$(k + offset)])
         end
         error("factor extraction: latent read $(e) was not captured as a parent")
     elseif e isa Expr
-        return Expr(e.head, map(a -> _factor_subst(a, parents, latent_syms), e.args)...)
+        return Expr(e.head, map(a -> _subst(a, parents, latent_syms, offset), e.args)...)
     else
         return e
     end
 end
 
-# `(vals, θ) -> logpdf(Dist(<dargs, parents→vals>), vals[1])`, with hyperparameters
-# unpacked from `θ` and the θ-only prelude (e.g. `σ = exp(log_σ)`) re-run inside.
-function _factor_closure_expr(t::_FactorTemplate, hp_names, prelude, latent_syms)
-    unpack = [:($h = θ.$h) for h in hp_names]
-    dargs_sub = [_factor_subst(a, t.parents, latent_syms) for a in t.dargs]
-    lpcall = Expr(
-        :call, GlobalRef(_Distributions, :logpdf),
-        Expr(:call, t.dist, dargs_sub...), :(vals[1]),
-    )
-    bodyblk = Expr(:block, unpack..., prelude..., lpcall)
-    return Expr(:->, Expr(:tuple, :vals, :θ), bodyblk)
+# Loop-body locals that DON'T touch a latent — emitted inside the index loop (loop vars / posargs in
+# scope) so factor indices like `logN[jp]` resolve.
+_index_locals(locals, latent_syms) =
+    Any[Expr(:(=), l, r) for (l, r) in locals if !_has_latent(r, latent_syms)]
+
+# Loop-body locals that DO touch a latent — emitted inside the factor closure with latent reads
+# substituted (e.g. `Z = exp(vals[2]) + M`).
+_closure_locals(locals, parents, latent_syms, offset) =
+    Any[Expr(:(=), l, _subst(r, parents, latent_syms, offset)) for (l, r) in locals if _has_latent(r, latent_syms)]
+
+# The prelude assignments (and hyperparameters) a factor actually needs, by backward-chaining from
+# the free symbols of its dist args and closure-scope locals. Keeps each closure minimal — and lets
+# the observation closure unpack only the hyperparameters its likelihood depends on.
+function _needed_prelude(exprs, prelude, hp_names)
+    needed = Set{Symbol}()
+    for e in exprs
+        union!(needed, _free_symbols(e, Set{Symbol}(), Dict{Symbol, Set{Symbol}}()))
+    end
+    keep = falses(length(prelude))
+    for i in length(prelude):-1:1
+        lhs = prelude[i].args[1]
+        if lhs isa Symbol && lhs in needed
+            keep[i] = true
+            union!(needed, _free_symbols(prelude[i].args[2], Set{Symbol}(), Dict{Symbol, Set{Symbol}}()))
+        end
+    end
+    kept = Any[prelude[i] for i in 1:length(prelude) if keep[i]]
+    needed_hp = Tuple(h for h in hp_names if h in needed)
+    return kept, needed_hp
 end
 
-# Re-emit the template's loop nest as explicit `for`s that push each factor's
-# flat-index tuple `(self, parents...)` into a `Vector{NTuple{K,Int}}`.
+_flatref(sym, idx) =
+    Expr(:call, GlobalRef(@__MODULE__, :_factor_flat), :layout, QuoteNode(sym), idx...)
+
+# ── prior factor codegen ──
+
+function _factor_closure_expr(t::_FactorTemplate, hp_names, prelude, latent_syms)
+    clocals = _closure_locals(t.locals, t.parents, latent_syms, 1)
+    dargs_sub = [_subst(a, t.parents, latent_syms, 1) for a in t.dargs]
+    pre_inputs = vcat(Any[r for (_l, r) in t.locals if _has_latent(r, latent_syms)], t.dargs)
+    kept_prelude, needed_hp = _needed_prelude(pre_inputs, prelude, hp_names)
+    unpack = Any[:($h = θ.$h) for h in needed_hp]
+    lpcall = Expr(:call, GlobalRef(_Distributions, :logpdf), Expr(:call, t.dist, dargs_sub...), :(vals[1]))
+    body = Expr(:block, unpack..., kept_prelude..., clocals..., lpcall)
+    return Expr(:->, Expr(:tuple, :vals, :θ), body)
+end
+
 function _factor_index_expr(t::_FactorTemplate)
-    flatref(sym, idx) = Expr(
-        :call, GlobalRef(@__MODULE__, :_factor_flat), :layout, QuoteNode(sym), idx...,
-    )
-    flats = Any[flatref(t.lsym, t.lidx)]
+    flats = Any[_flatref(t.lsym, t.lidx)]
     for (s, ix) in t.parents
-        push!(flats, flatref(s, ix))
+        push!(flats, _flatref(s, ix))
     end
     K = 1 + length(t.parents)
-    loopbody = Expr(:call, :push!, :__idx, Expr(:tuple, flats...))
+    loopbody = Expr(:block, _index_locals(t.locals, ())..., Expr(:call, :push!, :__idx, Expr(:tuple, flats...)))
     for (v, rng) in reverse(t.loops)
         loopbody = Expr(:for, Expr(:(=), v, rng), loopbody)
     end
-    return Expr(
-        :block,
-        Expr(:(=), :__idx, :(NTuple{$K, Int}[])),
-        loopbody,
-        :__idx,
-    )
+    return Expr(:block, Expr(:(=), :__idx, :(NTuple{$K, Int}[])), loopbody, :__idx)
 end
 
+# ── observation factor codegen ──
+
+# Returns `(group_expr, needed_hp)`.
+function _obs_group_expr(t::_ObsFactorTemplate, hp_names, prelude, latent_syms)
+    clocals = _closure_locals(t.locals, t.parents, latent_syms, 0)
+    dargs_sub = [_subst(a, t.parents, latent_syms, 0) for a in t.dargs]
+    pre_inputs = vcat(Any[r for (_l, r) in t.locals if _has_latent(r, latent_syms)], t.dargs)
+    kept_prelude, needed_hp = _needed_prelude(pre_inputs, prelude, hp_names)
+    unpack = Any[:($h = θ.$h) for h in needed_hp]
+    lpcall = Expr(:call, GlobalRef(_Distributions, :logpdf), Expr(:call, t.dist, dargs_sub...), :yk)
+    closure = Expr(:->, Expr(:tuple, :vals, :yk, :θ), Expr(:block, unpack..., kept_prelude..., clocals..., lpcall))
+
+    K = length(t.parents)
+    var_flats = Any[_flatref(s, ix) for (s, ix) in t.parents]
+    loopbody = Expr(
+        :block, _index_locals(t.locals, latent_syms)...,
+        Expr(:call, :push!, :__vars, Expr(:tuple, var_flats...)),
+        Expr(:call, :push!, :__oidx, t.oidx),
+    )
+    for (v, rng) in reverse(t.loops)
+        loopbody = Expr(:for, Expr(:(=), v, rng), loopbody)
+    end
+    group = Expr(
+        :let,
+        Expr(:block, :(__vars = NTuple{$K, Int}[]), :(__oidx = Int[])),
+        Expr(:block, loopbody, Expr(:call, GlobalRef(_GMRFs, :ObsFactorGroup), :__vars, :__oidx, closure)),
+    )
+    return group, needed_hp
+end
+
+# ── builders ──
+
+# Wrap a builder body with any model-constant prelude (posarg-derived top-level scalars like
+# `n = nA * nY`) so loop ranges / shapes inside resolve.
+_wrap_consts(model_consts, call) =
+    isempty(model_consts) ? call : Expr(:block, model_consts..., call)
+
 """
-    _emit_structured_prior_builder(body, posargs, hp_names, prelude, latent_syms; name)
+    _emit_structured_prior_builder(body, posargs, hp_names, prelude, latent_syms; name, model_consts)
 
-Build an `Expr` for a *builder closure*
-
-    (layout, n_latent, pattern, posargs...) -> StructuredLatentPrior(...)
-
-extracted from a `@latte` model `body`. `latent_syms` are the array-valued
-random symbols whose `~` sites become prior factors; `hp_names` the
-hyperparameters (unpacked from the per-factor `θ`); `prelude` the θ-only
-assignments (e.g. `σ = exp(log_σ)`) re-run inside each factor; `posargs` the
-model's positional argument symbols (threaded so loop ranges resolve).
-
-Returns `nothing` when no latent factor is found (the caller then keeps the
-monolithic `AutoDiffLatentPrior`).
+Build an `Expr` for a builder closure `(layout, n_latent, pattern, posargs...) -> StructuredLatentPrior(...)`
+extracted from a `@latte` model `body`. `latent_syms` are the array-valued random symbols whose `~`
+sites become prior factors; `hp_names` the hyperparameters; `prelude` the closure-visible assignments
+(e.g. `σ = exp(log_σ)`, `M = 0.2`); `posargs` the model's positional argument symbols; `model_consts`
+posarg-derived top-level scalars emitted at builder scope. Returns `nothing` when no latent factor is
+found.
 """
 function _emit_structured_prior_builder(
-        body, posargs, hp_names, prelude, latent_syms; name::Symbol = :structured,
+        body, posargs, hp_names, prelude, latent_syms; name::Symbol = :structured, model_consts = Any[],
     )
     templates = _walk_factor_templates(body, latent_syms)
     isempty(templates) && return nothing
 
     group_exprs = Any[]
     for t in templates
-        idx_e = _factor_index_expr(t)
-        clo_e = _factor_closure_expr(t, hp_names, prelude, latent_syms)
-        push!(group_exprs, Expr(:call, GlobalRef(_GMRFs, :LatentFactorGroup), idx_e, clo_e))
+        push!(
+            group_exprs,
+            Expr(
+                :call, GlobalRef(_GMRFs, :LatentFactorGroup),
+                _factor_index_expr(t), _factor_closure_expr(t, hp_names, prelude, latent_syms),
+            ),
+        )
     end
 
     call = Expr(
@@ -204,10 +320,154 @@ function _emit_structured_prior_builder(
             Expr(:kw, :hyperparams, QuoteNode(Tuple(hp_names))),
             Expr(:kw, :name, QuoteNode(name)),
         ),
-        :n_latent,
-        Expr(:tuple, group_exprs...),
-        :pattern,
+        :n_latent, Expr(:tuple, group_exprs...), :pattern,
     )
     params = Any[:layout, :n_latent, :pattern, posargs...]
-    return Expr(:->, Expr(:tuple, params...), call)
+    return Expr(:->, Expr(:tuple, params...), _wrap_consts(model_consts, call))
+end
+
+"""
+    _emit_structured_obs_builder(body, posargs, hp_names, prelude, latent_syms, obs_syms; model_consts)
+
+Build an `Expr` for a builder closure `(layout, n_latent, posargs...) -> StructuredObservationModel(...)`
+extracted from a `@latte` model `body`. Each `obs_syms[k][idx] ~ Dist(params(latents, θ))` site becomes
+an observation factor. Returns `nothing` when no observation factor is found.
+"""
+function _emit_structured_obs_builder(
+        body, posargs, hp_names, prelude, latent_syms, obs_syms; model_consts = Any[],
+    )
+    templates = _walk_obs_factor_templates(body, latent_syms, obs_syms)
+    isempty(templates) && return nothing
+
+    group_exprs = Any[]
+    obs_hp = Symbol[]
+    for t in templates
+        g, needed_hp = _obs_group_expr(t, hp_names, prelude, latent_syms)
+        push!(group_exprs, g)
+        for h in needed_hp
+            h in obs_hp || push!(obs_hp, h)
+        end
+    end
+
+    call = Expr(
+        :call,
+        GlobalRef(_GMRFs, :StructuredObservationModel),
+        Expr(:parameters, Expr(:kw, :hyperparams, QuoteNode(Tuple(obs_hp)))),
+        :n_latent, Expr(:tuple, group_exprs...),
+    )
+    params = Any[:layout, :n_latent, posargs...]
+    return Expr(:->, Expr(:tuple, params...), _wrap_consts(model_consts, call))
+end
+
+# ── macro-time inputs derived from the model body ──
+
+# Split the body's top-level scalar assignments into:
+#   - `closure_prelude`: assignments visible inside a factor closure — hyperparameter-derived
+#     (`σ = exp(log_σ)`) or plain constants (`M = 0.2`); RHS free of positional args and latents.
+#   - `model_consts`: positional-arg-derived constants (`n = nA * nY`) — emitted at builder scope.
+# Latent container declarations (`logN = Matrix{Real}(undef, …)`) are skipped (handled by shapes).
+function _split_top_level_locals(body, hp_names, posargs, latent_syms)
+    closure_prelude = Any[]
+    model_consts = Any[]
+    (body isa Expr && body.head === :block) || return closure_prelude, model_consts
+    blocked = union(Set{Symbol}(posargs), Set{Symbol}(latent_syms))   # not closure-visible
+    for stmt in body.args
+        (stmt isa Expr && stmt.head === :(=) && stmt.args[1] isa Symbol) || continue
+        lhs = stmt.args[1]
+        lhs in blocked && continue
+        rhs_syms = _free_symbols(stmt.args[2], Set{Symbol}(), Dict{Symbol, Set{Symbol}}())
+        if isempty(intersect(rhs_syms, blocked))
+            push!(closure_prelude, stmt)
+        else
+            push!(model_consts, stmt)
+            push!(blocked, lhs)
+        end
+    end
+    return closure_prelude, model_consts
+end
+
+# Dimension exprs of an array-constructor RHS: `Matrix{T}(undef, d1, d2)` → `[d1, d2]`,
+# `zeros(d1, d2)` → `[d1, d2]`, `Vector{T}(undef, n)` → `[n]`. `nothing` if not recognised.
+function _array_ctor_dims(rhs)
+    (rhs isa Expr && rhs.head === :call) || return nothing
+    dims = rhs.args[2:end]
+    (!isempty(dims) && dims[1] === :undef) && (dims = dims[2:end])
+    isempty(dims) && return nothing
+    return collect(dims)
+end
+
+# Recover each latent array's shape exprs from its allocation (`logN = Matrix{Real}(undef, nA, nY)`).
+# `nothing` unless every latent symbol has a recovered shape.
+function _extract_latent_shapes(body, latent_syms)
+    (body isa Expr && body.head === :block) || return nothing
+    shapes = Dict{Symbol, Vector{Any}}()
+    for stmt in body.args
+        (stmt isa Expr && stmt.head === :(=)) || continue
+        lhs = stmt.args[1]
+        (lhs isa Symbol && lhs in latent_syms) || continue
+        dims = _array_ctor_dims(stmt.args[2])
+        dims === nothing && continue
+        haskey(shapes, lhs) || (shapes[lhs] = dims)
+    end
+    all(s -> haskey(shapes, s), latent_syms) || return nothing
+    return shapes
+end
+
+# `(posargs...) -> Dict(sym => (offset, dims))`: the concatenated-latent layout the flat-index map
+# needs. `latent_syms` must be in base-latent concatenation order (offsets accumulate in that order).
+function _emit_structured_layout_builder(body, posargs, latent_syms, model_consts)
+    shapes = _extract_latent_shapes(body, latent_syms)
+    shapes === nothing && return nothing
+    stmts = Any[model_consts...; :(__off = 0); :(__layout = Dict{Symbol, Tuple{Int, Tuple}}())]
+    for s in latent_syms
+        dtuple = Expr(:tuple, shapes[s]...)
+        push!(stmts, :(__layout[$(QuoteNode(s))] = (__off, $dtuple)))
+        push!(stmts, :(__off += prod($dtuple)))
+    end
+    push!(stmts, :__layout)
+    return Expr(:->, Expr(:tuple, posargs...), Expr(:block, stmts...))
+end
+
+# Wrap a builder lambda `(args...) -> body` as a named top-level function `function name(args...) ...`.
+function _named_function(name::Symbol, lambda::Expr)
+    sig, fbody = lambda.args[1], lambda.args[2]
+    params = (sig isa Expr && sig.head === :tuple) ? sig.args : Any[sig]
+    return Expr(:function, Expr(:call, name, params...), fbody)
+end
+
+"""
+    _emit_structured_support(fname, body, posargs, hp_names, latent_syms, obs_syms)
+
+Macro-time orchestration: emit named function definitions for a structured-prior `builder`, an
+optional structured-observation `obs_builder`, and a `layout_builder` for a `@latte` model `fname`.
+Returns `(; builder_def, obs_def, layout_def, builder_name, obs_name, layout_name)` (with `obs_def`
+/ `obs_name` possibly `nothing`), or `nothing` when there are no extractable latent factors /
+recoverable shapes (caller then keeps the monolithic prior).
+"""
+function _emit_structured_support(fname, body, posargs, hp_names, latent_syms, obs_syms)
+    isempty(latent_syms) && return nothing
+    prelude, model_consts = _split_top_level_locals(body, hp_names, posargs, latent_syms)
+
+    builder_lambda = _emit_structured_prior_builder(
+        body, posargs, hp_names, prelude, latent_syms; model_consts = model_consts,
+    )
+    builder_lambda === nothing && return nothing
+    layout_lambda = _emit_structured_layout_builder(body, posargs, latent_syms, model_consts)
+    layout_lambda === nothing && return nothing
+
+    obs_lambda = _emit_structured_obs_builder(
+        body, posargs, hp_names, prelude, latent_syms, obs_syms; model_consts = model_consts,
+    )
+
+    builder_name = Symbol("__latte_sprior_builder_", fname)
+    layout_name = Symbol("__latte_slayout_", fname)
+    obs_name = obs_lambda === nothing ? nothing : Symbol("__latte_sobs_builder_", fname)
+    return (
+        builder_def = _named_function(builder_name, builder_lambda),
+        obs_def = obs_lambda === nothing ? nothing : _named_function(obs_name, obs_lambda),
+        layout_def = _named_function(layout_name, layout_lambda),
+        builder_name = builder_name,
+        obs_name = obs_name,
+        layout_name = layout_name,
+    )
 end

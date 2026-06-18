@@ -85,7 +85,8 @@ import GaussianMarkovRandomFields as G
     )
 
     layout = Dict(:logN => (0, (nA, nY)), :logF => (nA * nY, (nA, nY)))
-    correct_spec = (builder = correct_builder, layout = layout, posarg_vals = (nA, nY))
+    layout_builder = (a, b) -> layout
+    correct_spec = (builder = correct_builder, layout_builder = layout_builder, posarg_vals = (nA, nY))
 
     Random.seed!(20260618)
     logC = 8.0 .- 1.5 .+ 0.1 .* randn(nA * nY)
@@ -110,15 +111,20 @@ import GaussianMarkovRandomFields as G
     @test maximum(abs.(lqm.h .- lqs.h)) < 1.0e-8
 
     # Fallback cases: each must return the monolithic prior, not a StructuredLatentPrior.
-    throwing_spec = (builder = (l, n, p, a, b) -> error("boom"), layout = layout, posarg_vals = (nA, nY))
+    throwing_spec = (builder = (l, n, p, a, b) -> error("boom"), layout_builder = layout_builder, posarg_vals = (nA, nY))
     fb1, _ = Latte.build_latent_model(dppl, latent_syms, hp_names; structured_spec = throwing_spec)
     @test !(fb1 isa G.StructuredLatentPrior)
 
-    wrongtype_spec = (builder = (l, n, p, a, b) -> 42, layout = layout, posarg_vals = (nA, nY))
+    wrongtype_spec = (builder = (l, n, p, a, b) -> 42, layout_builder = layout_builder, posarg_vals = (nA, nY))
     fb2, _ = Latte.build_latent_model(dppl, latent_syms, hp_names; structured_spec = wrongtype_spec)
     @test !(fb2 isa G.StructuredLatentPrior)
 
-    wrong_spec = (builder = wrong_builder, layout = layout, posarg_vals = (nA, nY))
+    # A layout_builder that throws must also fall back (codegen miss → monolithic, not a crash).
+    throwing_layout_spec = (builder = correct_builder, layout_builder = (a, b) -> error("nope"), posarg_vals = (nA, nY))
+    fb_layout, _ = Latte.build_latent_model(dppl, latent_syms, hp_names; structured_spec = throwing_layout_spec)
+    @test !(fb_layout isa G.StructuredLatentPrior)
+
+    wrong_spec = (builder = wrong_builder, layout_builder = layout_builder, posarg_vals = (nA, nY))
     fb3, _ = Latte.build_latent_model(dppl, latent_syms, hp_names; structured_spec = wrong_spec)
     @test !(fb3 isa G.StructuredLatentPrior)
     @test fb3 isa G.NonGaussianLatentPrior

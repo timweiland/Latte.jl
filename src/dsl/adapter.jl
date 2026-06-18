@@ -52,6 +52,7 @@ function latte_from_dppl(
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
         lift_spec = nothing,
+        structured_spec = nothing,
     )
     return _assemble_lgm(
         dppl_model, nothing;
@@ -61,6 +62,7 @@ function latte_from_dppl(
         likelihood_hessian_pattern = likelihood_hessian_pattern,
         obs_groups = obs_groups,
         lift_spec = lift_spec,
+        structured_spec = structured_spec,
     )
 end
 
@@ -83,6 +85,7 @@ function _assemble_lgm(
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
         lift_spec = nothing,
+        structured_spec = nothing,
     )
     random_syms = random isa Symbol ? (random,) : random
 
@@ -213,6 +216,7 @@ function _assemble_lgm(
             dppl_model, random_syms, hp_names;
             skip_pattern_augment = true,
             extra_pattern = extra_pattern,
+            structured_spec = structured_spec,
         )
         @debug "latent extraction path" path fast_path = use_fast_path augmented = augment
         l
@@ -251,6 +255,15 @@ function _assemble_lgm(
             hessian_pattern = extra_pattern,  # nothing, dense, or user-supplied
         )
     end
+
+    # Optional fast path for the AD-fallback observation: a macro-extracted factor-graph
+    # `StructuredObservationModel`. Accept it only if it reproduces the monolithic obs's
+    # loglik/loggrad/loghessian at a probe point; otherwise keep the monolithic obs.
+    if structured_spec !== nothing && !use_fast_path && !use_obs_groups && lift_spec === nothing
+        obs_structured = _try_structured_obs(structured_spec, length(latent), obs, dppl_model, hp_names)
+        obs_structured === nothing || (obs = obs_structured)
+    end
+
     # Build a `sym → augmented-latent range` layout so downstream callers
     # (`linear_combinations(result; β = …)`, `result.latent_marginals[:β]`,
     # etc.) can look things up by DPPL symbol. When the LGM is augmented
@@ -273,6 +286,36 @@ function _assemble_lgm(
             spec, latent, obs, nothing;
             latent_layout = layout,
         )
+    end
+end
+
+# Build the macro-extracted structured observation model and accept it only if it reproduces the
+# monolithic obs `obs_mono` at a probe point. `spec` carries `(; obs_builder, layout_builder,
+# obs_syms, posarg_vals, …)`. Returns the verified model, or `nothing` on any failure (no obs
+# builder, multiple observed symbols, a build error, a wrong type, or a likelihood mismatch).
+function _try_structured_obs(spec::NamedTuple, n_latent::Int, obs_mono, dppl_model, hp_names::Tuple)
+    spec.obs_builder === nothing && return nothing
+    length(spec.obs_syms) == 1 || return nothing
+    try
+        layout = Base.invokelatest(spec.layout_builder, spec.posarg_vals...)
+        structured = Base.invokelatest(spec.obs_builder, layout, n_latent, spec.posarg_vals...)
+        structured isa ObservationModel || return nothing
+        y = getfield(dppl_model.args, only(spec.obs_syms))
+        probe_hp = NamedTuple{hp_names}(ntuple(_ -> 1.0, length(hp_names)))
+        lik_s = structured(y; probe_hp...)
+        lik_m = obs_mono(y; probe_hp...)
+        xp = 0.13 .* sin.(1:n_latent)
+        match =
+            isapprox(loglik(xp, lik_s), loglik(xp, lik_m); rtol = 1.0e-6, atol = 1.0e-8) &&
+            isapprox(loggrad(xp, lik_s), loggrad(xp, lik_m); rtol = 1.0e-6, atol = 1.0e-8) &&
+            isapprox(
+            Matrix(loghessian(xp, lik_s)), Matrix(loghessian(xp, lik_m));
+            rtol = 1.0e-6, atol = 1.0e-8,
+        )
+        return match ? structured : nothing
+    catch err
+        @debug "structured observation builder failed; using monolithic obs" exception = (err, catch_backtrace())
+        return nothing
     end
 end
 
