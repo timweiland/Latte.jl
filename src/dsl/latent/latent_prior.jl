@@ -108,6 +108,7 @@ function build_latent_model(
         dppl_model, random_syms::Tuple, hp_names::Tuple;
         skip_pattern_augment::Bool = false,
         extra_pattern::Union{Nothing, SparseMatrixCSC} = nothing,
+        structured_spec::Union{Nothing, NamedTuple} = nothing,
     )
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
 
@@ -155,6 +156,14 @@ function build_latent_model(
             dppl_model, n_latent, hp_names, joint_constraint,
             known_pattern_hessian_backend(union_pat),
         )
+        # Optional fast path: a macro-extracted factor-graph prior. Build it, verify it
+        # reproduces the monolithic `ng` at probe points, and use it only if it matches —
+        # otherwise keep `ng`. This makes the structured path a pure performance refinement
+        # that cannot change recognition behaviour.
+        if structured_spec !== nothing
+            structured = _try_structured_prior(structured_spec, n_latent, union_pat, ng, probe_hp)
+            structured === nothing || return structured, :sparse_nongaussian
+        end
         return ng, :sparse_nongaussian
     end
 
@@ -201,6 +210,36 @@ function _prior_nonlinearity(prior, n_latent, probe_hp)
     same_pattern = Qa.colptr == Qb.colptr && Qa.rowval == Qb.rowval
     nonlinear = !same_pattern || !isapprox(Qa.nzval, Qb.nzval; rtol = 1.0e-6, atol = 1.0e-10)
     return nonlinear, Qa
+end
+
+# Build the macro-extracted structured prior and accept it only if it reproduces the monolithic
+# prior `ng`. `spec` is `(; builder, layout, posarg_vals)`: `builder(layout, n_latent, pattern,
+# posarg_vals...)` returns a `StructuredLatentPrior`. Returns the verified prior, or `nothing` on
+# any failure (builder error, wrong type, or a `local_quadratic` mismatch) → caller keeps `ng`.
+function _try_structured_prior(spec::NamedTuple, n_latent, union_pat, ng, probe_hp)
+    pattern_bool = SparseMatrixCSC{Bool, Int}(union_pat .!= 0)
+    structured = try
+        Base.invokelatest(spec.builder, spec.layout, n_latent, pattern_bool, spec.posarg_vals...)
+    catch err
+        @debug "structured prior builder failed; using monolithic prior" exception = (err, catch_backtrace())
+        return nothing
+    end
+    structured isa NonGaussianLatentPrior || return nothing
+    # Deterministic probe points; the prior is value-dependent (nonlinear), so matching the local
+    # quadratic at two distinct points is a strong equivalence check.
+    for xp in (0.17 .* sin.(1:n_latent), -0.23 .* cos.(1:n_latent))
+        lqs = local_quadratic(structured, xp; probe_hp...)
+        lqm = local_quadratic(ng, xp; probe_hp...)
+        _matches_local_quadratic(lqs, lqm) || return nothing
+    end
+    return structured
+end
+
+function _matches_local_quadratic(a, b; rtol = 1.0e-6, atol = 1.0e-8)
+    (a.Q.colptr == b.Q.colptr && a.Q.rowval == b.Q.rowval) || return false
+    isapprox(a.Q.nzval, b.Q.nzval; rtol = rtol, atol = atol) || return false
+    isapprox(a.h, b.h; rtol = rtol, atol = atol) || return false
+    return isapprox(a.logp_ref, b.logp_ref; rtol = rtol, atol = atol)
 end
 
 function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint)
