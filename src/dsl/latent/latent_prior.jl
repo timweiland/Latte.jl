@@ -219,22 +219,26 @@ end
 # unresolved body-local, a wrong type, a `local_quadratic` mismatch) falls back to `ng`.
 function _try_structured_prior(spec::NamedTuple, n_latent, union_pat, ng, probe_hp)
     pattern_bool = SparseMatrixCSC{Bool, Int}(union_pat .!= 0)
-    structured = try
+    # Build AND verify under one guard: a generated factor closure can be well-formed to construct
+    # yet throw when `local_quadratic` differentiates it (e.g. a loop variable left in a non-index
+    # position resolves to an unbound symbol). Catching only the build would let that throw crash
+    # model construction instead of falling back.
+    try
         layout = Base.invokelatest(spec.layout_builder, spec.posarg_vals...)
-        Base.invokelatest(spec.builder, layout, n_latent, pattern_bool, spec.posarg_vals...)
+        structured = Base.invokelatest(spec.builder, layout, n_latent, pattern_bool, spec.posarg_vals...)
+        structured isa NonGaussianLatentPrior || return nothing
+        # Deterministic probe points; the prior is value-dependent (nonlinear), so matching the local
+        # quadratic at two distinct points is a strong equivalence check.
+        for xp in (0.17 .* sin.(1:n_latent), -0.23 .* cos.(1:n_latent))
+            lqs = local_quadratic(structured, xp; probe_hp...)
+            lqm = local_quadratic(ng, xp; probe_hp...)
+            _matches_local_quadratic(lqs, lqm) || return nothing
+        end
+        return structured
     catch err
-        @debug "structured prior builder failed; using monolithic prior" exception = (err, catch_backtrace())
+        @debug "structured prior build/verification failed; using monolithic prior" exception = (err, catch_backtrace())
         return nothing
     end
-    structured isa NonGaussianLatentPrior || return nothing
-    # Deterministic probe points; the prior is value-dependent (nonlinear), so matching the local
-    # quadratic at two distinct points is a strong equivalence check.
-    for xp in (0.17 .* sin.(1:n_latent), -0.23 .* cos.(1:n_latent))
-        lqs = local_quadratic(structured, xp; probe_hp...)
-        lqm = local_quadratic(ng, xp; probe_hp...)
-        _matches_local_quadratic(lqs, lqm) || return nothing
-    end
-    return structured
 end
 
 function _matches_local_quadratic(a, b; rtol = 1.0e-6, atol = 1.0e-8)

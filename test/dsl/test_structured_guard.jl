@@ -124,6 +124,17 @@ import GaussianMarkovRandomFields as G
     fb_layout, _ = Latte.build_latent_model(dppl, latent_syms, hp_names; structured_spec = throwing_layout_spec)
     @test !(fb_layout isa G.StructuredLatentPrior)
 
+    # A prior that BUILDS fine but throws when `local_quadratic` differentiates its factor closure
+    # (e.g. a loop variable left in a non-index position → an unbound symbol in the closure). The
+    # guard must catch this at probe time too, not crash model construction.
+    evil_closure = (vals, θ) -> vals[1] * NONEXISTENT_GUARD_SYMBOL
+    evil_group = G.LatentFactorGroup([(i,) for i in 1:(2 * nA * nY)], evil_closure)
+    evil_builder = (l, n, p, a, b) -> G.StructuredLatentPrior(n, (evil_group,), p; hyperparams = hp_names)
+    evil_spec = (builder = evil_builder, layout_builder = layout_builder, posarg_vals = (nA, nY))
+    fb_probe, _ = Latte.build_latent_model(dppl, latent_syms, hp_names; structured_spec = evil_spec)
+    @test !(fb_probe isa G.StructuredLatentPrior)
+    @test fb_probe isa G.NonGaussianLatentPrior
+
     wrong_spec = (builder = wrong_builder, layout_builder = layout_builder, posarg_vals = (nA, nY))
     fb3, _ = Latte.build_latent_model(dppl, latent_syms, hp_names; structured_spec = wrong_spec)
     @test !(fb3 isa G.StructuredLatentPrior)
