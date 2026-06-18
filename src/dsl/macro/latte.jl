@@ -52,6 +52,21 @@ macro latte(modeldef)
     # effects). Otherwise fall back to the DAG / sparse-AD extraction path.
     recognition_expr = _recognition_expr(blocks, posargs_t)
 
+    # Structured (factor-graph) support: for indexed-latent `~` sites (a non-Gaussian state-space
+    # prior), emit a prior builder, an optional observation builder, and a layout-builder so the
+    # nonlinear path can use a `StructuredLatentPrior` / `StructuredObservationModel` instead of
+    # opaque AD closures. Purely a performance refinement — `build_latent_model` / the obs guard
+    # verify them against the monolithic versions and fall back on any mismatch.
+    latent_syms = Tuple(
+        unique(
+            b.lhs_sym for b in blocks
+                if _classify_block(b, posargs_t) === :random && b.indexed && !b.is_dotted
+        ),
+    )
+    obs_syms = Tuple(unique(b.lhs_sym for b in blocks if _classify_block(b, posargs_t) === :observation))
+    hp_syms = Tuple(unique(r[1] for r in fixed_records))
+    struct_support = _emit_structured_support(fname, body, posargs_t, hp_syms, latent_syms, obs_syms)
+
     # Build the body to forward to @model: strip markers, lower dot-tilde. When
     # a latent was recognized, swap its `~` RHS for a cheap probing stand-in so
     # the model-body probes (hp / dims / obs) don't materialise the real prior
@@ -113,6 +128,30 @@ macro latte(modeldef)
         )
     end
 
+    # Emit the structured builder defs (if any) and the spliceable `structured` spec.
+    if struct_support === nothing
+        struct_emit = nothing
+        structured_expr = :(nothing)
+    else
+        obs_emit = struct_support.obs_def === nothing ? nothing : esc(struct_support.obs_def)
+        struct_emit = quote
+            $(esc(struct_support.builder_def))
+            $(obs_emit)
+            $(esc(struct_support.layout_def))
+        end
+        obs_builder_expr = struct_support.obs_name === nothing ? :nothing : esc(struct_support.obs_name)
+        structured_expr = Expr(
+            :tuple,
+            Expr(
+                :parameters,
+                Expr(:kw, :builder, esc(struct_support.builder_name)),
+                Expr(:kw, :obs_builder, obs_builder_expr),
+                Expr(:kw, :layout_builder, esc(struct_support.layout_name)),
+                Expr(:kw, :obs_syms, QuoteNode(obs_syms)),
+            ),
+        )
+    end
+
     # Quote serialised records as Exprs spliceable into the returned quote.
     obs_q = _quote_records(obs_records)
     rand_q = _quote_records(random_records)
@@ -122,12 +161,14 @@ macro latte(modeldef)
     return quote
         $(esc(expanded_inner))
         $(lift_emit)
+        $(struct_emit)
         function $(esc(fname))(args...; likelihood_hessian_pattern = :auto, augment = false, kwargs...)
             dppl = $(esc(inner_name))(args...; kwargs...)
             return $(@__MODULE__)._build_lgm_from_latte(
                 dppl, $rand_q, $fixed_q, $obs_q, $posargs_q, args;
                 lift_spec = $lift_spec_expr,
                 recognition = $recognition_expr,
+                structured = $structured_expr,
                 likelihood_hessian_pattern = likelihood_hessian_pattern,
                 augment = augment,
             )
@@ -284,6 +325,7 @@ function _build_lgm_from_latte(
         posarg_vals::Tuple = ();
         lift_spec = nothing,
         recognition = nothing,
+        structured = nothing,
         likelihood_hessian_pattern = :auto,
         augment::Bool = false,
     )
@@ -387,8 +429,22 @@ function _build_lgm_from_latte(
         force_ad_obs_model = needs_ad_fallback,
         likelihood_hessian_pattern = likelihood_hessian_pattern,
         lift_spec = lift_spec,
+        structured_spec = _build_structured_spec(structured, posarg_vals),
     )
 end
+
+# Bundle the macro-emitted `(; builder, obs_builder, layout_builder, obs_syms)` with the model's
+# positional-arg values into the spec the adapter consumes. The layout, prior, and observation are
+# built lazily under guards, so a codegen miss falls back to the monolithic versions rather than
+# erroring here.
+_build_structured_spec(::Nothing, ::Tuple) = nothing
+_build_structured_spec(structured::NamedTuple, posarg_vals::Tuple) = (
+    builder = structured.builder,
+    obs_builder = structured.obs_builder,
+    layout_builder = structured.layout_builder,
+    obs_syms = structured.obs_syms,
+    posarg_vals = posarg_vals,
+)
 
 # Instantiate the macro-recognized latent prior from the recognition spec and
 # the runtime positional-arg values. A single recognized component becomes a
