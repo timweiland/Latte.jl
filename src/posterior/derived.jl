@@ -35,8 +35,9 @@ quantile.(ssb, 0.975)    # upper 95% credible bound by year
 """
 # Two argument orders: function-first enables `derived(result) do z ... end` (the `do` block
 # binds the closure as the first positional argument); result-first reads naturally inline.
-derived(g::Function, result; kwargs...) = _derived(g, result; kwargs...)
-derived(result, g::Function; kwargs...) = _derived(g, result; kwargs...)
+# `result` is typed (not left ::Any) so the two orders don't collide on a `derived(f, g)` call.
+derived(g::Function, result::InferenceResult; kwargs...) = _derived(g, result; kwargs...)
+derived(result::InferenceResult, g::Function; kwargs...) = _derived(g, result; kwargs...)
 
 function _derived(g, result; n_samples::Int = 1000, rng::AbstractRNG = Random.default_rng())
     n_samples > 0 || throw(ArgumentError("n_samples must be positive, got $n_samples"))
