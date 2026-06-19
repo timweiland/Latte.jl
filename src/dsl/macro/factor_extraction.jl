@@ -29,6 +29,20 @@ function _factor_flat(layout, sym::Symbol, idx::Vararg{Int})
     return off + LinearIndices(dims)[idx...]
 end
 
+# Column-major flat indices of a possibly-sliced read `x[sym][idx...]`, always as a `Vector{Int}`:
+# a scalar read → a 1-vector; a `Colon`/range axis → that block's entries (so `x[:, t]` yields the
+# whole column). Used by the block-factor codegen, where a `~` site touches several scalar entries.
+function _factor_flats(layout, sym::Symbol, idx...)
+    off, dims = layout[sym]
+    return off .+ vec(collect(LinearIndices(dims)[idx...]))
+end
+
+# A `~`-LHS or latent-read index axis that selects a *block* of entries: a bare `Colon` (`x[:, t]`)
+# or a range (`x[1:k, t]`), as opposed to a scalar index. Both appear in the AST with the colon
+# symbol — bare as `Symbol(":")`, a range as `Expr(:call, Symbol(":"), lo, hi)`.
+_is_block_axis(ax) = ax === Symbol(":") || (ax isa Expr && ax.head === :call && ax.args[1] === Symbol(":"))
+_is_block_read(idx) = any(_is_block_axis, idx)
+
 # One conditional-prior factor *template* (one latent `~` site, before loop expansion).
 struct _FactorTemplate
     loops::Vector{Any}                              # (loopvar, range_expr), outer→inner
@@ -224,6 +238,95 @@ end
 _flatref(sym, idx) =
     Expr(:call, GlobalRef(@__MODULE__, :_factor_flat), :layout, QuoteNode(sym), idx...)
 
+_flatsref(sym, idx) =
+    Expr(:call, GlobalRef(@__MODULE__, :_factor_flats), :layout, QuoteNode(sym), idx...)
+
+# ── block-factor codegen ──
+#
+# A multivariate-block `~` site (`x[:, t] ~ MvNormal(x[:, t-1], Σ)`) couples a *block* of scalar
+# entries. We keep `vals` a flat scalar vector — the factor's own block first, then each parent
+# block — so AD still specialises on one small `K`-input closure per group. The own block occupies
+# `vals[1:K_own]`; parent `j` occupies a contiguous range `vals[off_j+1 : off_j+K_j]`. The block
+# extents (`K_own`, `K_j`) come from the layout dims at builder time, so the total `K` and the
+# offsets are runtime values bound once per group in a `let`.
+
+# An `Expr` computing the scalar-entry count of a read `sym[idx...]` from its layout `dims` tuple
+# (`dims_expr`): each `Colon` axis contributes its full dimension, each range axis its length, each
+# scalar axis 1.
+function _extent_expr(dims_expr, idx)
+    factors = Any[]
+    for (ax_i, ax) in enumerate(idx)
+        if ax === Symbol(":")
+            push!(factors, :($dims_expr[$ax_i]))
+        elseif ax isa Expr && ax.head === :call && ax.args[1] === Symbol(":")
+            push!(factors, :(length($ax)))
+        end
+    end
+    isempty(factors) && return 1
+    return foldl((a, b) -> :($a * $b), factors)
+end
+
+# Substitute latent reads with their slice of `vals`. `slots[j] = (off_sym, k_sym, is_block)` carries
+# parent `j`'s `vals` offset and extent (both `let`-bound runtime symbols): a block read becomes the
+# range `vals[off+1 : off+k]`, a scalar read the single `vals[off+1]`.
+function _subst_block(e, parents, slots, latent_syms)
+    if _is_latent_ref(e, latent_syms)
+        key = (e.args[1], collect(e.args[2:end]))
+        for (j, (s, ix)) in enumerate(parents)
+            if s === key[1] && ix == key[2]
+                off, k, is_block = slots[j]
+                return is_block ? :(vals[($off + 1):($off + $k)]) : :(vals[$off + 1])
+            end
+        end
+        error("factor extraction: latent read $(e) was not captured as a parent")
+    elseif e isa Expr
+        return Expr(e.head, map(a -> _subst_block(a, parents, slots, latent_syms), e.args)...)
+    else
+        return e
+    end
+end
+
+# Emit the `let`-binding statements computing a block group's extents and offsets, plus the parent
+# `slots` for `_subst_block`. `own` is the factor's own `(sym, idx)` for a prior factor (its block is
+# `vals[1:__k0]`, so parents start at `__k0`) or `nothing` for an observation (parents fill `vals`
+# from 0). The total length is always bound to `__K`.
+function _block_extent_binds(parents; own = nothing)
+    binds = Any[]
+    base_terms = Any[]
+    if own !== nothing
+        sym, idx = own
+        push!(binds, :(__k0 = $(_extent_expr(:(layout[$(QuoteNode(sym))][2]), idx))))
+        push!(base_terms, :__k0)
+    end
+    for (j, (s, ix)) in enumerate(parents)
+        push!(binds, :($(Symbol("__k", j)) = $(_extent_expr(:(layout[$(QuoteNode(s))][2]), ix))))
+    end
+    slots = Tuple{Symbol, Symbol, Bool}[]
+    for (j, (_s, ix)) in enumerate(parents)
+        terms = vcat(base_terms, Any[Symbol("__k", i) for i in 1:(j - 1)])
+        osym = Symbol("__o", j)
+        push!(binds, :($osym = $(isempty(terms) ? 0 : foldl((a, b) -> :($a + $b), terms))))
+        push!(slots, (osym, Symbol("__k", j), _is_block_read(ix)))
+    end
+    all_terms = vcat(base_terms, Any[Symbol("__k", j) for j in 1:length(parents)])
+    push!(binds, :(__K = $(isempty(all_terms) ? 0 : foldl((a, b) -> :($a + $b), all_terms))))
+    return binds, slots
+end
+
+# `true` if a block read uses a range axis whose extent varies with a factor loop variable (ragged
+# `K` across the group). The runtime guard catches a mismatch too, but detecting it here lets the
+# whole structured path fall back cleanly to the monolithic prior instead.
+function _block_ragged(idx_lists, loops)
+    loopvars = Set{Symbol}(v for (v, _r) in loops)
+    for idx in idx_lists, ax in idx
+        if ax isa Expr && ax.head === :call && ax.args[1] === Symbol(":")
+            fs = _free_symbols(ax, Set{Symbol}(), Dict{Symbol, Set{Symbol}}())
+            isempty(intersect(fs, loopvars)) || return true
+        end
+    end
+    return false
+end
+
 # ── prior factor codegen ──
 
 function _factor_closure_expr(t::_FactorTemplate, hp_names, prelude, latent_syms)
@@ -250,6 +353,42 @@ function _factor_index_expr(t::_FactorTemplate, latent_syms)
         loopbody = Expr(:for, Expr(:(=), v, rng), loopbody)
     end
     return Expr(:block, Expr(:(=), :__idx, :(NTuple{$K, Int}[])), loopbody, :__idx)
+end
+
+# A multivariate-block prior factor (`x[:, t] ~ MvNormal(x[:, t-1], Σ)`). Returns a `let`-wrapped
+# `LatentFactorGroup` whose factor closure evaluates the distribution at the own block `vals[1:K_own]`
+# with parent reads substituted to their `vals` slices, and whose index vector concatenates each
+# factor's own + parent flats (a runtime-`K` `NTuple`). Mirrors the scalar pair above.
+function _block_factor_group_expr(t::_FactorTemplate, hp_names, prelude, latent_syms)
+    binds, slots = _block_extent_binds(t.parents; own = (t.lsym, t.lidx))
+
+    clocals = Any[
+        Expr(:(=), l, _subst_block(r, t.parents, slots, latent_syms))
+            for (l, r) in t.locals if _has_latent(r, latent_syms)
+    ]
+    dargs_sub = [_subst_block(a, t.parents, slots, latent_syms) for a in t.dargs]
+    pre_inputs = vcat(Any[r for (_l, r) in t.locals if _has_latent(r, latent_syms)], t.dargs)
+    kept_prelude, needed_hp = _needed_prelude(pre_inputs, prelude, hp_names)
+    unpack = Any[:($h = θ.$h) for h in needed_hp]
+    own_val = _is_block_read(t.lidx) ? :(vals[1:__k0]) : :(vals[1])
+    lpcall = Expr(:call, GlobalRef(_Distributions, :logpdf), Expr(:call, t.dist, dargs_sub...), own_val)
+    closure = Expr(:->, Expr(:tuple, :vals, :θ), Expr(:block, unpack..., kept_prelude..., clocals..., lpcall))
+
+    own_flats = _flatsref(t.lsym, t.lidx)
+    par_flats = Any[_flatsref(s, ix) for (s, ix) in t.parents]
+    loopbody = Expr(
+        :block, _index_locals(t.locals, latent_syms)...,
+        :(__flat = vcat($own_flats, $(par_flats...))),
+        :(push!(__idx, NTuple{__K, Int}(__flat))),
+    )
+    for (v, rng) in reverse(t.loops)
+        loopbody = Expr(:for, Expr(:(=), v, rng), loopbody)
+    end
+    return Expr(
+        :let,
+        Expr(:block, binds..., :(__idx = NTuple{__K, Int}[])),
+        Expr(:block, loopbody, Expr(:call, GlobalRef(_GMRFs, :LatentFactorGroup), :__idx, closure)),
+    )
 end
 
 # ── observation factor codegen ──
@@ -289,6 +428,45 @@ function _obs_group_expr(t::_ObsFactorTemplate, hp_names, prelude, latent_syms)
     return group, needed_hp
 end
 
+# An observation factor reading a multivariate-block latent (`y[t] ~ Normal(sum(x[:, t]), σ)`). Same
+# slice machinery as the block prior factor, but `vals` holds only the parent blocks (no own block,
+# offsets start at 0) and the closure evaluates at the datum `yk`. Returns `(group_expr, needed_hp)`.
+function _block_obs_group_expr(t::_ObsFactorTemplate, hp_names, prelude, latent_syms)
+    binds, slots = _block_extent_binds(t.parents)
+
+    clocals = Any[
+        Expr(:(=), l, _subst_block(r, t.parents, slots, latent_syms))
+            for (l, r) in t.locals if _has_latent(r, latent_syms)
+    ]
+    dargs_sub = [_subst_block(a, t.parents, slots, latent_syms) for a in t.dargs]
+    pre_inputs = vcat(Any[r for (_l, r) in t.locals if _has_latent(r, latent_syms)], t.dargs)
+    kept_prelude, needed_hp = _needed_prelude(pre_inputs, prelude, hp_names)
+    unpack = Any[:($h = θ.$h) for h in needed_hp]
+    lpcall = Expr(:call, GlobalRef(_Distributions, :logpdf), Expr(:call, t.dist, dargs_sub...), :yk)
+    closure = Expr(:->, Expr(:tuple, :vals, :yk, :θ), Expr(:block, unpack..., kept_prelude..., clocals..., lpcall))
+
+    par_flats = Any[_flatsref(s, ix) for (s, ix) in t.parents]
+    oidx_expr = Expr(:ref, :__obs_li, t.oidx...)
+    loopbody = Expr(
+        :block, _index_locals(t.locals, latent_syms)...,
+        :(__flat = vcat($(par_flats...))),
+        :(push!(__vars, NTuple{__K, Int}(__flat))),
+        :(push!(__oidx, $oidx_expr)),
+    )
+    for (v, rng) in reverse(t.loops)
+        loopbody = Expr(:for, Expr(:(=), v, rng), loopbody)
+    end
+    group = Expr(
+        :let,
+        Expr(
+            :block, binds..., :(__vars = NTuple{__K, Int}[]), :(__oidx = Int[]),
+            :(__obs_li = LinearIndices(size($(t.osym)))),
+        ),
+        Expr(:block, loopbody, Expr(:call, GlobalRef(_GMRFs, :ObsFactorGroup), :__vars, :__oidx, closure)),
+    )
+    return group, needed_hp
+end
+
 # ── builders ──
 
 # Wrap a builder body with any model-constant prelude (posarg-derived top-level scalars like
@@ -314,13 +492,22 @@ function _emit_structured_prior_builder(
 
     group_exprs = Any[]
     for t in templates
-        push!(
-            group_exprs,
-            Expr(
-                :call, GlobalRef(_GMRFs, :LatentFactorGroup),
-                _factor_index_expr(t, latent_syms), _factor_closure_expr(t, hp_names, prelude, latent_syms),
-            ),
-        )
+        is_block = _is_block_read(t.lidx) || any(_is_block_read(ix) for (_s, ix) in t.parents)
+        if is_block
+            # A ragged block extent (a loop-dependent range axis) gives factors of differing `K` — no
+            # single `LatentFactorGroup{K}`. Abandon the structured prior for the whole model; the
+            # monolithic path stays correct (and the runtime guard would catch it anyway).
+            _block_ragged(Any[t.lidx, (ix for (_s, ix) in t.parents)...], t.loops) && return nothing
+            push!(group_exprs, _block_factor_group_expr(t, hp_names, prelude, latent_syms))
+        else
+            push!(
+                group_exprs,
+                Expr(
+                    :call, GlobalRef(_GMRFs, :LatentFactorGroup),
+                    _factor_index_expr(t, latent_syms), _factor_closure_expr(t, hp_names, prelude, latent_syms),
+                ),
+            )
+        end
     end
 
     call = Expr(
@@ -353,7 +540,13 @@ function _emit_structured_obs_builder(
     group_exprs = Any[]
     obs_hp = Symbol[]
     for t in templates
-        g, needed_hp = _obs_group_expr(t, hp_names, prelude, latent_syms)
+        is_block = any(_is_block_read(ix) for (_s, ix) in t.parents)
+        if is_block && _block_ragged(Any[ix for (_s, ix) in t.parents], t.loops)
+            return nothing
+        end
+        g, needed_hp = is_block ?
+            _block_obs_group_expr(t, hp_names, prelude, latent_syms) :
+            _obs_group_expr(t, hp_names, prelude, latent_syms)
         push!(group_exprs, g)
         for h in needed_hp
             h in obs_hp || push!(obs_hp, h)
