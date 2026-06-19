@@ -38,6 +38,7 @@ macro latte(modeldef)
 
     blocks = _walk_tilde_blocks(body, posargs)
     posargs_t = Tuple(posargs)
+    _reject_self_referential_broadcasts(blocks)
 
     # Classify and record per-block info.
     obs_records = _serialise_records(b for b in blocks if _classify_block(b, posargs_t) === :observation)
@@ -60,7 +61,7 @@ macro latte(modeldef)
     latent_syms = Tuple(
         unique(
             b.lhs_sym for b in blocks
-                if _classify_block(b, posargs_t) === :random && b.indexed && !b.is_dotted
+                if _classify_block(b, posargs_t) === :random && (b.indexed || b.is_dotted)
         ),
     )
     obs_syms = Tuple(unique(b.lhs_sym for b in blocks if _classify_block(b, posargs_t) === :observation))
@@ -187,6 +188,31 @@ macro latte(modeldef)
     end
 end
 
+# A broadcast prior `u .~ Dist.(…, u, …)` (or a slice `u[2:n] .~ Dist.(…, u[1:n-1], …)`) reads the
+# very latents it is defining, so the element-wise broadcast is ill-posed — it fails in plain DPPL
+# too. Reject it at definition time with a message pointing at the sequential loop form, rather than
+# letting it surface later as an opaque `BoundsError`.
+function _reject_self_referential_broadcasts(blocks)
+    for b in blocks
+        # Scan the raw RHS for the LHS symbol — `rhs_free` excludes it (it's a bound local), so the
+        # mention is only visible in the unanalysed expression.
+        if b.is_dotted && b.rhs !== nothing && _expr_mentions(b.rhs, b.lhs_sym)
+            error(
+                "@latte: the broadcast prior for `$(b.lhs_sym)` reads `$(b.lhs_sym)` on its " *
+                    "right-hand side, which is ill-posed as an element-wise broadcast (it would " *
+                    "read not-yet-sampled latents). Write it as a sequential loop instead, e.g. " *
+                    "`for i; $(b.lhs_sym)[i] ~ Dist(f($(b.lhs_sym)[i-1], …)); end`.",
+            )
+        end
+    end
+    return nothing
+end
+
+# Does the symbol `sym` appear anywhere in the expression tree `e`?
+_expr_mentions(e::Symbol, sym) = e === sym
+_expr_mentions(e::Expr, sym) = any(a -> _expr_mentions(a, sym), e.args)
+_expr_mentions(_, _) = false
+
 function _split_signature(sig)
     sig.head === :call || error("@latte: malformed signature $(sig)")
     fname = sig.args[1]
@@ -228,6 +254,11 @@ function _recognition_expr(blocks, posargs_t::Tuple)
     # dependencies. Any miss falls the whole body back to the DAG path.
     entries = Expr[]
     for blk in random_blocks
+        # A broadcast prior (`u .~ Normal.(0, τ)`) is element-wise, never a whole-array `LatentModel`
+        # constructor. The fixed-prior branch below would still coerce its RHS, building a closure
+        # that captures hp-derived body-locals (`τ`, not a positional arg) and crashing
+        # `_build_recognized_latent`. Send the whole body to the DAG / sparse-AD / structured path.
+        blk.is_dotted && return :(nothing)
         blk.rhs === nothing && return :(nothing)
         rec = _recognize_latent_rhs(blk.rhs)
         if rec !== nothing
