@@ -145,7 +145,22 @@ function build_latent_model(
     ng_probe = _build_nongaussian_latent(
         dppl_model, n_latent, hp_names, joint_constraint, _tracer_hess_backend()
     )
-    nonlinear, prior_pat = _prior_nonlinearity(ng_probe, n_latent, probe_hp)
+    # The tracer-backed probe can hit shapes SparseConnectivityTracer can't trace — e.g. a
+    # dense-covariance `MvNormal`'s triangular solve (`\(::LowerTriangular, ::Vector{Tracer})`).
+    # Retry with a dense ForwardDiff probe, which handles them, and flag it so a Gaussian prior that
+    # likewise can't take the `:sparse_ad` path below uses the ForwardDiff monolithic prior instead.
+    sct_untraceable = false
+    nonlinear, prior_pat = try
+        _prior_nonlinearity(ng_probe, n_latent, probe_hp)
+    catch
+        sct_untraceable = true
+        _prior_nonlinearity(
+            _build_nongaussian_latent(
+                dppl_model, n_latent, hp_names, joint_constraint, AutoForwardDiff()
+            ),
+            n_latent, probe_hp,
+        )
+    end
 
     # A genuinely non-Gaussian prior takes the iterated-Laplace path. A macro-extracted factor graph
     # is also tried for a GAUSSIAN prior, because a multivariate-block latent (`x[:, t] ~ MvNormal`)
@@ -176,7 +191,10 @@ function build_latent_model(
         # The structured prior was unavailable or rejected. A nonlinear prior MUST use the monolithic
         # non-Gaussian path — the slow-to-compile one, so surface it (with the reason). A Gaussian
         # prior instead falls through to the exact linearise-once `:sparse_ad` path below.
-        if nonlinear
+        # A nonlinear prior, or a Gaussian prior the tracer can't take through `:sparse_ad`, uses the
+        # ForwardDiff monolithic `ng` on the iterated-Laplace path (correct, just slower to compile)
+        # rather than the `:sparse_ad` path below — which would `convert`-crash on the same shape.
+        if nonlinear || sct_untraceable
             _warn_slow_nongaussian(:latent_prior, reason)
             return ng, :sparse_nongaussian
         end

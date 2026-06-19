@@ -96,3 +96,36 @@ end
     m_scalar = vec(collect(mean.(latent_marginals(r_scalar, :x))))
     @test m_block ≈ m_scalar atol = 1.0e-4
 end
+
+# A DENSE (off-diagonal) covariance makes `MvNormal`'s logpdf do a triangular solve, which the
+# SparseConnectivityTracer sparsity probe cannot trace (`\(::LowerTriangular, ::Vector{Tracer})` is
+# ambiguous). The build must not crash on the probe: it retries the nonlinearity probe with plain
+# ForwardDiff and the structured factor-graph path (also ForwardDiff) picks the model up.
+@testset "Anisotropic-covariance block latent auto-structures and runs inla" begin
+    n, d = 6, 2
+
+    @latte function mvaniso(y, n, d)
+        log_τ ~ Normal(0.0, 1.0)
+        τ = exp(log_τ)
+        Σ = [1.0 0.5; 0.5 1.0]                 # dense (off-diagonal) covariance
+        x = Matrix{Real}(undef, d, n)
+        x[:, 1] ~ MvNormal(zeros(d), Σ)
+        for t in 2:n
+            x[:, t] ~ MvNormal(x[:, t - 1], (1.0 / τ) * Σ)
+        end
+        for t in 1:n
+            y[t] ~ Normal(sum(x[:, t]), 0.1)
+        end
+    end
+
+    Random.seed!(20260618)
+    y = randn(n)
+
+    lgm = mvaniso(y, n, d)
+    # The dense-Σ block must take the structured path (guard-verified against the ForwardDiff
+    # monolithic prior), not crash in the tracer probe.
+    @test lgm.latent_prior isa G.StructuredLatentPrior
+
+    r = inla(lgm, y; progress = false)
+    @test all(isfinite, mean.(latent_marginals(r, :x)))
+end
