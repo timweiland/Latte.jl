@@ -2,6 +2,12 @@ using Latte
 using Test
 using Aqua
 
+# DynamicPPL (loaded by the Turing-based suites included below) also exports `marginalize`,
+# which collides with Latte's in this shared test module. An explicit import pins the name to
+# Latte's binding regardless of include order, so the unqualified calls in the marginalization
+# tests resolve unambiguously.
+using Latte: marginalize
+
 @testset "Latte.jl" begin
     @testset "Code quality (Aqua.jl)" begin
         # piracies=false: we intentionally extend Distributions.cdf/quantile for SkewNormal
