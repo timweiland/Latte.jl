@@ -45,6 +45,7 @@ makedocs(;
             "HMC-Laplace" => "engines/hmc_laplace.md",
         ],
         "Main Interface" => "main_interface.md",
+        "Factor-graph models" => "factor_graph_models.md",
         "Reference" => [
             "Observation Models" => "reference/observation_models.md",
             "Hyperparameters" => "reference/hyperparameters.md",
