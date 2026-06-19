@@ -67,7 +67,9 @@ for (IN, OUT) in [(TUTORIALS_IN, TUTORIALS_OUT)]
             try
                 Literate.script(program, OUT)
                 Literate.markdown(program, OUT; execute = true, documenter = false)
-                Literate.notebook(program, OUT)
+                # Emit the notebook UN-executed: it's a downloadable artifact users run
+                # themselves, so re-running every cell here just doubles the build cost.
+                Literate.notebook(program, OUT; execute = false)
                 counts[:built] += 1
             catch e
                 @error "[literate] FAILED to build $name — skipping (keeping any existing .md)" exception = (e, catch_backtrace())

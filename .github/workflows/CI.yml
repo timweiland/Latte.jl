@@ -36,7 +36,7 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-      - uses: julia-actions/cache@v1
+      - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
       - uses: julia-actions/julia-runtest@v1
       - uses: julia-actions/julia-processcoverage@v1
@@ -57,7 +57,7 @@ jobs:
       - uses: julia-actions/setup-julia@v1
         with:
           version: '1.11'
-      - uses: julia-actions/cache@v1
+      - uses: julia-actions/cache@v2
       - name: Configure doc environment
         shell: julia --project=docs --color=yes {0}
         run: |
@@ -65,14 +65,31 @@ jobs:
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
       - uses: julia-actions/julia-buildpkg@v1
+      # The executed tutorial outputs (.md + plots, all gitignored) are cached
+      # so the deploy reuses them instead of re-running all 17 tutorials
+      # (~32 min) on every push. The ISO-week in the key refreshes the cache
+      # weekly (catching output drift from dependency patches); a change to a
+      # tutorial source or Project.toml also busts it. The tracked index.md is
+      # excluded from the cache, so it always stays at the checked-out version.
+      - name: Current ISO week (weekly cache refresh)
+        id: week
+        run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Cache executed tutorials
+        id: tutcache
+        uses: actions/cache@v4
+        with:
+          path: |
+            docs/src/tutorials
+            !docs/src/tutorials/index.md
+          key: tutorials-${{ steps.week.outputs.week }}-${{ hashFiles('docs/src/literate-tutorials/**', 'Project.toml', 'docs/Project.toml') }}
       - uses: julia-actions/julia-docdeploy@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # CI runs build-from-clean — but the local mtime cache in
-          # docs/generate_literate.jl could rehydrate from a Julia
-          # cache action with stale .md files. Force a full tutorial
-          # rebuild so deployed docs always reflect current source.
-          LATTE_REBUILD_TUTORIALS: '1'
+          # Cache hit ⇒ reuse the executed tutorials (no per-push execution).
+          # Cache miss ⇒ regenerate them; the cache then saves the fresh
+          # outputs for the rest of the week.
+          LATTE_SKIP_TUTORIALS: ${{ steps.tutcache.outputs.cache-hit == 'true' && '1' || '0' }}
+          LATTE_REBUILD_TUTORIALS: ${{ steps.tutcache.outputs.cache-hit == 'true' && '0' || '1' }}
       - name: Run doctests
         shell: julia --project=docs --color=yes {0}
         run: |
@@ -95,7 +112,7 @@ jobs:
         with:
           version: '1.10'
           arch: x64
-      - uses: julia-actions/cache@v1
+      - uses: julia-actions/cache@v2
       - name: Resolve benchmark env (Latte from checkout, GMRFs from registry)
         # The committed benchmark/Manifest.toml pins local dev-paths; drop it so
         # CI resolves Latte from the checkout and its deps from the registry.
