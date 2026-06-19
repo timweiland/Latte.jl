@@ -146,7 +146,14 @@ function build_latent_model(
         dppl_model, n_latent, hp_names, joint_constraint, _tracer_hess_backend()
     )
     nonlinear, prior_pat = _prior_nonlinearity(ng_probe, n_latent, probe_hp)
-    if nonlinear
+
+    # A genuinely non-Gaussian prior takes the iterated-Laplace path. A macro-extracted factor graph
+    # is also tried for a GAUSSIAN prior, because a multivariate-block latent (`x[:, t] ~ MvNormal`)
+    # is Gaussian yet still needs the factor graph: the `:sparse_ad` tracer route `convert`-ambiguates
+    # between `ForwardDiff.Dual` and `SparseConnectivityTracer.Dual` building the `MvNormal` under the
+    # nested θ-gradient, whereas the per-factor closures use plain ForwardDiff and run. In both cases
+    # the structured prior must reproduce the monolithic one at probe points to be accepted.
+    if nonlinear || structured_spec !== nothing
         # Build the prior so its `local_quadratic` Q carries the PRIOR ∪ OBS Hessian pattern (via a
         # known-pattern backend). That makes obs ⊆ prior pattern, so the per-iterate prior Q lines up
         # positionally with the workspace Q and the obs Hessian fits inside it — ONE fixed symbolic
@@ -166,10 +173,13 @@ function build_latent_model(
         else
             reason = "this model was not built through @latte, or @latte could not extract a factor graph from it"
         end
-        # We are about to use the monolithic non-Gaussian prior — the slow-to-compile path. Surface
-        # it (with the reason) so a slow first call isn't a silent surprise.
-        _warn_slow_nongaussian(:latent_prior, reason)
-        return ng, :sparse_nongaussian
+        # The structured prior was unavailable or rejected. A nonlinear prior MUST use the monolithic
+        # non-Gaussian path — the slow-to-compile one, so surface it (with the reason). A Gaussian
+        # prior instead falls through to the exact linearise-once `:sparse_ad` path below.
+        if nonlinear
+            _warn_slow_nongaussian(:latent_prior, reason)
+            return ng, :sparse_nongaussian
+        end
     end
 
     return _build_joint_sparse_ad_latent(
