@@ -25,6 +25,20 @@ export ObservationModel, ObservationLikelihood, ExponentialFamily,
     conditional_distribution, apply_link, apply_invlink,
     pointwise_loglik
 
+# Re-export the latent-model layer from GaussianMarkovRandomFields.jl so a
+# `using Latte` user can name these in an `@latte` body without separately
+# loading GMRFs. Curated to the latent-model types (not GMRFs' full surface);
+# the extend-able helpers (precision_matrix, constraints, …) stay GMRFs-qualified.
+using GaussianMarkovRandomFields: IIDModel, RWModel, RW1Model, RW2Model,
+    BesagModel, BYM2Model, MaternModel, ARModel, AR1Model, SeparableModel,
+    CombinedModel, FixedEffectsModel, BarrierModel, LatentModel, GMRF,
+    ConstrainedGMRF, NonGaussianLatentPrior, AutoDiffLatentPrior,
+    StructuredLatentPrior
+export IIDModel, RWModel, RW1Model, RW2Model, BesagModel, BYM2Model,
+    MaternModel, ARModel, AR1Model, SeparableModel, CombinedModel,
+    FixedEffectsModel, BarrierModel, LatentModel, GMRF, ConstrainedGMRF,
+    NonGaussianLatentPrior, AutoDiffLatentPrior, StructuredLatentPrior
+
 # Hyperparameter marginalization exports (were previously in an orchestrator file)
 export HyperparameterMarginalizationMethod, marginalize_hyperparameters
 
