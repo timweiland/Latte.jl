@@ -862,11 +862,9 @@ version = "0.2.0"
 
 [[deps.GaussianMarkovRandomFields]]
 deps = ["AMD", "ChainRulesCore", "CliqueTrees", "DataStructures", "DifferentiationInterface", "Distributions", "Graphs", "LinearAlgebra", "LinearMaps", "LinearSolve", "NearestNeighbors", "Random", "SelectedInversion", "SparseArrays", "SpecialFunctions", "Statistics", "StatsFuns"]
-git-tree-sha1 = "31977958db0708809864c4114d52d6042532537b"
-repo-rev = "main"
-repo-url = "https://github.com/timweiland/GaussianMarkovRandomFields.jl.git"
+git-tree-sha1 = "a6f5691d8db64cc5016063f0b4a274b16a4997cd"
 uuid = "d5f06795-35bb-4323-9f0b-405ef76cfc5b"
-version = "0.11.0"
+version = "0.12.2"
 
     [deps.GaussianMarkovRandomFields.extensions]
     GaussianMarkovRandomFieldsEnzyme = "Enzyme"

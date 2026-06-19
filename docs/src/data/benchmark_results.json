@@ -6,7 +6,7 @@
             "summary": {
                 "ks_max": 0.0335,
                 "ks_median": 0.0248,
-                "speedup": 595.24
+                "speedup": 578.28
             },
             "rows": [
                 {
@@ -23,17 +23,17 @@
                 },
                 {
                     "label": "R-INLA",
-                    "value": "2.86 s",
+                    "value": "3.02 s",
                     "muted": true
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "595.2x",
+                    "value": "578.3x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "6.90 s",
+                    "value": "7.26 s",
                     "muted": true
                 }
             ],
@@ -47,7 +47,7 @@
             "summary": {
                 "ks_max": 0.0157,
                 "ks_median": 0.0068,
-                "speedup": 298.88
+                "speedup": 184.75
             },
             "rows": [
                 {
@@ -60,21 +60,21 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "9 ms"
+                    "value": "10 ms"
                 },
                 {
                     "label": "R-INLA",
-                    "value": "2.83 s",
+                    "value": "1.76 s",
                     "muted": true
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "298.9x",
+                    "value": "184.7x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "8.88 s",
+                    "value": "10.0 s",
                     "muted": true
                 }
             ],
@@ -86,9 +86,9 @@
             "scenario": "Normal + RW2 · 60 years · 1912–1971",
             "comparability": "same posterior",
             "summary": {
-                "ks_max": 0.1231,
-                "ks_median": 0.0485,
-                "speedup": 56.17
+                "ks_max": 0.1596,
+                "ks_median": 0.0632,
+                "speedup": 46.16
             },
             "rows": [
                 {
@@ -97,30 +97,30 @@
                 },
                 {
                     "label": "x_t (RW2) KS (max / median)",
-                    "value": "0.123 / 0.049"
+                    "value": "0.160 / 0.063"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "28 ms"
+                    "value": "37 ms"
                 },
                 {
                     "label": "R-INLA",
-                    "value": "1.58 s",
+                    "value": "1.71 s",
                     "muted": true
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "56.2x",
+                    "value": "46.2x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "8.76 s",
+                    "value": "8.72 s",
                     "muted": true
                 }
             ],
             "id": "nhtemp",
-            "notes": "α KS 0.027; RW2 max 0.123 / median 0.049",
+            "notes": "α KS 0.027; RW2 max 0.160 / median 0.063",
             "title": "New Haven temperature"
         },
         {
@@ -129,7 +129,7 @@
             "summary": {
                 "ks_max": 0.0746,
                 "ks_median": 0.0402,
-                "speedup": 19.91
+                "speedup": 17.9
             },
             "rows": [
                 {
@@ -138,16 +138,16 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "76 ms"
+                    "value": "107 ms"
                 },
                 {
                     "label": "R-INLA",
-                    "value": "1.51 s",
+                    "value": "1.91 s",
                     "muted": true
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "19.9x",
+                    "value": "17.9x",
                     "muted": true
                 },
                 {
@@ -166,7 +166,7 @@
             "summary": {
                 "ks_max": 0.0613,
                 "ks_median": 0.0178,
-                "speedup": 14.59
+                "speedup": 14.22
             },
             "rows": [
                 {
@@ -179,21 +179,21 @@
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "129 ms"
+                    "value": "139 ms"
                 },
                 {
                     "label": "R-INLA",
-                    "value": "1.88 s",
+                    "value": "1.97 s",
                     "muted": true
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "14.6x",
+                    "value": "14.2x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "7.52 s",
+                    "value": "7.40 s",
                     "muted": true
                 }
             ],
@@ -205,26 +205,26 @@
             "scenario": "Gaussian + Matérn SPDE · 200 obs · 1680-node shared mesh",
             "comparability": "same posterior",
             "summary": {
-                "ks_max": 0.0276,
-                "ks_median": 0.0175,
-                "speedup": 1.4
+                "ks_max": 0.0267,
+                "ks_median": 0.0174,
+                "speedup": 1.44
             },
             "rows": [
                 {
                     "label": "SPDE field node KS (max / median)",
-                    "value": "0.028 / 0.018"
+                    "value": "0.027 / 0.017"
                 },
                 {
                     "label": "hyperpar KS (β / obs SD / range / field SD)",
-                    "value": "0.028 / 0.049 / 0.054 / 0.053"
+                    "value": "0.027 / 0.048 / 0.054 / 0.056"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "1.69 s"
+                    "value": "1.82 s"
                 },
                 {
                     "label": "R-INLA",
-                    "value": "2.36 s",
+                    "value": "2.62 s",
                     "muted": true
                 },
                 {
@@ -234,12 +234,12 @@
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "9.43 s",
+                    "value": "10.3 s",
                     "muted": true
                 }
             ],
             "id": "spdetoy",
-            "notes": "field max 0.028 / median 0.018 over 1680 nodes; every hyperparameter KS ≤ 0.054",
+            "notes": "field max 0.027 / median 0.017 over 1680 nodes; every hyperparameter KS ≤ 0.056",
             "title": "SPDEtoy"
         },
         {
@@ -248,7 +248,7 @@
             "summary": {
                 "ks_max": 0.1066,
                 "ks_median": 0.1048,
-                "speedup": 2.96
+                "speedup": 2.89
             },
             "rows": [
                 {
@@ -261,25 +261,25 @@
                 },
                 {
                     "label": "hyperpar KS (β / range / field SD / RW1 SD)",
-                    "value": "0.105 / 0.185 / 0.174 / 0.081"
+                    "value": "0.105 / 0.185 / 0.175 / 0.080"
                 },
                 {
                     "label": "Latte INLA · warm",
-                    "value": "745 ms"
+                    "value": "810 ms"
                 },
                 {
                     "label": "R-INLA",
-                    "value": "2.21 s",
+                    "value": "2.34 s",
                     "muted": true
                 },
                 {
                     "label": "speedup (warm)",
-                    "value": "3.0x",
+                    "value": "2.9x",
                     "muted": true
                 },
                 {
                     "label": "Latte INLA · cold",
-                    "value": "11.9 s",
+                    "value": "12.7 s",
                     "muted": true
                 }
             ],
@@ -288,5 +288,5 @@
             "title": "Paraná precipitation"
         }
     ],
-    "generated_at": "2026-06-12T00:29:03.569"
+    "generated_at": "2026-06-19T15:49:22.184"
 }

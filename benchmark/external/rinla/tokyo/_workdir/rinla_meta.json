@@ -2,6 +2,6 @@
   "strategy": "simplified.laplace",
   "n": 366,
   "inla_version": "25.6.7",
-  "elapsed_seconds": 1.5091,
+  "elapsed_seconds": 1.9095,
   "status": "ok"
 }

@@ -4,9 +4,9 @@
   "n_triangles": 773,
   "n_groups": 25,
   "inla_version": "25.6.7",
-  "elapsed_seconds": 2.2074,
+  "elapsed_seconds": 2.3434,
   "intercept_mean": 1.5659,
-  "range_mean": 10.8101,
+  "range_mean": 10.811,
   "stdev_mean": 0.4034,
   "status": "ok"
 }
