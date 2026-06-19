@@ -210,7 +210,7 @@ median(τ_hmc), quantile(τ_hmc, 0.025), quantile(τ_hmc, 0.975)
 #   hyperparameters that sampling stays affordable.
 #
 # The dedicated tutorials work each engine on a model built for its strengths:
-# [state-space stock assessment](fisheries_state_space.md) for TMB, and
+# [age-structured stock assessment (SAM)](age_structured_sam.md) for TMB, and
 # [sampling hyperparameters](hmc_laplace_when.md) for HMC-Laplace. The
 # [TMB](../engines/tmb.md) and [HMC-Laplace](../engines/hmc_laplace.md) engine
 # pages cover the methods and their tuning in more detail.

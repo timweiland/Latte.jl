@@ -1,11 +1,13 @@
 # # Age-structured stock assessment with a nonlinear latent field
 #
-# The [state-space surplus-production tutorial](fisheries_state_space.md) tracked a
-# single biomass through time. Its latent field — the process-noise increments — was
-# Gaussian, so the latent prior was an ordinary GMRF. Age-structured assessment models
-# add a second axis, age, and a survival process that is *nonlinear* in the latent
-# variables: this year's numbers-at-age depend on `exp` of last year's fishing
-# mortality. That nonlinearity makes the latent prior **non-Gaussian**.
+# This tutorial is the introduction to two ideas at once: writing a model whose
+# *latent prior itself is non-Gaussian*, and letting `@latte` recognise that
+# structure straight from the `~` statements. Age-structured fisheries assessment
+# is a clean example. It is *latent-Gaussian-shaped* — a structured, sparse latent
+# field observed through a smooth likelihood — but with a survival process that is
+# *nonlinear* in the latent variables: this year's numbers-at-age depend on `exp`
+# of last year's fishing mortality. That nonlinearity makes the latent prior
+# **non-Gaussian**.
 #
 # This is the state-space assessment model (SAM) of
 # [Nielsen & Berg (2014)](#ref-sam), the workhorse for many ICES stocks. Three things
@@ -328,14 +330,12 @@ fig4
 # - Selectivity-at-age, separating `F_{a, y}` into a year effect and an age-selectivity
 #   curve, as in the original SAM formulation.
 # - A second observation series, such as a research survey index, added as one more
-#   `~` block with its own catchability and noise — the device the
-#   [surplus-production tutorial](fisheries_state_space.md) used to anchor absolute
-#   stock size.
+#   `~` block with its own catchability and noise, to anchor absolute stock size.
 # - Reference points (MSY, F_MSY, B_MSY) and short-term forecasts, both further `derived`
 #   quantities built on the SSB and Fbar marginals above.
 #
 # For the inference protocol shared across `inla`, `tmb`, and `hmc_laplace`, see the
-# [Main Interface](../main_interface.md) reference.
+# [API reference](../reference/index.md).
 #
 # ## References
 #

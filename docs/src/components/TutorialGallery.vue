@@ -45,10 +45,10 @@ const tutorials: Tutorial[] = [
     blurb: 'Write any logpdf, get full INLA inference. A hand-coded compound Poisson-Gamma likelihood — zero-inflated continuous, no fast-path support — fits in the same DPPL @model + inla() flow.',
   },
   {
-    href: '/tutorials/fisheries_state_space',
-    tag: 'STATE-SPACE · TMB',
-    title: 'Multi-fleet stock assessment',
-    blurb: 'Schaefer surplus production with a continuous-time logistic ODE, three CPUE indices, and a 9-D hyperparameter space. tmb() finds the hyperparameter MAP and reports uncertainty from the joint Hessian.',
+    href: '/tutorials/age_structured_sam',
+    tag: 'STATE-SPACE · NON-GAUSSIAN',
+    title: 'Age-structured stock assessment (SAM)',
+    blurb: 'The Nielsen & Berg assessment model: coupled log-numbers and log-fishing-mortality fields with a nonlinear survival recursion. @latte recognises the non-Gaussian latent prior from the ~ statements and fits it by iterated Laplace.',
   },
   {
     href: '/tutorials/spatial_spde',
