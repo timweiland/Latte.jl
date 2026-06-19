@@ -41,7 +41,14 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
           <span class="wm-txt">Latte<span class="wm-jl">.jl</span></span>
         </a>
         <div class="links">
-          <a href="/main_interface">Docs</a>
+          <div class="nav-item nav-item-dropdown">
+            <a href="/reference/" class="nav-link">Docs <span class="caret">▾</span></a>
+            <div class="dropdown">
+              <a href="/reference/latte">Defining models</a>
+              <a href="/reference/results">Working with results</a>
+              <a href="/reference/">API reference</a>
+            </div>
+          </div>
           <a href="/tutorials/">Tutorials</a>
           <a href="/benchmarks/">Benchmarks</a>
           <a href="/validation/">Validation</a>
@@ -78,7 +85,7 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
             </p>
             <div class="cta-row">
               <a class="btn btn-primary" href="/tutorials/getting_started">Get started →</a>
-              <a class="btn btn-ghost" href="/main_interface">Read the docs →</a>
+              <a class="btn btn-ghost" href="/reference/">Read the docs →</a>
               <span class="install">Julia ≥ 1.10</span>
             </div>
           </div>
@@ -119,7 +126,7 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
           </div>
           <div class="engine">
             <div class="method">TMB</div>
-            <div class="desc">Gaussian approximation at the hyperparameter mode — a full posterior with uncertainty, fast.</div>
+            <div class="desc">TMB-style delta-method uncertainty at the hyperparameter mode — fast. And, like TMB's templates, a language for custom models: write Gaussian or non-Gaussian models in the PPL.</div>
             <div class="fit">typical fit · ~ms</div>
           </div>
           <div class="engine">
@@ -199,10 +206,10 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
           </div>
           <div>
             <h5>Learn</h5>
-            <a href="/main_interface">Documentation</a>
+            <a href="/reference/latte">Documentation</a>
             <a href="/tutorials/">Tutorials</a>
             <a href="/coming_from_rinla">Coming from R-INLA</a>
-            <a href="/reference/observation_models">API reference</a>
+            <a href="/reference/">API reference</a>
           </div>
           <div>
             <h5>Community</h5>
@@ -257,8 +264,25 @@ nav.top .container { display: flex; align-items: center; justify-content: space-
 .links a:hover { color: var(--berry); }
 .ver { background: var(--bean); color: var(--cream); padding: 5px 10px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; letter-spacing: 0.3px; }
 
+/* Docs dropdown — ported from LatteNav so the landing nav matches inner pages. */
+.nav-item-dropdown { position: relative; }
+.nav-item-dropdown .nav-link .caret { font-size: 0.75em; margin-left: 2px; color: var(--mocha); transition: transform .12s; display: inline-block; }
+.nav-item-dropdown:hover .nav-link .caret,
+.nav-item-dropdown:focus-within .nav-link .caret { transform: rotate(180deg); }
+.dropdown { display: none; position: absolute; top: 100%; left: -8px; background: var(--foam); border: 1px solid var(--tan); padding: 6px 0; min-width: 180px; z-index: 100; box-shadow: 0 12px 32px rgba(42,24,16,0.10); margin-top: 6px; }
+.dropdown::before { content: ''; position: absolute; top: -6px; left: 0; right: 0; height: 6px; }
+.nav-item-dropdown:hover .dropdown,
+.nav-item-dropdown:focus-within .dropdown { display: block; }
+.dropdown a { display: block; padding: 8px 16px; font-size: 14px; color: var(--espresso); white-space: nowrap; }
+.dropdown a:hover { background: var(--cream); color: var(--berry); }
+
 /* ── Hero ── */
-.hero { position: relative; padding: 32px 0 80px; overflow: hidden; }
+/* Fill the first screen so the hero is all that shows on load and the
+   benchmark section sits below the fold. min-height (not height) lets tall
+   content on small screens still expand rather than clip the code window.
+   The ~80px subtracts the in-component nav (nav.top is padding: 22px 0). */
+.hero { position: relative; min-height: calc(100vh - 80px); display: flex; align-items: center; padding: 32px 0 80px; overflow: hidden; }
+.hero > .container { width: 100%; }
 .hero-mark { position: absolute; top: -120px; right: -160px; opacity: 0.09; pointer-events: none; }
 .hero-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 56px; align-items: center; }
 .hero h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 400; font-size: clamp(42px, 5.4vw, 72px); line-height: 0.98; letter-spacing: -0.045em; margin: 0; }
@@ -359,6 +383,10 @@ footer .wm .wm-txt { color: var(--cream); }
 html.dark .latte-landing { --bg: #2A1810; --foam: #38241B; --tan: rgba(201, 152, 106, 0.2); --mocha: #B79877; --berry: #D9603F; color: #F5E6D3; }
 html.dark .latte-landing .links { color: var(--cream); }
 html.dark .latte-landing .links a:hover { color: var(--caramel); }
+html.dark .latte-landing .nav-item-dropdown .caret { color: var(--caramel); }
+html.dark .latte-landing .dropdown { background: #38241B; border-color: rgba(201,152,106,0.25); box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
+html.dark .latte-landing .dropdown a { color: var(--cream); }
+html.dark .latte-landing .dropdown a:hover { background: rgba(201,152,106,0.15); color: var(--caramel); }
 html.dark .latte-landing .wm .wm-txt { color: #F5E6D3; }
 html.dark .latte-landing .hero .lede { color: #D4B896; }
 html.dark .latte-landing .hero h1 em { color: var(--caramel); }

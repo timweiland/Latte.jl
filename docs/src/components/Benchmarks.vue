@@ -89,8 +89,10 @@ const comparabilityLabel: Record<Receipt['comparability'], string> = {
           <h2>Coming next</h2>
           <p>
             Cross-engine comparisons — the same model under INLA, TMB, and
-            HMC-Laplace — plus scaling in hyperparameter dimension. Scripts land
-            in <code>benchmark/</code> as they're run.
+            HMC-Laplace — plus scaling in hyperparameter dimension. A dedicated
+            TMB comparison (Latte's <code>tmb()</code> against the TMB R package
+            on matched Laplace marginal-likelihood models) will follow in a later
+            release. Scripts land in <code>benchmark/</code> as they're run.
           </p>
         </header>
       </section>
