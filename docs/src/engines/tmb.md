@@ -96,4 +96,4 @@ tmb
 - [Benchmarks](../benchmarks/index.md): where TMB's speed pays off.
 - [Validation](../validation/index.md): where its Gaussian assumption holds and
   where it doesn't.
-- [Main Interface](@ref main-interface): defining models and working with results.
+- [API reference](@ref api-reference): defining models and working with results.

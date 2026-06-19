@@ -10,9 +10,18 @@ using OrderedCollections: OrderedDict
 # ─── Marginals ──────────────────────────────────────────────────────────────
 latent_marginals(r::INLAResult) = r.latent_marginals
 
-# Base latent marginals (the original model's components), uniform across modes:
-# augmented slices the base block of the latent vector; compact keeps only the
-# base latent, so the latent marginals already are them.
+"""
+    base_latent_marginals(result::INLAResult)
+
+Marginals of the original model's base latent components, uniform across result modes.
+
+The augmented representation slices the base block out of the full latent vector; the
+compact default stores only the base latent, so its latent marginals already are these.
+Prefer this accessor to the `result.base_latent_marginals` field, which is `nothing`
+under the compact default.
+
+See also [`latent_marginals`](@ref), [`linear_predictor_marginals`](@ref).
+"""
 function base_latent_marginals(r::INLAResult)
     bl = getproperty(r, :base_latent_marginals)
     return bl === nothing ? latent_marginals(r) : bl

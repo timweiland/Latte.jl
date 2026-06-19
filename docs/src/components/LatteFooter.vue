@@ -29,10 +29,10 @@
         </div>
         <div>
           <h5>Learn</h5>
-          <a href="/main_interface">Documentation</a>
+          <a href="/reference/latte">Documentation</a>
           <a href="/tutorials/">Tutorials</a>
           <a href="/coming_from_rinla">Coming from R-INLA</a>
-          <a href="/reference/observation_models">API reference</a>
+          <a href="/reference/">API reference</a>
         </div>
         <div>
           <h5>Community</h5>

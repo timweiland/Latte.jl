@@ -1,7 +1,7 @@
 # [INLA](@id engine-inla)
 
 INLA is Latte's default inference engine. Given a
-[latent Gaussian model](@ref main-interface), [`inla`](@ref) computes posterior
+[latent Gaussian model](@ref latent-gaussian-models), [`inla`](@ref) computes posterior
 marginals for the latent field and the hyperparameters without any MCMC. It does
 this by nesting two approximations.
 
@@ -139,4 +139,4 @@ The [Validation](../validation/index.md) page measures all of these.
   [Spatial disease mapping](../tutorials/disease_mapping_spatial.md).
 - [Benchmarks](../benchmarks/index.md): speed against the other engines and R-INLA.
 - [Validation](../validation/index.md): calibration of every engine.
-- [Main Interface](@ref main-interface): defining models and working with results.
+- [API reference](@ref api-reference): defining models and working with results.

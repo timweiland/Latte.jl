@@ -96,4 +96,4 @@ hmc_laplace
   that approximate the same ``p(\theta \mid y)`` that HMC-Laplace samples.
 - [Benchmarks](../benchmarks/index.md): where its extra cost shows up.
 - [Validation](../validation/index.md): where its faithfulness pays off.
-- [Main Interface](@ref main-interface): defining models and working with results.
+- [API reference](@ref api-reference): defining models and working with results.

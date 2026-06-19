@@ -25,7 +25,7 @@ Latte splits that into two steps. First you write an `@latte` model block, where
 every prior is stated explicitly (the hyperparameter priors included), the
 structured terms come from `GaussianMarkovRandomFields.jl`, and the likelihood
 goes on the `~` line of a loop over the data. That block returns a
-[latent Gaussian model](@ref main-interface), which you then hand to an inference
+[latent Gaussian model](@ref latent-gaussian-models), which you then hand to an inference
 engine. [`inla`](@ref) is the direct counterpart to R-INLA's `inla()`:
 
 ```julia

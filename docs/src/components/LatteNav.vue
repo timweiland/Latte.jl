@@ -65,10 +65,11 @@ onUnmounted(() => {
         </a>
         <div class="links">
           <div class="nav-item nav-item-dropdown">
-            <a href="/main_interface" class="nav-link">Docs <span class="caret">▾</span></a>
+            <a href="/reference/" class="nav-link">Docs <span class="caret">▾</span></a>
             <div class="dropdown">
-              <a href="/main_interface">Main Interface</a>
-              <a href="/reference/observation_models">Reference</a>
+              <a href="/reference/latte">Defining models</a>
+              <a href="/reference/results">Working with results</a>
+              <a href="/reference/">API reference</a>
             </div>
           </div>
           <a class="nav-link" href="/tutorials/">Tutorials</a>
