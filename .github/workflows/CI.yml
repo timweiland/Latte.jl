@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.10'
+          - '1.12'
         os:
           - ubuntu-latest
         arch:
@@ -56,7 +56,7 @@ jobs:
           lfs: true
       - uses: julia-actions/setup-julia@v1
         with:
-          version: '1.11'
+          version: '1.12'
       - uses: julia-actions/cache@v2
       - name: Configure doc environment
         shell: julia --project=docs --color=yes {0}
@@ -110,7 +110,7 @@ jobs:
           lfs: true
       - uses: julia-actions/setup-julia@v1
         with:
-          version: '1.10'
+          version: '1.12'
           arch: x64
       - uses: julia-actions/cache@v2
       - name: Resolve benchmark env (Latte from checkout, GMRFs from registry)
