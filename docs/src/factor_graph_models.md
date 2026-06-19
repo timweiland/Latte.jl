@@ -132,6 +132,10 @@ Loops and nested loops are fine; the loop structure is preserved. Hyperparameter
 constants can be used inside a factor (`σ = exp(log_σ)`, then `Normal(·, σ)`) — Latte carries the
 minimal set each factor needs into its closure.
 
+Beyond scalar sites, two further shapes take the structured path: a multivariate-block site
+`x[:, t] ~ MvNormal(...)` (each column becomes one block factor), and an element-wise broadcast
+prior `u .~ Dist.(...)` (lowered to the equivalent scalar loop).
+
 You can check which path a built model took:
 
 ```julia
@@ -152,9 +156,6 @@ for each:
 
 - Gaussian / linear-Gaussian models. These already assemble quickly through the GMRF path, so
   structuring isn't attempted — a different, and already fast, route rather than a limitation.
-- Multivariate-block latents written with a slice, such as `x[:, t] ~ MvNormal(...)`. Write the
-  block element-wise as scalar sites (`x[a, t] ~ …`); this is currently required, since the
-  monolithic path does not handle this shape yet either (issue #22).
 - Self-referential broadcast priors, such as `x[2:n] .~ Normal.(x[1:n-1], σ)` — ill-posed as a
   broadcast (it reads not-yet-sampled latents). Latte rejects these at definition time; write the
   sequential loop (`for t in 2:n; x[t] ~ Normal(x[t-1], σ); end`) instead. Element-wise broadcast
