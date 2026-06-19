@@ -38,7 +38,7 @@ macro latte(modeldef)
 
     blocks = _walk_tilde_blocks(body, posargs)
     posargs_t = Tuple(posargs)
-    _reject_self_referential_broadcasts(blocks)
+    _reject_self_referential_broadcasts(blocks, body)
 
     # Classify and record per-block info.
     obs_records = _serialise_records(b for b in blocks if _classify_block(b, posargs_t) === :observation)
@@ -192,20 +192,53 @@ end
 # very latents it is defining, so the element-wise broadcast is ill-posed — it fails in plain DPPL
 # too. Reject it at definition time with a message pointing at the sequential loop form, rather than
 # letting it surface later as an opaque `BoundsError`.
-function _reject_self_referential_broadcasts(blocks)
+function _reject_self_referential_broadcasts(blocks, body)
+    # The LHS can be read directly (`u .~ Normal.(u, σ)`) or laundered through a local
+    # (`μ = u .+ 1; u .~ Normal.(μ, σ)`). Taint the LHS plus any local binding that transitively
+    # reads it, and reject if the broadcast RHS mentions any tainted symbol.
+    assigns = _collect_assignments(body)
     for b in blocks
-        # Scan the raw RHS for the LHS symbol — `rhs_free` excludes it (it's a bound local), so the
-        # mention is only visible in the unanalysed expression.
-        if b.is_dotted && b.rhs !== nothing && _expr_mentions(b.rhs, b.lhs_sym)
+        (b.is_dotted && b.rhs !== nothing) || continue
+        tainted = _tainted_symbols(b.lhs_sym, assigns)
+        if any(s -> _expr_mentions(b.rhs, s), tainted)
             error(
-                "@latte: the broadcast prior for `$(b.lhs_sym)` reads `$(b.lhs_sym)` on its " *
-                    "right-hand side, which is ill-posed as an element-wise broadcast (it would " *
-                    "read not-yet-sampled latents). Write it as a sequential loop instead, e.g. " *
-                    "`for i; $(b.lhs_sym)[i] ~ Dist(f($(b.lhs_sym)[i-1], …)); end`.",
+                "@latte: the broadcast prior for `$(b.lhs_sym)` reads `$(b.lhs_sym)` (directly or " *
+                    "through a local) on its right-hand side, which is ill-posed as an element-wise " *
+                    "broadcast (it would read not-yet-sampled latents). Write it as a sequential " *
+                    "loop instead, e.g. `for i; $(b.lhs_sym)[i] ~ Dist(f($(b.lhs_sym)[i-1], …)); end`.",
             )
         end
     end
     return nothing
+end
+
+# `sym = rhs` assignments anywhere in a model body (used to trace laundered self-references).
+_collect_assignments(body) = _collect_assignments!(Pair{Symbol, Any}[], body)
+function _collect_assignments!(out, e)
+    if e isa Expr
+        e.head === :(=) && e.args[1] isa Symbol && push!(out, e.args[1] => e.args[2])
+        for a in e.args
+            _collect_assignments!(out, a)
+        end
+    end
+    return out
+end
+
+# Symbols that transitively read `root` through the collected assignments (includes `root` itself).
+function _tainted_symbols(root::Symbol, assigns)
+    tainted = Set{Symbol}((root,))
+    changed = true
+    while changed
+        changed = false
+        for (s, rhs) in assigns
+            s in tainted && continue
+            if any(t -> _expr_mentions(rhs, t), tainted)
+                push!(tainted, s)
+                changed = true
+            end
+        end
+    end
+    return tainted
 end
 
 # Does the symbol `sym` appear anywhere in the expression tree `e`?

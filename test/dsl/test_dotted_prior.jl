@@ -203,3 +203,48 @@ end
     @test err !== nothing
     @test occursin("loop", lowercase(sprint(showerror, err)))
 end
+
+@testset "Laundered self-referential broadcast is rejected" begin
+    # The self-reference is hidden behind a local (`μ = u .+ 1`), so a raw-RHS scan misses it; the
+    # taint analysis must still catch it and fail with the actionable message.
+    err = try
+        @eval @latte function laundered(y, n)
+            log_σ ~ Normal(0.0, 1.0)
+            σ = exp(log_σ)
+            u = Vector{Real}(undef, n)
+            μ = u .+ 1.0
+            u .~ Normal.(μ, σ)
+            for i in 1:n
+                y[i] ~ Normal(u[i], 0.1)
+            end
+        end
+        nothing
+    catch e
+        e
+    end
+    @test err !== nothing
+    @test occursin("loop", lowercase(sprint(showerror, err)))
+end
+
+@testset "Cross-latent broadcast coupling is not rejected and structures" begin
+    # `w .~ Logistic.(u, σ)` reads a DIFFERENT latent `u` (sampled first) — well-posed. The self-ref
+    # taint analysis must NOT reject it, and it must take the structured factor-graph path.
+    n = 8
+    @latte function crosslatent(y, n)
+        log_σ ~ Normal(0.0, 1.0)
+        σ = exp(log_σ)
+        u = Vector{Real}(undef, n)
+        w = Vector{Real}(undef, n)
+        for i in 1:n
+            u[i] ~ Normal(0.0, 1.0)
+        end
+        w .~ Logistic.(u, σ)
+        for i in 1:n
+            y[i] ~ Normal(w[i], 0.1)
+        end
+    end
+    Random.seed!(7)
+    y = randn(n)
+    lgm = crosslatent(y, n)               # must not throw (not a self-reference)
+    @test lgm.latent_prior isa G.StructuredLatentPrior
+end
