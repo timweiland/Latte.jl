@@ -145,9 +145,55 @@ function _walk!(out, e, loops, locals, latent_syms, obs_syms, mode)
     return
 end
 
+# Lower a broadcast prior `u .~ Dist.(args…)` to a synthetic-loop element factor. Returns
+# `(bvar, brange, elem_lhs, elem_rhs)` — a fresh loop variable over `u`'s linear indices, the loop
+# range, and the element forms `u[bvar] ~ Dist(elementwise(args)…)` — or `nothing` to fall back to
+# the monolithic prior. Supported: a bare latent LHS with scalar args (IID) and bare latent-symbol
+# args (element-wise coupling, rewritten to `v[bvar]`). An explicit latent index/slice in an arg
+# (`v[1:n-1]`) is not aligned here and falls back.
+function _lower_broadcast_prior(lhs, rhs, latent_syms)
+    (lhs isa Symbol && lhs in latent_syms) || return nothing
+    (rhs isa Expr && rhs.head === :. && length(rhs.args) == 2) || return nothing
+    bargs_node = rhs.args[2]
+    (bargs_node isa Expr && bargs_node.head === :tuple) || return nothing
+    bargs = bargs_node.args
+    any(a -> _has_latent_index(a, latent_syms), bargs) && return nothing
+
+    bvar = gensym(:bcast)
+    elem_lhs = Expr(:ref, lhs, bvar)
+    elem_rhs = Expr(:call, rhs.args[1], Any[_index_bare_latents(a, bvar, latent_syms) for a in bargs]...)
+    # `u`'s entry count, via its layout dims — evaluated in builder scope where `layout` is bound.
+    brange = Expr(:call, :(:), 1, Expr(:call, :prod, Expr(:ref, Expr(:ref, :layout, QuoteNode(lhs)), 2)))
+    return (bvar, brange, elem_lhs, elem_rhs)
+end
+
+# Does `e` reference a latent through an explicit index/slice (`v[…]`)?
+_has_latent_index(e, latent_syms) =
+    e isa Expr && (_is_latent_ref(e, latent_syms) || any(a -> _has_latent_index(a, latent_syms), e.args))
+
+# Rewrite bare latent symbols `v` (whole-array references being broadcast) to element form `v[bvar]`,
+# leaving everything else untouched. Callers guarantee no explicit latent index survives here.
+function _index_bare_latents(e, bvar, latent_syms)
+    e isa Symbol && e in latent_syms && return Expr(:ref, e, bvar)
+    e isa Expr || return e
+    return Expr(e.head, Any[_index_bare_latents(a, bvar, latent_syms) for a in e.args]...)
+end
+
 function _record_tilde!(out, pair, loops, locals, latent_syms, obs_syms, mode)
     lhs, rhs, dotted = pair
-    dotted && return
+    if dotted
+        # A broadcast prior `u .~ Dist.(args…)` is element-wise: lower it to a synthetic loop over
+        # `u`'s entries (`u[i] ~ Dist(args…[i])`) and reuse the ordinary factor codegen. Only latent
+        # priors structure; a dotted observation keeps the monolithic path (returns `nothing`).
+        mode === :prior || return
+        lowered = _lower_broadcast_prior(lhs, rhs, latent_syms)
+        lowered === nothing && return
+        bvar, brange, elem_lhs, elem_rhs = lowered
+        push!(loops, (bvar, brange))
+        _record_tilde!(out, (elem_lhs, elem_rhs, false), loops, locals, latent_syms, obs_syms, mode)
+        pop!(loops)
+        return
+    end
     (rhs isa Expr && rhs.head === :call) || return
     dargs = collect(rhs.args[2:end])
     parents = _collect_parents(dargs, locals, latent_syms)

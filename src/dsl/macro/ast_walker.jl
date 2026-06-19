@@ -386,10 +386,19 @@ function _walk_tilde!(out, e, bound, aliases, current_marker)
     return
 end
 
-# ─── Body transformation: strip markers, lower `.~` to `product_distribution` ─
+# ─── Body transformation: strip markers, lower `.~` to a product distribution ─
 function _transform_body(body)
     return _strip_markers(_lower_dottilde(body))
 end
+
+# Runtime lowering of `lhs .~ rhs` to `lhs ~ _dottilde(rhs, lhs)`. The broadcasted RHS may have
+# collapsed to a *single* distribution when every argument is a scalar (`Normal.(0.0, τ)` is a 0-d
+# broadcast); fill it to the LHS shape so the product has one factor per latent entry. An array RHS
+# (`Normal.(μ, σ)`) already matches the LHS shape and is used as-is. `ref` is the LHS array, used
+# only for its shape — so it must be allocated before the `.~`, exactly as the loop form requires.
+_dottilde(d::Distributions.Distribution, ref) =
+    Distributions.product_distribution(fill(d, size(ref)...))
+_dottilde(d::AbstractArray, ref) = Distributions.product_distribution(d)
 
 function _strip_markers(e)
     e isa Expr || return e
@@ -404,23 +413,16 @@ end
 function _lower_dottilde(e)
     e isa Expr || return e
     if e.head === :.~ && length(e.args) == 2
-        lhs = _lower_dottilde(e.args[1])
-        rhs = _lower_dottilde(e.args[2])
-        return Expr(
-            :call, :~, lhs,
-            Expr(:call, :(Distributions.product_distribution), rhs)
-        )
+        return _lowered_dottilde(_lower_dottilde(e.args[1]), _lower_dottilde(e.args[2]))
     end
     if e.head === :call && length(e.args) == 3 && e.args[1] === :.~
-        lhs = _lower_dottilde(e.args[2])
-        rhs = _lower_dottilde(e.args[3])
-        return Expr(
-            :call, :~, lhs,
-            Expr(:call, :(Distributions.product_distribution), rhs)
-        )
+        return _lowered_dottilde(_lower_dottilde(e.args[2]), _lower_dottilde(e.args[3]))
     end
     return Expr(e.head, map(_lower_dottilde, e.args)...)
 end
+
+_lowered_dottilde(lhs, rhs) =
+    Expr(:call, :~, lhs, Expr(:call, GlobalRef(@__MODULE__, :_dottilde), rhs, lhs))
 
 # ─── Classification of one block ──────────────────────────────────────────────
 """

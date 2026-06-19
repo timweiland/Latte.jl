@@ -155,8 +155,11 @@ for each:
 - Multivariate-block latents written with a slice, such as `x[:, t] ~ MvNormal(...)`. Write the
   block element-wise as scalar sites (`x[a, t] ~ …`); this is currently required, since the
   monolithic path does not handle this shape yet either (issue #22).
-- Broadcast (dotted) priors, such as `u .~ Normal.(...)`. Write the explicit loop form
-  (`for i; u[i] ~ Dist(...); end`) instead (issue #23).
+- Self-referential broadcast priors, such as `x[2:n] .~ Normal.(x[1:n-1], σ)` — ill-posed as a
+  broadcast (it reads not-yet-sampled latents). Latte rejects these at definition time; write the
+  sequential loop (`for t in 2:n; x[t] ~ Normal(x[t-1], σ); end`) instead. Element-wise broadcast
+  priors (`u .~ Normal.(0.0, τ)`, `u .~ Normal.(μ, σ)`) are supported and structure like the loop
+  form.
 - Multiple observed symbols. The structured observation path handles a single observed array;
   models with several observed symbols keep the monolithic observation.
 - Latents without a static array allocation. Each latent symbol needs a top-level allocation
