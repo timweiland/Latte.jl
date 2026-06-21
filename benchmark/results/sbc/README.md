@@ -49,8 +49,7 @@ well-identified regime (n=100 nodes) is prohibitively slow for per-replicate NUT
   looser band). RW1 structure breaks the degeneracy and all engines recover.
 
 Binomial is deferred (forward-sampling needs per-site trial counts the LGM's
-obs-model descriptor doesn't carry; Bernoulli covers the binary case). Full
-narrative: `tasks/validation-report.org` (RAN IT — findings).
+obs-model descriptor doesn't carry; Bernoulli covers the binary case).
 
 Regenerate, e.g.:
 

@@ -68,5 +68,5 @@ numbers into the static site.
 
 ## Performance notes
 
-See `benchmark/PERF_NOTES.md`. Short version: most of the warm-time gap
-between Latte and R-INLA is grid-point count, not per-point cost.
+Most of the warm-time gap between Latte and R-INLA is grid-point count, not
+per-point cost.
