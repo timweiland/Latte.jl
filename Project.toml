@@ -1,6 +1,6 @@
 name = "Latte"
 uuid = "d585094e-6273-42a7-8500-34710a148fdc"
-authors = ["Tim Weiland <tim@weiland-lahnstein.de> and contributors"]
+authors = ["Tim Weiland <hello@timwei.land> and contributors"]
 version = "0.1.0-DEV"
 
 [deps]
@@ -57,7 +57,7 @@ Bijectors = "0.15"
 ChainRulesCore = "1"
 DataFrames = "1"
 DataInterpolations = "8"
-DifferentiationInterface = "0.6, 0.7"
+DifferentiationInterface = "0.7"
 Distributions = "0.25"
 DynamicPPL = "0.40"
 FastGaussQuadrature = "1"
@@ -97,7 +97,7 @@ StatsFuns = "1.5"
 StatsModels = "0.7"
 Test = "<0.0.1, 1"
 Turing = "0.43"
-julia = "1"
+julia = "1.10"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
