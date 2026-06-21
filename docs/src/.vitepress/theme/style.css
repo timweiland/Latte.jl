@@ -1,7 +1,7 @@
 /* Latte.jl theme overrides for Vitepress's default theme.
  *
  * The landing page (Landing.vue) is layout:false and uses its own scoped
- * styles. Everything else (tutorials, reference, main_interface) lives
+ * styles. Everything else (tutorials, reference, engines) lives
  * inside Vitepress's doc layout, so we override the default CSS variables
  * here to keep the brand consistent across pages.
  *
