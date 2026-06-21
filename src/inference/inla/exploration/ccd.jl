@@ -65,14 +65,14 @@ end
     generate_ccd_points(d::Int; f0::Float64 = 1.1) -> Vector{Vector{Float64}}
 
 Generate Central Composite Design points in standardized z-space for `d` dimensions,
-following R-INLA's convention (Rue et al. 2009, Section 6.5).
+following the CCD construction of Rue et al. (2009), Section 6.5.
 
 All non-center design points are placed on a sphere of radius `f0 * √d`:
 1. Center point at origin (1 point)
 2. Axial points at ±f₀√d along each axis (2d points)
 3. Factorial points normalized to radius f₀√d (2^d or fractional for d > 4)
 
-The scaling factor `f0` must be > 1 (default 1.1, matching R-INLA).
+The scaling factor `f0` must be > 1 (default 1.1).
 """
 function generate_ccd_points(d::Int; f0::Float64 = 1.1)
     @assert f0 > 1.0 "f0 must be > 1.0, got $f0"
@@ -114,7 +114,7 @@ CCD-based exploration of the hyperparameter posterior (Rue et al. 2009, Section 
 
 Uses O(2d² + 1) design points instead of a full Cartesian grid (O(m^d)),
 enabling models with 3+ hyperparameters. Integration weights are computed
-analytically following R-INLA's convention, which is exact when the posterior
+analytically (Rue et al. 2009, Section 6.5), which is exact when the posterior
 in z-space is standard Gaussian.
 """
 function explore_hyperparameter_posterior(

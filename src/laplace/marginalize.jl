@@ -59,8 +59,10 @@ Compute marginal approximations for specified latent variables.
 - `prior_gmrf`: Original prior GMRF (required for Laplace methods, ignored for Gaussian)
 - `augmentation_info`: Pass the LGM's `augmentation_info` here when the
   caller is fitting an `AugmentedLatentModel`. `SimplifiedLaplace` uses
-  this to apply a base-coordinate equivalence correction (matches R-INLA
-  compact-mode behaviour) when computing skew for base latents. Other
+  this to apply a base-coordinate equivalence correction when computing
+  skew for base latents: the skew is evaluated in the original (un-augmented)
+  latent coordinates so that the augmentation introduced for fitting does not
+  alter the reported marginal. Other
   strategies ignore it. `nothing` (default) means "treat the model as
   un-augmented" — appropriate for direct callers and tests that don't
   go through `inla()`.

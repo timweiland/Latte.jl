@@ -76,8 +76,10 @@ end
 Compute posterior marginals for linear combinations z = A * x of the latent field.
 
 For each row aₖ of A, the marginal of zₖ = aₖᵀx is computed as a weighted mixture
-of Gaussian conditionals over the hyperparameter integration points, matching
-R-INLA's default `lincomb.derived.only=TRUE` approach.
+of Gaussian conditionals over the hyperparameter integration points. This treats
+each linear combination as a derived quantity: rather than augmenting the latent
+field with the combinations and refitting, the marginal is assembled directly from
+the per-θ Gaussian approximations already computed during inference.
 
 At each integration point θⱼ with weight wⱼ, the conditional distribution of
 zₖ = aₖᵀx is Normal(aₖᵀμⱼ, √(aₖᵀQⱼ⁻¹aₖ)), where μⱼ and Qⱼ are the mean

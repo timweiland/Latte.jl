@@ -67,9 +67,9 @@ CCDExplorationStrategy(; f0::Float64 = 1.1) = CCDExplorationStrategy(f0)
 """
     INLAGridStrategy()
 
-R-INLA's `int.strategy = "grid"` design — for D=1 and D=2, a hardcoded
-Gauss-Hermite-style point set with precomputed quadrature weights, ported
-verbatim from R-INLA's `GMRFLib_design_grid` (`gmrflib/design.c`).
+Fixed-design grid quadrature (Rue et al. 2009, Section 3.1) — for D=1
+and D=2, a hardcoded Gauss-Hermite-style point set with precomputed
+quadrature weights.
 
 For D=1 the design is 11 points along the axis; for D=2 it is 45 points
 in a CCD-like layout. For D ≥ 3 this strategy delegates to
@@ -108,8 +108,8 @@ parameters when the latent field is nearly flat), it expands beyond
 [`INLAGridStrategy`](@ref) cannot.
 
 For known well-conditioned posteriors, `INLAGridStrategy()` is a
-faster opt-in (R-INLA-style fixed-design quadrature with precomputed
-weights).
+faster opt-in (fixed-design quadrature with precomputed weights, per
+Rue et al. 2009, Section 3.1).
 
 # Fields
 - `low_dim::ExplorationStrategy`: Strategy used for D ≤ 2 (default `GridExplorationStrategy()`)

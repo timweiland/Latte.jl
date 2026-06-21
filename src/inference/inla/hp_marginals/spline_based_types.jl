@@ -3,7 +3,7 @@ export GridSumMarginal, CCDInterpolantMarginal, AutoHyperparameterMarginal
 """
     GridSumMarginal <: HyperparameterMarginalizationMethod
 
-Rectangle rule on grid points -> 1D cubic spline marginals (R-INLA's GRIDSUM).
+Rectangle rule on grid points -> 1D cubic spline marginals (the grid-sum approach).
 
 Extracts (θ, log_density) pairs from the exploration grid for each dimension,
 normalizes, and fits cubic splines via `SplineMarginalDistribution`.
@@ -25,7 +25,7 @@ Builds a lightweight parametric interpolant from the exploration data plus
 Then profiles along each θ dimension using inverse-Hessian conditional modes
 (no further logpdf evaluations needed). Each profile is fit with a cubic spline.
 
-Works for any D. This is R-INLA's default approach for D>=2.
+Works for any D, and is the default approach for D>=2.
 
 # Fields
 - `n_grid::Int`: Number of profile grid points per dimension (default 200)

@@ -1,15 +1,14 @@
-# R-INLA `int.strategy = "grid"` design for D=1 and D=2 — hardcoded
-# Gauss-Hermite-style point set with precomputed quadrature weights.
+# Fixed grid design for D=1 and D=2 — a hardcoded Gauss-Hermite-style
+# point set with precomputed quadrature weights (Rue et al. 2009, Section 3.1).
 #
-# Ported verbatim from R-INLA's `GMRFLib_design_grid` in
-# `gmrflib/design.c`. R-INLA's grid is *not* a walked Cartesian grid —
-# for D ∈ {1, 2} it uses a fixed point set whose weights are precomputed
-# to match a higher-order quadrature than trapezoidal would give.
-# Hence `dz` and `diff.logdens` are ignored for D ≤ 2 in R-INLA, and
-# this strategy similarly takes no tuning knobs.
+# For D ∈ {1, 2} this is *not* a walked Cartesian grid: it uses a fixed
+# point set whose weights are precomputed to match a higher-order
+# quadrature than trapezoidal would give. Because the weights are
+# absolute, there is no step-size to tune — this strategy takes no
+# tuning knobs for D ≤ 2.
 #
-# For D ≥ 3 this strategy delegates to `CCDExplorationStrategy()` —
-# matching R-INLA's `int.strategy = "auto"` for high D.
+# For D ≥ 3 this strategy delegates to `CCDExplorationStrategy()`, which
+# scales to higher dimensions via a sparse central composite design.
 
 # ── Hardcoded designs ────────────────────────────────────────────────
 
@@ -24,7 +23,6 @@ const _INLA_GRID_W1 = (
 )
 
 # 35 points laid out in row-major order. Each row is one (z₁, z₂) pair.
-# Matches the `x2[]` array in R-INLA's `gmrflib/design.c`.
 const _INLA_GRID_X2 = (
     (-2.25, -1.25), (-2.25, -0.5), (-2.25, 0.0), (-2.25, 0.5), (-2.25, 1.25),
     (-1.25, -2.25), (-1.25, -1.25), (-1.25, -0.5), (-1.25, 0.0), (-1.25, 0.5), (-1.25, 1.25), (-1.25, 2.25),

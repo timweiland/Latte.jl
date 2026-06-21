@@ -236,10 +236,11 @@ end
 """
     adaptive_negative_hessian(f, x; h_candidates, max_error, refine, fallback_h)
 
-Compute the negative Hessian of `f` at `x` using an adaptive step size selection
-inspired by R-INLA. The algorithm compares 3-point and 5-point finite difference
-stencils across candidate step sizes to find the `h` where both agree best,
-indicating the noise-truncation sweet spot.
+Compute the negative Hessian of `f` at `x` using adaptive step size selection.
+The algorithm compares 3-point and 5-point finite difference stencils across
+candidate step sizes to find the `h` where both agree best, indicating the
+noise-truncation sweet spot — the step large enough to escape round-off noise
+yet small enough to keep truncation error low.
 
 # Algorithm
 1. **Coarse search**: Evaluate diagonal-only 3pt and 5pt stencils at log-spaced `h` values.

@@ -8,8 +8,8 @@ Closed-form KL(N(μ1, σ1²) ‖ N(μ2, σ2²)) — moment-only, no integration:
     KL = log(σ2/σ1) + (σ1² + (μ1-μ2)²) / (2 σ2²) - 1/2
 
 Used by `moment_symmetric_kld` to compute the symmetric variant in O(1) per
-pair. Matches R-INLA's `GMRFLib_mkld` (`gmrflib/density.c:1598-1612`) up to
-algebraic rearrangement.
+pair. This is the standard closed-form KL divergence between two univariate
+Gaussians, which depends only on their means and standard deviations.
 """
 function gaussian_kl_from_moments(μ1::Real, σ1::Real, μ2::Real, σ2::Real)
     σ1 > 0 || return 0.0
@@ -26,9 +26,10 @@ two moments — i.e. treating both as Gaussians with the same `mean`/`std`:
 
     SKLD_moment(p, q) = (KL(N_p ‖ N_q) + KL(N_q ‖ N_p)) / 2
 
-Closed-form, O(1) per pair. Matches R-INLA's `GMRFLib_mkld_sym`
-(`gmrflib/density.c:1628-1634`), the default fast-mode KLD R-INLA writes
-to `symmetric-kld.dat`.
+Closed-form, O(1) per pair: the symmetrized closed-form KL divergence
+between the two Gaussians implied by each distribution's first two moments.
+This is the fast moment-based diagnostic used to flag where a marginal
+departs from its Gaussian baseline.
 
 For two distributions with **identical first two moments** (e.g. a
 SkewNormal moment-matched to its Gaussian baseline), this returns 0

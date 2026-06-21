@@ -132,8 +132,8 @@ function observation_marginals(
     # Map link function to bijector. An offset that lives inside the linear
     # predictor (η = A·x + b) is absorbed into the augmented prior mean, so the
     # stored linear-predictor marginals already hold the full ηᵢ (including the
-    # offset). The fitted value is then μᵢ = g⁻¹(ηᵢ) directly — matching R-INLA's
-    # "fitted values include offset" convention with no extra shift.
+    # offset). The fitted value is then μᵢ = g⁻¹(ηᵢ) directly: the offset is part
+    # of the linear predictor, so the fitted values include it with no extra shift.
     bijector = get_bijector(link)
 
     # Transform each linear predictor marginal to observation space
