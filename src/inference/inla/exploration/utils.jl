@@ -1,5 +1,3 @@
-export evaluate_at_grid_point, create_weighted_mixtures
-
 """
     latent_mode(model, y, θ_natural_nt, ws) -> Vector{Float64}
 

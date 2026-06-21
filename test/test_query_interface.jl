@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: selected_covariance, selinv_mat
 using GaussianMarkovRandomFields
 using LinearAlgebra
 using SparseArrays

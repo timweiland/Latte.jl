@@ -49,6 +49,15 @@ struct CPOStrategy <: PosteriorStrategy
     end
 end
 
+"""
+    CPOAccumulator()
+
+Conditional Predictive Ordinate (CPO) and the log pseudo-marginal likelihood (LPML).
+
+`CPOᵢ = p(yᵢ ∣ y₋ᵢ)` is the leave-one-out predictive density at observation `i`; small
+values flag poorly predicted points, and `LPML = Σᵢ log CPOᵢ` scores the model. Pass an
+instance in an engine's `accumulators` keyword and read it back with `compute_point_summary`.
+"""
 mutable struct CPOAccumulator <: PosteriorAccumulator
     cfg::CPOStrategy
     pit_active::Bool                                       # tracks runtime PIT availability
@@ -109,6 +118,12 @@ function _cpo_aggregate(s::NormalIdentityClosedForm)
     return log_inv_lik, NaN
 end
 
+"""
+    CPOPointSummary
+
+Per-observation result of [`compute_point_summary`](@ref) for a [`CPOAccumulator`](@ref):
+the leave-one-out predictive densities, PIT values, and the Pareto-k̂ reliability diagnostic.
+"""
 struct CPOPointSummary
     log_inv_lik_exp::Vector{Float64}
     pit_exp::Vector{Float64}

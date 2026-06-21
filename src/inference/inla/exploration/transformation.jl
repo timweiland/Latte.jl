@@ -2,7 +2,7 @@ using LinearAlgebra
 using Printf
 using GaussianMarkovRandomFields: with_workspace
 
-export ReparameterizationTransform, logdet_jacobian, compute_reparameterization
+export ReparameterizationTransform
 
 """
     ReparameterizationTransform{W}

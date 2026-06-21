@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: create_weighted_mixtures
 using Latte: generate_ccd_points, generate_factorial_points,
     ccd_integration_weights
 using GaussianMarkovRandomFields

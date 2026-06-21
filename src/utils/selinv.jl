@@ -4,8 +4,6 @@ using SparseArrays
 using LinearAlgebra: Symmetric
 import Distributions
 
-export selected_covariance, selinv_mat
-
 """
     selected_covariance(q) -> AbstractMatrix
 

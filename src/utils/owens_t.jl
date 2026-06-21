@@ -1,8 +1,6 @@
 using FastGaussQuadrature: gausslegendre
 using StatsFuns: normcdf, erfc
 
-export owens_t
-
 # Precompute 20-point Gauss-Legendre nodes/weights on [0,1]
 # (transformed from [-1,1]: u = (x+1)/2, du = dx/2)
 const _GL_NODES_20, _GL_WEIGHTS_20 = let

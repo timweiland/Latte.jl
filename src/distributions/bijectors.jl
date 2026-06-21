@@ -1,5 +1,3 @@
-export PrecisionToStdBijector, StdToPrecisionBijector
-
 import Bijectors
 
 struct PrecisionToStdBijector <: Bijectors.Bijector end

@@ -1,5 +1,3 @@
-export validate_inla_inputs
-
 """
     validate_inla_inputs(model::LatentGaussianModel, y::AbstractVector, latent_indices)
 

@@ -159,6 +159,12 @@ All subtypes share the same common fields:
 """
 abstract type AbstractHyperparameterExploration{GP <: GridPoint} end
 
+"""
+    HyperparameterExploration
+
+Alias for [`AbstractHyperparameterExploration`](@ref), the supertype of the
+hyperparameter-exploration result types (`GridExploration`, `CCDExploration`).
+"""
 const HyperparameterExploration = AbstractHyperparameterExploration
 
 """

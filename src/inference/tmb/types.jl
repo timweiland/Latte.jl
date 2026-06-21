@@ -90,6 +90,12 @@ see the Terminology section of `src/LAYOUT.md` for why the core protocol uses
 "hyperparameters" / "latent" instead.
 """
 fixed_effects(r::TMBResult) = hyperparameter_marginals(r)
+
+"""
+    fixef(r::TMBResult)
+
+TMB / MixedModels-vocabulary alias for `hyperparameter_marginals(r)`.
+"""
 fixef(r::TMBResult) = hyperparameter_marginals(r)
 
 """
@@ -98,6 +104,12 @@ fixef(r::TMBResult) = hyperparameter_marginals(r)
 Alias for `latent_marginals(r)`.
 """
 random_effects(r::TMBResult) = latent_marginals(r)
+
+"""
+    ranef(r::TMBResult)
+
+TMB / MixedModels-vocabulary alias for `latent_marginals(r)`.
+"""
 ranef(r::TMBResult) = latent_marginals(r)
 
 # ─── Pretty printing ───────────────────────────────────────────────────────

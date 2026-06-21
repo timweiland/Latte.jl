@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: AugmentedLatentModel, AugmentationInfo, linear_predictor_indices, base_latent_indices
 using GaussianMarkovRandomFields
 using LinearAlgebra
 using SparseArrays

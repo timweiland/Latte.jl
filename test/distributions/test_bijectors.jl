@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: PrecisionToStdBijector, StdToPrecisionBijector
 import Bijectors
 
 @testset "Bijectors" begin

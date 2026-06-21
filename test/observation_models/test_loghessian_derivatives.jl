@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: loghessian_directional_derivative
 using GaussianMarkovRandomFields
 using LinearAlgebra
 using SparseArrays

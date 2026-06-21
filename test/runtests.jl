@@ -18,6 +18,7 @@ using Latte: marginalize
         Aqua.test_all(
             Latte; persistent_tasks = false, piracies = false,
             stale_deps = (ignore = [:BenchmarkTools],),
+            undocumented_names = true,
         )
     end
 

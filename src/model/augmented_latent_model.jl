@@ -7,8 +7,6 @@ using Distributions
 
 import GaussianMarkovRandomFields: hyperparameters, precision_matrix, constraints, model_name
 
-export AugmentedLatentModel, linear_predictor_indices, base_latent_indices
-
 """
     AugmentedLatentModel <: LatentModel
 

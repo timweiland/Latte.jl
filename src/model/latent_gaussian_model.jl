@@ -22,6 +22,19 @@ export LatentGaussianModel, LGM, FunctionLatentModel, latent_gmrf, log_joint_den
 # a hard linear equality constraint `A·x = e` on the latent vector,
 # hyperparameter-independent. When set, cold/warm-path calls wrap the resulting
 # GMRF with the constraint (`ConstrainedGMRF` / constrained `WorkspaceGMRF`).
+"""
+    FunctionLatentModel(func, n::Int, [constraint]) <: LatentModel
+
+A `LatentModel` wrapping a user function `func(; kwargs...) -> (μ, Q)` that builds
+the length-`n` mean vector and sparse precision matrix directly from natural-space
+hyperparameters. Returning `(μ, Q)` avoids constructing a full GMRF (and its eager
+factorization) on every hyperparameter evaluation.
+
+The optional `constraint::Tuple{AbstractMatrix, AbstractVector}` is a
+hyperparameter-independent hard linear equality constraint `A·x = e` applied to the
+latent vector; when set, the produced GMRF is wrapped as a `ConstrainedGMRF` (or
+constrained `WorkspaceGMRF`).
+"""
 struct FunctionLatentModel{FuncType, C <: Union{Nothing, Tuple{AbstractMatrix, AbstractVector}}} <: LatentModel
     func::FuncType
     n::Int

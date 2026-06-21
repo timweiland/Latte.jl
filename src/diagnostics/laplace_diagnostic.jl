@@ -14,7 +14,7 @@ using Random
 using Distributions: logpdf
 using Statistics: quantile
 
-export diagnose, diagnose_chain, psis_inner_laplace
+export diagnose, diagnose_chain
 
 """
     psis_inner_laplace(model::LatentGaussianModel, y, θ_natural::NamedTuple;

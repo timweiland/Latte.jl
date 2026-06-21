@@ -1,7 +1,7 @@
 using LinearAlgebra: BLAS
 using GaussianMarkovRandomFields: AbstractLatentWorkspacePool, with_workspace
 
-export ParallelExecutor, SequentialExecutor, ThreadedExecutor, pmap_executor
+export ParallelExecutor, SequentialExecutor, ThreadedExecutor
 
 """
     ParallelExecutor

@@ -19,7 +19,7 @@
 
 import Random: AbstractRNG, MersenneTwister
 
-export ModeStartStrategy, PriorModeStart, RandomStarts, resolve_mode_starts
+export ModeStartStrategy, PriorModeStart, RandomStarts
 
 """
     ModeStartStrategy

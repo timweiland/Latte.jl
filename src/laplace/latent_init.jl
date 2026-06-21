@@ -16,7 +16,7 @@
 # For those hard cases pass an explicit `Vector` (TMB-style initial random-effect values). A robust
 # deterministic forward-rollout `AutoLatentStart` is a planned follow-up.
 
-export LatentStartStrategy, AutoLatentStart, ZeroLatentStart, resolve_latent_start
+export LatentStartStrategy, AutoLatentStart, ZeroLatentStart
 
 """
     LatentStartStrategy

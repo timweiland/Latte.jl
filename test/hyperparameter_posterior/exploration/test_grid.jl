@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: compute_reparameterization
 using Distributions
 using GaussianMarkovRandomFields
 using SparseArrays

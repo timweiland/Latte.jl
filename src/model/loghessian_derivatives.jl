@@ -5,8 +5,6 @@ using GaussianMarkovRandomFields
 using GaussianMarkovRandomFields: AutoDiffLikelihood
 using Distributions
 
-export loghessian_directional_derivative
-
 """
     loghessian_directional_derivative(x0, v, obs_lik::ObservationLikelihood)
 

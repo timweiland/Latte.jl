@@ -1,7 +1,5 @@
 using Distributions
 
-export symmetric_kld, quadrature_symmetric_kld, moment_symmetric_kld, gaussian_kl_from_moments
-
 """
     gaussian_kl_from_moments(μ1, σ1, μ2, σ2) -> Float64
 

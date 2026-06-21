@@ -23,7 +23,6 @@
 # Same body, no markers — Turing's `sample(NUTS(), ...)` works directly.
 
 export @latte, @random, @fixed
-export latte_analysis, dppl_model
 
 # ─── Marker macros (no-op outside @latte) ─────────────────────────────────────
 """
@@ -44,6 +43,12 @@ macro random(ex)
     return esc(ex)
 end
 
+"""
+    @fixed
+
+Mark a `~` site in an `@latte` model body as a fixed effect / hyperparameter, overriding the
+default site classification. Outside `@latte` it is an identity passthrough; see [`@random`](@ref).
+"""
 macro fixed(ex)
     return esc(ex)
 end

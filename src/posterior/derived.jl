@@ -1,5 +1,8 @@
 export derived
 
+# Two argument orders: function-first enables `derived(result) do z ... end` (the `do` block
+# binds the closure as the first positional argument); result-first reads naturally inline.
+# `result` is typed (not left ::Any) so the two orders don't collide on a `derived(f, g)` call.
 """
     derived(result, g; n_samples = 1000, rng = Random.default_rng())
 
@@ -33,9 +36,6 @@ mean.(ssb)               # posterior mean SSB by year
 quantile.(ssb, 0.975)    # upper 95% credible bound by year
 ```
 """
-# Two argument orders: function-first enables `derived(result) do z ... end` (the `do` block
-# binds the closure as the first positional argument); result-first reads naturally inline.
-# `result` is typed (not left ::Any) so the two orders don't collide on a `derived(f, g)` call.
 derived(g::Function, result::InferenceResult; kwargs...) = _derived(g, result; kwargs...)
 derived(result::InferenceResult, g::Function; kwargs...) = _derived(g, result; kwargs...)
 

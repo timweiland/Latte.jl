@@ -37,6 +37,15 @@ struct WAICStrategy <: PosteriorStrategy
     end
 end
 
+"""
+    WAICAccumulator()
+
+Widely Applicable Information Criterion (WAIC) and its effective number of parameters.
+
+WAIC estimates out-of-sample predictive accuracy from the pointwise log-likelihood
+integrated over the posterior (lower is better). Pass an instance in an engine's
+`accumulators` keyword.
+"""
 mutable struct WAICAccumulator <: PosteriorAccumulator
     cfg::WAICStrategy
 
@@ -83,6 +92,12 @@ function _waic_aggregate(s::NormalIdentityClosedForm)
     return integrated_ll, expected_log_ll
 end
 
+"""
+    WAICPointSummary
+
+Per-observation result of [`compute_point_summary`](@ref) for a [`WAICAccumulator`](@ref):
+the integrated and expected pointwise log-likelihoods.
+"""
 struct WAICPointSummary
     integrated_ll::Vector{Float64}
     expected_log_ll::Vector{Float64}

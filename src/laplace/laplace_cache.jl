@@ -7,8 +7,7 @@ using DataInterpolations
 using HCubature
 using LinearSolve
 
-export LaplaceApproximationCache, fit_density_correction_spline, evaluate_corrected_density
-export setup_conditional_computation, conditional_gmrf, evaluate_laplace_logpdf
+export LaplaceApproximationCache
 export conditional_column
 
 """

@@ -1,6 +1,6 @@
 using Distributions: Normal
 
-export marginalize, reported_moments
+export marginalize
 
 """
     reported_moments(method, μ_baseline, σ_baseline, marginal) -> (μ, σ)

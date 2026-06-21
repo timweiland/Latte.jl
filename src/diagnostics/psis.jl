@@ -4,8 +4,6 @@
 # compute the k̂ diagnostic and ESS that tell you whether q is a trustworthy
 # importance proposal for p.
 
-export pareto_k, ess_is, rel_ess_is, trust_verdict
-
 """
     ess_is(log_w::AbstractVector{<:Real}) -> Float64
 

@@ -16,8 +16,6 @@ import GaussianMarkovRandomFields:
     loglik, loggrad, loghessian, hyperparameters, latent_dimension,
     pointwise_loglik, conditional_distribution
 
-export BinomialTrialsObservationModel
-
 """
     BinomialTrialsObservationModel(base::ObservationModel, trials::AbstractVector{<:Integer})
 

@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: evaluate_at_grid_point, create_weighted_mixtures
 using Distributions
 using GaussianMarkovRandomFields
 using SparseArrays

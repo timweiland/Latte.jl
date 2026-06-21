@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: get_bijector
 using GaussianMarkovRandomFields
 using Bijectors
 

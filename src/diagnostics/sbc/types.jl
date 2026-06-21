@@ -1,9 +1,7 @@
 using OrderedCollections: OrderedDict
 
 export SBCTarget, Hyperparameters, NamedScalars, DataDependentQuantity,
-    AbstractTargetDescriptor, TargetDescriptor, DerivedTargetDescriptor,
-    SBCReplicate, SBCFailure,
-    SBCFailurePolicy, ReplicateDiagnostics, SBCResult
+    SBCFailurePolicy, SBCResult
 
 # ─── Targets (what to rank) ───────────────────────────────────────────
 
@@ -24,8 +22,21 @@ deliberately out of scope for MVP (see task file).
 """
 abstract type SBCTarget end
 
+"""
+    Hyperparameters()
+
+Default `SBCTarget` for `sbc_run`. Ranks every scalar component of every
+free hyperparameter in the LGM.
+"""
 struct Hyperparameters <: SBCTarget end
 
+"""
+    NamedScalars(syms::Vector{Symbol})
+    NamedScalars(syms::Symbol...)
+
+`SBCTarget` that ranks only the named scalar quantities passed to it. Each
+sym must resolve to a free scalar hyperparameter of the LGM.
+"""
 struct NamedScalars <: SBCTarget
     symbols::Vector{Symbol}
 end

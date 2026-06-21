@@ -1,7 +1,5 @@
 using Distributions: VariateForm, Univariate, Multivariate, logpdf
 
-export resolve_targets
-
 """
     resolve_targets(target::SBCTarget, lgm) -> Vector{TargetDescriptor}
 

@@ -1,3 +1,10 @@
+"""
+Latte.jl — probabilistic programming for latent Gaussian models.
+
+Define a model with the [`@latte`](@ref) macro and run it through any engine — [`inla`](@ref),
+[`tmb`](@ref), or [`hmc_laplace`](@ref) — over a shared result protocol. See
+<https://timweiland.github.io/Latte.jl/> for the full documentation.
+"""
 module Latte
 
 # Import observation model functionality from GaussianMarkovRandomFields.jl v0.4+

@@ -2,8 +2,6 @@ using Bijectors
 using Distributions
 using GaussianMarkovRandomFields: LinkFunction, LogLink, LogitLink, IdentityLink
 
-export get_bijector
-
 """
     get_bijector(link::LinkFunction)
 

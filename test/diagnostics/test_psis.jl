@@ -1,5 +1,6 @@
 using Test
 using Latte
+using Latte: pareto_k, ess_is, rel_ess_is, trust_verdict
 using Distributions
 using Random
 

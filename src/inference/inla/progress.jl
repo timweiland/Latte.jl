@@ -1,7 +1,5 @@
 using ProgressMeter
 
-export ProgressState, initialize_progress!, update_progress!, advance_phase!, finish_progress!
-
 # Tick budgets for the 3 top-level INLA phases. Rough heuristics: mode
 # finding is fast, exploration is the heavy lifter, marginalisation is
 # moderate. Cumulative => (0, 10, 80, 100), giving 10/70/20 splits.

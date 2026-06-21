@@ -2,8 +2,6 @@ using Distributions: ContinuousUnivariateDistribution, SkewNormal, skewness
 using GaussianMarkovRandomFields: NormalLikelihood, LinearlyTransformedLikelihood
 using LinearAlgebra
 
-export adaptive_upgrade_score
-
 function _is_adaptive_marginal_numerical_failure(e)
     return e isa DomainError ||
         e isa PosDefException ||

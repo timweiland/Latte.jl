@@ -5,6 +5,7 @@ using StatsModels
 using DataFrames
 using GaussianMarkovRandomFields
 using Latte
+using Latte: logdet_jacobian, compute_reparameterization
 
 @testset "ReparameterizationTransform Tests" begin
     # Setup test data — ReparameterizationTransform expects WorkingHyperparameters
