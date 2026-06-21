@@ -60,10 +60,9 @@ in the per-model specialisation as well.
 
 ## Architecture
 
-`src/LAYOUT.md` is the architectural reference — read it first. The organising idea:
-shared LGM infrastructure (the inner Laplace, the model object, the result protocol)
-lives *above* the inference algorithms that use it, rather than buried inside any one
-engine. Top-level `src/`:
+The organising idea: shared LGM infrastructure (the inner Laplace, the model
+object, the result protocol) lives *above* the inference algorithms that use it,
+rather than buried inside any one engine. Top-level `src/`:
 
 - `dsl/` — the `@latte` macro: AST recognition, factor-graph extraction, and the
   DynamicPPL adapter (`latte_from_dppl`). Recognition is macro-pure (no GMRF back-reference).
@@ -110,7 +109,6 @@ Latte, so `using Latte` is enough to name them in an `@latte` body.
   the suite.
 - Exports are organised per module rather than centralised. All public functions carry
   docstrings, rendered in the reference via `@docs` blocks.
-- `src/LAYOUT.md` documents the intended layout; keep it in sync with structural changes.
 
 ## Documentation Structure
 

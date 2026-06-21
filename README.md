@@ -166,7 +166,7 @@ Every figure links to a runnable script under `benchmark/` with versions and har
 
 ## Development
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for the full workflow, and `src/LAYOUT.md` for the architectural reference.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the full workflow.
 
 ```bash
 make setup      # install dependencies

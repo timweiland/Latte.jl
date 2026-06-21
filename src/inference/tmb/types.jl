@@ -27,7 +27,7 @@ at the mode, plus the inner Laplace random-effect posterior at that MAP.
 - `converged::Bool` / `time_elapsed::Float64` — diagnostics.
 
 TMB-flavour aliases are exposed: `fixed_effects`, `random_effects`, `fixef`,
-`ranef` (see `src/LAYOUT.md`, Terminology section).
+`ranef`.
 """
 struct TMBResult{Hp, Lm, M, Y} <: InferenceResult
     hyperparameter_marginals::Hp        # Vector{Normal}
@@ -86,8 +86,7 @@ export fixed_effects, random_effects, fixef, ranef
     fixed_effects(r::TMBResult)
 
 Alias for `hyperparameter_marginals(r)`. Convenience for TMB / MixedModels users;
-see the Terminology section of `src/LAYOUT.md` for why the core protocol uses
-"hyperparameters" / "latent" instead.
+the core protocol itself uses "hyperparameters" / "latent" terminology.
 """
 fixed_effects(r::TMBResult) = hyperparameter_marginals(r)
 

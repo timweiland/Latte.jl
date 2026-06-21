@@ -15,8 +15,6 @@ Common supertype for the outputs of inference methods that fit latent Gaussian
 models (INLA, TMB, HMC-Laplace, ...). Concrete subtypes implement the Tier 1
 protocol below; method-agnostic post-processing (`predict`, `waic`, BMA, ...)
 dispatches on this abstract.
-
-See `src/LAYOUT.md` for the full protocol specification.
 """
 abstract type InferenceResult end
 
