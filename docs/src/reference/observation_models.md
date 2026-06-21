@@ -289,4 +289,4 @@ See the [GaussianMarkovRandomFields.jl documentation](https://timweiland.github.
 
 For complete API documentation, advanced features, and implementation details, refer to:
 - **[GaussianMarkovRandomFields.jl Documentation](https://timweiland.github.io/GaussianMarkovRandomFields.jl/)** - Complete observation model API reference
-- The examples in `examples/` directory for practical INLA usage patterns
+- The [tutorials](../tutorials/index.md) for practical INLA usage patterns
