@@ -24,3 +24,6 @@ __pycache__/
 !/benchmark/scaling/_workdir/levels.json
 !/benchmark/scaling/_workdir/latte_curve.json
 !/benchmark/scaling/_workdir/rinla_curve.json
+# Serialized NUTS-chain caches (the slow step in the additive R-INLA runner)
+# are ~10 MB regeneration artifacts; the runner rebuilds them on demand.
+/benchmark/external/rinla/**/*.bin

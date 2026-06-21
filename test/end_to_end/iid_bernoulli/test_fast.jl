@@ -12,9 +12,12 @@ using Statistics
 
     reference_file = joinpath(@__DIR__, "reference_data.jld2")
 
-    if !isfile(reference_file)
-        @warn "Reference file not found: $reference_file"
-        @warn "Please run generate_reference.jl first"
+    # The reference fixture is stored via Git LFS; a registry install or a
+    # checkout without `git lfs pull` has only a ~130-byte pointer stub instead
+    # of the real multi-MB file. Skip rather than let @load choke on the stub.
+    if !isfile(reference_file) || filesize(reference_file) < 1024
+        @warn "Reference data unavailable (missing or unresolved Git LFS pointer): $reference_file"
+        @warn "Run `git lfs pull` (or generate_reference.jl) to materialize it"
         @test_skip "Reference data not available"
         return
     end
