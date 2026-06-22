@@ -6,18 +6,14 @@ using Distributions
 using GaussianMarkovRandomFields: IIDModel
 using LinearAlgebra
 
+# Shared canonical models compile the inference pipeline once for the whole block.
+isdefined(@__MODULE__, :sbc_pois) || include("shared_models.jl")
+
 @testset "resolve_targets" begin
 
     @testset "single scalar hyperparameter" begin
-        @model function m1(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 5
-        lgm = latte_from_dppl(m1(rand(Int, n), n); random = (:x,))
+        lgm = latte_from_dppl(sbc_pois(rand(Int, n), n); random = (:x,))
         descs = resolve_targets(Hyperparameters(), lgm)
 
         @test length(descs) == 1
@@ -29,15 +25,8 @@ using LinearAlgebra
     end
 
     @testset "extract_truth/extract_posterior round-trips correctly" begin
-        @model function m2(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 5
-        lgm = latte_from_dppl(m2(rand(Int, n), n); random = (:x,))
+        lgm = latte_from_dppl(sbc_pois(rand(Int, n), n); random = (:x,))
         descs = resolve_targets(Hyperparameters(), lgm)
         d = descs[1]
 
@@ -49,16 +38,8 @@ using LinearAlgebra
     end
 
     @testset "two scalar hyperparameters, preserved order" begin
-        @model function m3(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            β ~ Normal(0, 1)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(β + x[i]); check_args = false)
-            end
-        end
         n = 4
-        lgm = latte_from_dppl(m3(rand(Int, n), n); random = (:x,))
+        lgm = latte_from_dppl(sbc_pois_beta(rand(Int, n), n); random = (:x,))
         descs = resolve_targets(Hyperparameters(), lgm)
 
         @test length(descs) == 2
@@ -71,16 +52,8 @@ using LinearAlgebra
     end
 
     @testset "NamedScalars restricts to listed syms" begin
-        @model function m4(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            β ~ Normal(0, 1)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(β + x[i]); check_args = false)
-            end
-        end
         n = 4
-        lgm = latte_from_dppl(m4(rand(Int, n), n); random = (:x,))
+        lgm = latte_from_dppl(sbc_pois_beta(rand(Int, n), n); random = (:x,))
         descs = resolve_targets(NamedScalars(:τ), lgm)
 
         @test length(descs) == 1
@@ -88,15 +61,8 @@ using LinearAlgebra
     end
 
     @testset "unknown sym errors" begin
-        @model function m5(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 3
-        lgm = latte_from_dppl(m5(rand(Int, n), n); random = (:x,))
+        lgm = latte_from_dppl(sbc_pois(rand(Int, n), n); random = (:x,))
         @test_throws ArgumentError resolve_targets(NamedScalars(:nonexistent), lgm)
     end
 end

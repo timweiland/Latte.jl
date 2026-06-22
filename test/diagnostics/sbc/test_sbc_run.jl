@@ -8,18 +8,14 @@ using GaussianMarkovRandomFields: IIDModel
 using Statistics
 using Random
 
+# Shared canonical models compile the inference pipeline once for the whole block.
+isdefined(@__MODULE__, :sbc_pois) || include("shared_models.jl")
+
 @testset "sbc_run (end-to-end)" begin
 
     @testset "smoke: tiny Poisson+IID on INLA" begin
-        @model function smoke(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 5
-        build = y -> smoke(y, n)
+        build = y -> sbc_pois(y, n)
         y_proto = Vector{Missing}(missing, n)
 
         r = sbc_run(
@@ -45,15 +41,8 @@ using Random
     end
 
     @testset "determinism across executors" begin
-        @model function m_det(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 4
-        build = y -> m_det(y, n)
+        build = y -> sbc_pois(y, n)
         y_proto = Vector{Missing}(missing, n)
 
         common = (;
@@ -70,15 +59,8 @@ using Random
     end
 
     @testset "determinism: same seed ⇒ same ranks" begin
-        @model function det_model(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 4
-        build = y -> det_model(y, n)
+        build = y -> sbc_pois(y, n)
         y_proto = Vector{Missing}(missing, n)
 
         r1 = sbc_run(
@@ -95,15 +77,8 @@ using Random
     end
 
     @testset "works for :tmb engine" begin
-        @model function m_tmb(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 4
-        build = y -> m_tmb(y, n)
+        build = y -> sbc_pois(y, n)
         y_proto = Vector{Missing}(missing, n)
         r = sbc_run(
             build, y_proto;
@@ -118,15 +93,8 @@ using Random
     end
 
     @testset "works for :hmc_laplace engine and is reproducible" begin
-        @model function m_hmc(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 4
-        build = y -> m_hmc(y, n)
+        build = y -> sbc_pois(y, n)
         y_proto = Vector{Missing}(missing, n)
         common = (;
             n_attempted = 3, n_posterior = 48,
@@ -145,15 +113,8 @@ using Random
         # For τ ~ PCPrior.Precision, truths should be positive (natural
         # space). If working-space leaked in, some would be negative
         # (log(τ) for small τ).
-        @model function m_scale(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 3
-        build = y -> m_scale(y, n)
+        build = y -> sbc_pois(y, n)
         y_proto = Vector{Missing}(missing, n)
         r = sbc_run(
             build, y_proto;
@@ -165,15 +126,8 @@ using Random
     end
 
     @testset "summaries" begin
-        @model function m(y, n)
-            τ ~ PCPrior.Precision(1.0, α = 0.01)
-            x ~ IIDModel(n)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
         n = 4
-        build = y -> m(y, n)
+        build = y -> sbc_pois(y, n)
         y_proto = Vector{Missing}(missing, n)
         r = sbc_run(
             build, y_proto; n_attempted = 8, n_posterior = 32,
