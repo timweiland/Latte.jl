@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { withBase } from 'vitepress'
 import D from '../data/landing_overlay.json'
 
 // Real numbers from benchmark/external/rinla/tokyo (tokyo_export_overlay.jl):
@@ -71,7 +72,7 @@ const area = computed(() => `${line(active.value.latte)} L${gx(gmax.value)},${AX
     <div class="lb-legend">
       <span class="lg latte-lg">Latte INLA</span>
       <span class="lg rinla-lg">R-INLA</span>
-      <a class="lb-link" href="/benchmarks/">See all benchmarks →</a>
+      <a class="lb-link" :href="withBase('/benchmarks/')">See all benchmarks →</a>
     </div>
   </figure>
 </template>

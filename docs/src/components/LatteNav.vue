@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, inject } from 'vue'
-import { useData } from 'vitepress'
+import { useData, withBase } from 'vitepress'
 
 // Appearance toggle. The default Vitepress nav (which carries the switch) is
 // hidden in style.css, so we surface our own here. Uses the same mechanism as
@@ -42,7 +42,7 @@ onUnmounted(() => {
     <!-- Nav -->
     <nav class="top">
       <div class="container">
-        <a class="wm" href="/">
+        <a class="wm" :href="withBase('/')">
           <svg width="36" height="36" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-label="Latte.jl">
             <defs>
               <radialGradient id="lattecoffee-mininav" cx="50%" cy="50%" r="50%">
@@ -65,16 +65,16 @@ onUnmounted(() => {
         </a>
         <div class="links">
           <div class="nav-item nav-item-dropdown">
-            <a href="/reference/" class="nav-link">Docs <span class="caret">▾</span></a>
+            <a :href="withBase('/reference/')" class="nav-link">Docs <span class="caret">▾</span></a>
             <div class="dropdown">
-              <a href="/reference/latte">Defining models</a>
-              <a href="/reference/results">Working with results</a>
-              <a href="/reference/">API reference</a>
+              <a :href="withBase('/reference/latte')">Defining models</a>
+              <a :href="withBase('/reference/results')">Working with results</a>
+              <a :href="withBase('/reference/')">API reference</a>
             </div>
           </div>
-          <a class="nav-link" href="/tutorials/">Tutorials</a>
-          <a class="nav-link" href="/benchmarks/">Benchmarks</a>
-          <a class="nav-link" href="/validation/">Validation</a>
+          <a class="nav-link" :href="withBase('/tutorials/')">Tutorials</a>
+          <a class="nav-link" :href="withBase('/benchmarks/')">Benchmarks</a>
+          <a class="nav-link" :href="withBase('/validation/')">Validation</a>
           <a class="nav-link" href="https://github.com/timweiland/Latte.jl">GitHub</a>
           <span class="ver">v0.1-dev</span>
           <button class="theme-toggle" type="button" @click="toggleAppearance"

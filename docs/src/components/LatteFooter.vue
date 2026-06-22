@@ -1,9 +1,13 @@
+<script setup lang="ts">
+import { withBase } from 'vitepress'
+</script>
+
 <template>
   <footer class="latte-foot">
     <div class="container">
       <div class="foot-grid">
         <div>
-          <a class="wm foot-wm" href="/">
+          <a class="wm foot-wm" :href="withBase('/')">
             <svg width="32" height="32" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-label="Latte.jl">
               <defs>
                 <radialGradient id="lattecoffee-minifoot" cx="50%" cy="50%" r="50%">
@@ -29,10 +33,10 @@
         </div>
         <div>
           <h5>Learn</h5>
-          <a href="/reference/latte">Documentation</a>
-          <a href="/tutorials/">Tutorials</a>
-          <a href="/coming_from_rinla">Coming from R-INLA</a>
-          <a href="/reference/">API reference</a>
+          <a :href="withBase('/reference/latte')">Documentation</a>
+          <a :href="withBase('/tutorials/')">Tutorials</a>
+          <a :href="withBase('/coming_from_rinla')">Coming from R-INLA</a>
+          <a :href="withBase('/reference/')">API reference</a>
         </div>
         <div>
           <h5>Community</h5>

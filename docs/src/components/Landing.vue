@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject } from 'vue'
-import { useData } from 'vitepress'
+import { useData, withBase } from 'vitepress'
 import LandingBenchmark from './LandingBenchmark.vue'
 // Thumbnails for the three featured tutorial cards (shared with the gallery).
 import gettingStartedThumb from '../assets/thumbs/getting_started.png'
@@ -19,7 +19,7 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
     <!-- Nav -->
     <nav class="top">
       <div class="container">
-        <a class="wm" href="/">
+        <a class="wm" :href="withBase('/')">
           <svg width="36" height="36" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-label="Latte.jl">
             <defs>
               <radialGradient id="lattecoffee-nav" cx="50%" cy="50%" r="50%">
@@ -42,16 +42,16 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
         </a>
         <div class="links">
           <div class="nav-item nav-item-dropdown">
-            <a href="/reference/" class="nav-link">Docs <span class="caret">▾</span></a>
+            <a :href="withBase('/reference/')" class="nav-link">Docs <span class="caret">▾</span></a>
             <div class="dropdown">
-              <a href="/reference/latte">Defining models</a>
-              <a href="/reference/results">Working with results</a>
-              <a href="/reference/">API reference</a>
+              <a :href="withBase('/reference/latte')">Defining models</a>
+              <a :href="withBase('/reference/results')">Working with results</a>
+              <a :href="withBase('/reference/')">API reference</a>
             </div>
           </div>
-          <a href="/tutorials/">Tutorials</a>
-          <a href="/benchmarks/">Benchmarks</a>
-          <a href="/validation/">Validation</a>
+          <a :href="withBase('/tutorials/')">Tutorials</a>
+          <a :href="withBase('/benchmarks/')">Benchmarks</a>
+          <a :href="withBase('/validation/')">Validation</a>
           <a href="https://github.com/timweiland/Latte.jl">GitHub</a>
           <span class="ver">v0.1-dev</span>
           <button class="theme-toggle" type="button" @click="toggleAppearance"
@@ -84,8 +84,8 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
               Probabilistic programming for latent Gaussian models in Julia.
             </p>
             <div class="cta-row">
-              <a class="btn btn-primary" href="/tutorials/getting_started">Get started →</a>
-              <a class="btn btn-ghost" href="/reference/">Read the docs →</a>
+              <a class="btn btn-primary" :href="withBase('/tutorials/getting_started')">Get started →</a>
+              <a class="btn btn-ghost" :href="withBase('/reference/')">Read the docs →</a>
               <span class="install">Julia ≥ 1.10</span>
             </div>
           </div>
@@ -113,7 +113,7 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
 <span class="c-var">fit</span> = <span class="c-fn">tmb</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
 <span class="c-var">fit</span> = <span class="c-fn">hmc_laplace</span>(<span class="c-fn">disease</span>(<span class="c-var">y</span>, <span class="c-var">E</span>, <span class="c-var">W</span>), <span class="c-var">y</span>)
 </pre>
-              <a class="code-link" href="/tutorials/disease_mapping_spatial">See the full disease-mapping tutorial →</a>
+              <a class="code-link" :href="withBase('/tutorials/disease_mapping_spatial')">See the full disease-mapping tutorial →</a>
             </div>
           </div>
         </div>
@@ -150,19 +150,19 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
       <div class="container">
         <h2>Tutorials</h2>
         <div class="cards">
-          <a class="card" href="/tutorials/getting_started">
+          <a class="card" :href="withBase('/tutorials/getting_started')">
             <div class="card-thumb"><img :src="gettingStartedThumb" alt="Per-hospital posterior mortality intervals" /></div>
             <div class="tag">GETTING STARTED</div>
             <h4>Surgery mortality across hospitals</h4>
             <p>The simplest end-to-end Bayesian analysis you can write: hospital-by-hospital mortality rates, an IID random effect, and <code>inla()</code> in a handful of lines.</p>
           </a>
-          <a class="card" href="/tutorials/spatial_spde">
+          <a class="card" :href="withBase('/tutorials/spatial_spde')">
             <div class="card-thumb"><img :src="spatialSpdeThumb" alt="Predicted seismic-intensity field over Japan" /></div>
             <div class="tag">SPATIAL · SPDE</div>
             <h4>Matérn SPDE on a mesh</h4>
             <p>Continuous-domain spatial smoothing the SPDE way. Build a triangulated mesh, define a Matérn precision, and fit it to earthquake intensity.</p>
           </a>
-          <a class="card" href="/tutorials/hmc_laplace_when">
+          <a class="card" :href="withBase('/tutorials/hmc_laplace_when')">
             <div class="card-thumb"><img :src="hmcLaplaceThumb" alt="Calibrated hyperparameter posterior, HMC vs INLA grid" /></div>
             <div class="tag">INFERENCE · HMC-LAPLACE</div>
             <h4>When to sample the hyperparameters</h4>
@@ -170,7 +170,7 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
           </a>
         </div>
         <div class="gallery-more">
-          <a class="btn btn-ghost" href="/tutorials/">Show all tutorials →</a>
+          <a class="btn btn-ghost" :href="withBase('/tutorials/')">Show all tutorials →</a>
         </div>
       </div>
     </section>
@@ -180,7 +180,7 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
       <div class="container">
         <div class="foot-grid">
           <div>
-            <a class="wm foot-wm" href="/">
+            <a class="wm foot-wm" :href="withBase('/')">
               <svg width="32" height="32" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-label="Latte.jl">
                 <defs>
                   <radialGradient id="lattecoffee-foot" cx="50%" cy="50%" r="50%">
@@ -206,10 +206,10 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
           </div>
           <div>
             <h5>Learn</h5>
-            <a href="/reference/latte">Documentation</a>
-            <a href="/tutorials/">Tutorials</a>
-            <a href="/coming_from_rinla">Coming from R-INLA</a>
-            <a href="/reference/">API reference</a>
+            <a :href="withBase('/reference/latte')">Documentation</a>
+            <a :href="withBase('/tutorials/')">Tutorials</a>
+            <a :href="withBase('/coming_from_rinla')">Coming from R-INLA</a>
+            <a :href="withBase('/reference/')">API reference</a>
           </div>
           <div>
             <h5>Community</h5>
