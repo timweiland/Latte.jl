@@ -57,7 +57,7 @@ test-full:
 	@julia --project -e 'using Test; include("test/end_to_end/ar1_poisson/test_full.jl")'
 
 # Generate all MCMC reference data
-generate-reference: ar1-poisson-ref
+generate-reference: ar1-poisson-ref iid-bernoulli-ref
 	@echo "All reference data generated!"
 
 # Generate AR-1 Poisson reference data
@@ -66,6 +66,12 @@ ar1-poisson-ref:
 	@echo "This will take 10-15 minutes..."
 	@cd test/end_to_end/ar1_poisson && julia --project generate_reference.jl
 	@echo "AR-1 Poisson reference data generated!"
+
+# Generate IID Bernoulli reference data
+iid-bernoulli-ref:
+	@echo "Generating IID Bernoulli MCMC reference data..."
+	@cd test/end_to_end/iid_bernoulli && julia --project generate_reference.jl
+	@echo "IID Bernoulli reference data generated!"
 
 # Format code
 format:
@@ -119,6 +125,7 @@ logo:
 clean:
 	@echo "Cleaning generated files..."
 	@rm -f test/end_to_end/ar1_poisson/reference_data.jld2
+	@rm -f test/end_to_end/iid_bernoulli/reference_data.jld2
 	@rm -rf docs/build/
 	@echo "Clean complete!"
 
@@ -128,7 +135,7 @@ check-testenv:
 
 # Verify reference data exists
 check-reference:
-	@if [ ! -f test/end_to_end/ar1_poisson/reference_data.jld2 ]; then \
+	@if [ ! -f test/end_to_end/ar1_poisson/reference_data.jld2 ] || [ ! -f test/end_to_end/iid_bernoulli/reference_data.jld2 ]; then \
 		echo "Reference data not found. Run: make generate-reference"; \
 		exit 1; \
 	fi

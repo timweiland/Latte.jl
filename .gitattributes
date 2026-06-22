@@ -1,2 +1,0 @@
-*.jld2 filter=lfs diff=lfs merge=lfs -text
-docs/src/assets/*.svg filter=lfs diff=lfs merge=lfs -text

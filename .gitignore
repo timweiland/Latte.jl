@@ -27,3 +27,6 @@ __pycache__/
 # Serialized NUTS-chain caches (the slow step in the additive R-INLA runner)
 # are ~10 MB regeneration artifacts; the runner rebuilds them on demand.
 /benchmark/external/rinla/**/*.bin
+# End-to-end MCMC reference fixtures are regenerated on demand
+# (`make generate-reference`), not committed — keeps them out of git and LFS.
+test/end_to_end/**/reference_data.jld2
