@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { withBase } from 'vitepress'
+
 type Tutorial = {
   href: string
   tag: string
@@ -125,7 +127,7 @@ const cards = tutorials.map(t => ({
       v-for="t in cards"
       :key="t.href"
       class="t-card"
-      :href="t.href"
+      :href="withBase(t.href)"
     >
       <div v-if="t.image" class="t-card-image">
         <img :src="t.image" :alt="t.title" />
