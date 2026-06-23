@@ -12,7 +12,10 @@ makedocs(;
     format = DocumenterVitepress.MarkdownVitepress(
         repo = "github.com/timweiland/Latte.jl",
         devbranch = "main",
-        devurl = "dev"
+        devurl = "dev",
+        # Docs are served at the custom domain root (lattejl.org), so the
+        # VitePress base must drop the /Latte.jl/ project-pages prefix.
+        deploy_url = "https://lattejl.org",
     ),
     pages = [
         "Home" => "index.md",
