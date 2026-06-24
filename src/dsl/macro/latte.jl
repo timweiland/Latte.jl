@@ -535,10 +535,15 @@ end
 
 # Coerce a recognized RHS value to a `LatentModel`. `LatentModel`s pass through
 # (e.g. the inner `RWModel` / `IIDModel` of a recognized curried prior); a fixed
-# multivariate-normal prior with zero mean and isotropic covariance `c·I` is
-# materialized as a `FixedEffectsModel` (precision `(1/c)·I`). Anything else
-# returns `nothing`, sending the caller to the DAG fallback.
+# GMRF value (a hyperparameter-independent prior) is wrapped as a
+# `FixedGMRFModel`; a fixed multivariate-normal prior with zero mean and
+# isotropic covariance `c·I` is materialized as a `FixedEffectsModel` (precision
+# `(1/c)·I`). Anything else returns `nothing`, sending the caller to the DAG fallback.
 _coerce_latent(x::LatentModel) = x
+# `AbstractGMRF <: AbstractMvNormal`, so this more-specific method intercepts a
+# fixed GMRF before the `MvNormal` branch (whose `cov` probe would trip the
+# dense-covariance guard).
+_coerce_latent(g::GaussianMarkovRandomFields.AbstractGMRF) = FixedGMRFModel(g)
 _coerce_latent(d::Distributions.AbstractMvNormal) = _fixed_gaussian_latent(d)
 _coerce_latent(_) = nothing
 
