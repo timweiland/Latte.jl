@@ -48,6 +48,7 @@ function latte_from_dppl(
         dppl_model;
         random::Union{Symbol, Tuple},
         force_ad_obs_model::Bool = false,
+        try_nls_under_forced_ad::Bool = false,
         augment::Bool = false,
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
@@ -58,6 +59,7 @@ function latte_from_dppl(
         dppl_model, nothing;
         random = random,
         force_ad_obs_model = force_ad_obs_model,
+        try_nls_under_forced_ad = try_nls_under_forced_ad,
         augment = augment,
         likelihood_hessian_pattern = likelihood_hessian_pattern,
         obs_groups = obs_groups,
@@ -81,6 +83,7 @@ function _assemble_lgm(
         dppl_model, latent_override;
         random::Union{Symbol, Tuple},
         force_ad_obs_model::Bool = false,
+        try_nls_under_forced_ad::Bool = false,
         augment::Bool = false,
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
@@ -125,8 +128,23 @@ function _assemble_lgm(
     end
 
     # Detect whole-model fast path first (skipped when grouping is requested).
-    fast_obs = (force_ad_obs_model || use_obs_groups) ? nothing :
-        try_exponential_family_fast_path(dppl_model, random_syms, dims, hp_names)
+    # Keep the full `_FastObsResult` so its precomputed likelihood-Hessian
+    # `pattern` is available below — the EF path could recover it from the LTM's
+    # design matrix, but the NLS path (Gauss–Newton, no design matrix) cannot.
+    #
+    # `force_ad_obs_model` normally disables the whole fast path. The one
+    # exception is `try_nls_under_forced_ad`: the macro's obs-shadow heuristic
+    # forces AD to suppress the EF route, but the Nonlinear Least Squares route
+    # is still safe to attempt (`nls_only = true` makes the detector return
+    # `nothing` for any EF-eligible/affine case, leaving EF behavior untouched).
+    run_fast = !use_obs_groups && (!force_ad_obs_model || try_nls_under_forced_ad)
+    fast_result = run_fast ?
+        _try_exponential_family_fast_path(
+            dppl_model, random_syms, dims, hp_names;
+            obs_syms = nothing, infer_route = false,
+            nls_only = force_ad_obs_model,
+        ) : nothing
+    fast_obs = fast_result === nothing ? nothing : fast_result.model
     use_fast_path = fast_obs !== nothing
 
     # Per-group fast-path planning. Only attempted when grouping is in
@@ -157,8 +175,10 @@ function _assemble_lgm(
     dense_pattern() = SparseMatrixCSC{Bool, Int}(trues(n_tot, n_tot))
 
     extra_pattern = if use_fast_path && !augment
-        A = _extract_design_matrix(fast_obs)
-        _bool_AtA_pattern(A)
+        # The fast-path detector already computed this component's likelihood-
+        # Hessian sparsity (`A'A` for the EF/LTM path, `J'J` for the NLS Gauss–
+        # Newton path) — reuse it directly so this works without a design matrix.
+        fast_result.pattern
     elseif use_fast_path
         nothing
     elseif use_obs_groups

@@ -458,10 +458,18 @@ function _build_lgm_from_latte(
     #   effect). The fast-path probe seeds it as a 1-vector via
     #   `InitFromParams`, which DPPL doesn't unwrap for a scalar variable.
     #   The AD path's `LogDensityFunction` handles flat-x correctly.
-    needs_ad_fallback = obs_groups === nothing && (
-        _needs_ad_fallback(obs_records, hp_names) ||
-            _has_scalar_random(random_records)
-    )
+    needs_ad_obs = obs_groups === nothing && _needs_ad_fallback(obs_records, hp_names)
+    scalar_random = obs_groups === nothing && _has_scalar_random(random_records)
+    needs_ad_fallback = needs_ad_obs || scalar_random
+
+    # The obs-shadow heuristic (`needs_ad_obs`) forces AD to keep the EF Normal
+    # route from silently freezing a shadowed/aliased `σ`. That concern doesn't
+    # apply to the Nonlinear Least Squares route, which validates hp-invariance
+    # of the mean and σ at probe time and bails to AD otherwise. So when AD is
+    # forced *only* by that heuristic, still let the detector try NLS — the EF
+    # route stays suppressed. A scalar random effect, by contrast, breaks the
+    # fast-path probe's latent seeding, so it disables NLS too.
+    try_nls_under_forced_ad = needs_ad_obs && !scalar_random
 
     # Recognition path: the macro recognized a concrete `LatentModel`. Build
     # the prebuilt latent and reuse the shared obs / hp / augmentation
@@ -476,6 +484,7 @@ function _build_lgm_from_latte(
                 augment = augment,
                 obs_groups = obs_groups,
                 force_ad_obs_model = needs_ad_fallback,
+                try_nls_under_forced_ad = try_nls_under_forced_ad,
                 likelihood_hessian_pattern = likelihood_hessian_pattern,
                 lift_spec = lift_spec,
             )
@@ -491,6 +500,7 @@ function _build_lgm_from_latte(
         augment = augment,
         obs_groups = obs_groups,
         force_ad_obs_model = needs_ad_fallback,
+        try_nls_under_forced_ad = try_nls_under_forced_ad,
         likelihood_hessian_pattern = likelihood_hessian_pattern,
         lift_spec = lift_spec,
         structured_spec = _build_structured_spec(structured, posarg_vals),

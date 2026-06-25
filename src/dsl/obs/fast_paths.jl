@@ -15,6 +15,7 @@ using SparseMatrixColorings: GreedyColoringAlgorithm
 using Distributions: Poisson, Bernoulli, Binomial, Normal, NegativeBinomial, Gamma, mean
 using GaussianMarkovRandomFields:
     ExponentialFamily, LinearlyTransformedObservationModel,
+    NonlinearLeastSquaresModel,
     LogLink, LogitLink, IdentityLink,
     PoissonObservations, BinomialObservations, NegativeBinomialObservations
 
@@ -256,6 +257,7 @@ function _try_exponential_family_fast_path(
         dppl_model, random_syms::Tuple, dims::Dict{Symbol, Int}, hp_names::Tuple;
         obs_syms::Union{Nothing, Tuple} = nothing,
         infer_route::Bool = false,
+        nls_only::Bool = false,
     )
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     # Detect scalar (univariate) latents so probe seeding uses scalars,
@@ -347,7 +349,20 @@ function _try_exponential_family_fast_path(
     end
 
     baseline_affine = compute_affine(probe_hp)
-    baseline_affine === nothing && return nothing
+    if baseline_affine === nothing
+        # The natural predictor isn't affine in x at probe_hp. For a Gaussian
+        # observation `y[i] ~ Normal(f(x), σ)` with a nonlinear forward map `f`
+        # this is the Nonlinear Least Squares (Gauss–Newton) case — dispatch it
+        # to GMRFs's `NonlinearLeastSquaresModel`. Everything else punts to AD.
+        return _try_nls_fast_obs(
+            family, η_of_x_at, probe_hp, hp_names, n_latent,
+            sites, y_dists, obs_syms, dppl_model, probe_x_nt, backend, probe_step,
+        )
+    end
+    # `nls_only` runs when AD was forced for the EF route (the macro's obs-shadow
+    # heuristic) but the NLS route is still permitted. An affine predictor here
+    # is EF-eligible — respect the AD-force and punt, leaving EF behavior intact.
+    nls_only && return nothing
     A, b = baseline_affine
 
     # 3b) hp-invariance check: re-evaluate (A, b) under one-at-a-time
@@ -480,6 +495,81 @@ function _try_exponential_family_fast_path(
         route = route === nothing ? extra : merge(route, extra)
     end
     return _FastObsResult(model, route, pattern, y_for_component)
+end
+
+# ─── Nonlinear-least-squares fast path ────────────────────────────────────
+"""
+    _try_nls_fast_obs(family, η_of_x_at, probe_hp, hp_names, n_latent, sites,
+                      y_dists, obs_syms, dppl_model, probe_x_nt, backend, probe_step)
+        -> _FastObsResult or nothing
+
+Reached when the natural-predictor linearity probe fails — the mean is
+nonlinear in the latent vector `x`. For a Gaussian observation
+`y[i] ~ Normal(f(x), σ)` this is the Nonlinear Least Squares case, dispatched
+to GMRFs's `NonlinearLeastSquaresModel` (Gauss–Newton). `f = η_of_x_at(probe_hp)`
+is the forward operator (identity link ⇒ the natural param *is* the mean).
+
+This is increment 1: it fires only for the hyperparameter-free, homoskedastic
+case. Any of the following punts back to the AD fallback (returns `nothing`):
+- non-Normal noise,
+- heteroskedastic σ (σ varies across sites),
+- a mean `f` or noise σ that depends on an outer hyperparameter.
+"""
+function _try_nls_fast_obs(
+        family, η_of_x_at, probe_hp::NamedTuple, hp_names::Tuple, n_latent::Int,
+        sites::AbstractVector, y_dists::AbstractVector, obs_syms,
+        dppl_model, probe_x_nt::NamedTuple, backend, probe_step,
+    )
+    family === Normal || return nothing                       # NLS = Gaussian noise only
+
+    # Homoskedastic only (v1): one shared σ across all sites.
+    σ_vals = Float64[d.σ for d in y_dists]
+    all(s -> isapprox(s, first(σ_vals); rtol = 1.0e-8), σ_vals) || return nothing
+    σ_const = first(σ_vals)
+
+    f = η_of_x_at(probe_hp)
+    η0 = f(zeros(n_latent))
+
+    # hp-free obs only (v1): the mean and σ must be invariant under one-at-a-time
+    # outer-hp perturbations. A hp-dependent mean would need a parameterized
+    # residual; a hp-dependent σ would need a route — both are later increments.
+    for k_out in hp_names
+        hp_pert = NamedTuple{hp_names}(
+            Tuple(name === k_out ? 1.5 : 1.0 for name in hp_names)
+        )
+        isapprox(η0, η_of_x_at(hp_pert)(zeros(n_latent)); atol = 1.0e-4, rtol = 1.0e-6) ||
+            return nothing
+        pert = _probe_obs_distribution_sites(dppl_model, hp_pert, probe_x_nt)
+        obs_syms !== nothing && (pert = filter(s -> s.sym in obs_syms, pert))
+        all(s -> isapprox(s.dist.σ, σ_const; rtol = 1.0e-8), pert) || return nothing
+    end
+
+    # σ must also be latent-invariant. A latent-dependent noise such as
+    # `Normal(f(x), exp(x))` looks constant at the zero seed (so the
+    # homoskedastic check above passes), but fixing σ to its probe value would
+    # fit the wrong model. Re-probe at a perturbed latent and punt to AD if σ
+    # moves — mirroring the EF route's `_perturb_latent_probe` guard.
+    sites_xp = _probe_obs_distribution_sites(dppl_model, probe_hp, _perturb_latent_probe(probe_x_nt))
+    obs_syms !== nothing && (sites_xp = filter(s -> s.sym in obs_syms, sites_xp))
+    all(s -> isapprox(s.dist.σ, σ_const; rtol = 1.0e-8), sites_xp) || return nothing
+
+    # Sparse Jacobian of the forward map → the Gauss–Newton Hessian pattern J'J.
+    J = try
+        prep = prepare_jacobian(f, backend, zeros(n_latent))
+        SparseMatrixCSC(jacobian(f, prep, backend, probe_step))
+    catch e
+        @debug "NLS fast-path: Jacobian sparsity probe failed" exception = e
+        return nothing
+    end
+    pattern = _bool_pattern_AtA_from_jac(J)
+
+    nls = NonlinearLeastSquaresModel(f, n_latent)
+    inner = _FixedKwargsObservationModel(nls, (; σ = σ_const))
+    y_emission_order = [s.y for s in sites]
+    y_for_component = obs_syms === nothing ?
+        y_emission_order :
+        _wrap_y_for_fast_component(family, y_emission_order, y_dists)
+    return _FastObsResult(inner, nothing, pattern, y_for_component)
 end
 
 # Family-specific observation wrapping for grouped fast-path components.
