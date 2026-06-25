@@ -45,4 +45,19 @@ using Random
         lgm = nlmodel_hetσ(y, n)
         @test !occursin("NonlinearLeastSquares", string(typeof(lgm.observation_model)))
     end
+
+    # A mildly-curved Normal mean is too gently curved for the tiny-step affine
+    # probe to flag, so it would be silently linearized. The curvature-direct
+    # check must route it to NLS, not the linear fast path.
+    @testset "mildly-curved Normal mean recognized as NLS (not linearized)" begin
+        @latte function nlmodel_mild(y, n)
+            τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(x[i] + 0.01 * x[i]^2, 0.1)
+            end
+        end
+        lgm = nlmodel_mild(y, n)
+        @test occursin("NonlinearLeastSquares", string(typeof(lgm.observation_model)))
+    end
 end

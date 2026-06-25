@@ -349,11 +349,13 @@ function _try_exponential_family_fast_path(
     end
 
     baseline_affine = compute_affine(probe_hp)
-    if baseline_affine === nothing
-        # The natural predictor isn't affine in x at probe_hp. For a Gaussian
-        # observation `y[i] ~ Normal(f(x), σ)` with a nonlinear forward map `f`
-        # this is the Nonlinear Least Squares (Gauss–Newton) case — dispatch it
-        # to GMRFs's `NonlinearLeastSquaresModel`. Everything else punts to AD.
+    # The predictor isn't affine in x, OR (for Normal noise) the tiny-step affine
+    # probe above false-accepted a mildly-curved mean as affine. Either way, a
+    # Gaussian obs `y[i] ~ Normal(f(x), σ)` with a curved forward map `f` is the
+    # Nonlinear Least Squares (Gauss–Newton) case — dispatch it to GMRFs's
+    # `NonlinearLeastSquaresModel`. Everything else punts to AD.
+    if baseline_affine === nothing ||
+            (family === Normal && _predictor_is_curved(η_of_x_at(probe_hp), n_latent, backend))
         return _try_nls_fast_obs(
             family, η_of_x_at, probe_hp, hp_names, n_latent,
             sites, y_dists, obs_syms, dppl_model, probe_x_nt, backend, probe_step,
@@ -498,6 +500,30 @@ function _try_exponential_family_fast_path(
 end
 
 # ─── Nonlinear-least-squares fast path ────────────────────────────────────
+"""
+    _predictor_is_curved(f, n_latent, backend) -> Bool
+
+Curvature-direct affine check for the Normal/identity case. The 2-point Jacobian
+probe in `_try_exponential_family_fast_path` uses a tiny step (kept small so link
+round-trips don't saturate), so it can miss mild curvature and false-accept a
+curved mean as affine. Normal/identity has no link round-trip, so we compare the
+forward-map Jacobian at the zero seed against a unit-scale step: a genuinely
+affine mean has a constant Jacobian; a curved one does not. Applied only for
+Normal noise — other families keep the tiny-step probe unchanged. On any probe
+failure we report curved (route to NLS/AD) rather than risk mis-linearizing.
+"""
+function _predictor_is_curved(f, n_latent::Int, backend)
+    return try
+        prep = prepare_jacobian(f, backend, zeros(n_latent))
+        J0 = jacobian(f, prep, backend, zeros(n_latent))
+        J1 = jacobian(f, prep, backend, ones(n_latent))
+        !isapprox(J0, J1; atol = 1.0e-4, rtol = 1.0e-6)
+    catch e
+        @debug "NLS curvature probe failed; routing to NLS/AD to be safe" exception = e
+        true
+    end
+end
+
 """
     _try_nls_fast_obs(family, η_of_x_at, probe_hp, hp_names, n_latent, sites,
                       y_dists, obs_syms, dppl_model, probe_x_nt, backend, probe_step)
