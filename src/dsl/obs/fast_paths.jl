@@ -163,11 +163,13 @@ mapping the family's nuisance kwargs to outer hp names. Returns a
 """
 function try_group_exponential_family_fast_path(
         dppl_model, group_syms::Tuple, random_syms::Tuple,
-        dims::Dict{Symbol, Int}, hp_names::Tuple,
+        dims::Dict{Symbol, Int}, hp_names::Tuple;
+        nls_enabled::Bool = true,
     )
     return _try_exponential_family_fast_path(
         dppl_model, random_syms, dims, hp_names;
         obs_syms = group_syms, infer_route = true,
+        nls_enabled = nls_enabled,
     )
 end
 

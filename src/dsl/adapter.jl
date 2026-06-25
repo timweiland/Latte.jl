@@ -156,7 +156,8 @@ function _assemble_lgm(
     group_fast = if use_obs_groups && !force_ad_obs_model
         Dict(
             name => try_group_exponential_family_fast_path(
-                    dppl_model, syms, random_syms, dims, hp_names,
+                    dppl_model, syms, random_syms, dims, hp_names;
+                    nls_enabled = nls_enabled,
                 ) for (name, syms) in obs_groups_spec
         )
     else
