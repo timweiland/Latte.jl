@@ -152,6 +152,11 @@ model body at macro time, classifies every `~` block, and produces a
 detected automatically from each block's hyperparameter dependencies —
 no manual `obs_groups` argument needed in the typical case.
 
+A Gaussian observation whose mean is nonlinear in the latent field is recognized
+and dispatched to a Gauss–Newton nonlinear-least-squares model by default; see
+[Nonlinear Gaussian observations](@ref) for the behavior, the Gauss–Newton
+approximation it entails, and the `nls = false` opt-out.
+
 ```julia
 using Latte, Distributions, LinearAlgebra
 

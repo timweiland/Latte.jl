@@ -223,6 +223,57 @@ non-Gaussian path, whose first `inla` call is slow to compile …"*) and points 
 indexed-factor form to aim for. Rewriting the offending site to a scalar indexed `~`
 usually moves it onto the structured path.
 
+## Nonlinear Gaussian observations
+
+A Gaussian observation whose mean is nonlinear in the latent field,
+`y[i] ~ Normal(f(x), σ)` with `f` nonlinear in `x`, is recognized automatically and
+dispatched to a Gauss–Newton nonlinear-least-squares observation model. This is the
+default for such models; it replaces the full-Hessian automatic-differentiation path.
+
+The forward map `f` may depend on hyperparameters, the noise scale `σ` may be a constant
+(shared or per-observation) or an inferred hyperparameter, and the observation may be one
+component of a composite model alongside other blocks. Each is carried through without
+further annotation.
+
+```julia
+@latte function m(y, n)
+    α ~ truncated(Normal(1, 0.5); lower = 0.1)   # enters the forward map
+    τ ~ Gamma(2, 1)
+    x ~ IIDModel(n)(τ = τ)
+    for i in eachindex(y)
+        y[i] ~ Normal(exp(α * x[i]), 0.1)         # nonlinear in x
+    end
+end
+```
+
+### The Gauss–Newton approximation
+
+The Gauss–Newton model uses `JᵀWJ` for the observation Hessian, dropping the
+residual-curvature term. The consequences, stated plainly:
+
+- The mode and the hyperparameter-marginal gradients are exact (the score is unchanged),
+  so posterior means and the hyperparameter posterior match the full-Hessian path.
+- The latent marginal variances are approximate, and differ most where the forward map is
+  strongly curved or the fit is poor.
+
+`diagnose(result).obs_hessian` reports `:gauss_newton` for these models and `:exact`
+otherwise, so the approximation is never silent. To take the exact full-Hessian path
+instead, pass `nls = false` to the model constructor:
+
+```julia
+lgm = m(y, n; nls = false)   # exact observation Hessian
+```
+
+### When it falls back to automatic differentiation
+
+The Gauss–Newton path requires Gaussian noise and a noise scale that does not depend on
+the latent field. It returns to the exact AD path when the observation is non-Gaussian,
+when `σ` depends on the latent vector, or when `σ` is a nonlinear transform of a
+hyperparameter rather than a hyperparameter used directly. One naming constraint: in a
+single-observation model an inferred `σ` must be named `σ`; composite-observation models
+can route a differently-named noise hyperparameter. Every fallback is correct; the only
+cost is a slower first compile.
+
 ## Limitations
 
 Foregrounding where `@latte` falls back or restricts you. In every fallback case the
