@@ -540,11 +540,18 @@ nonlinear in the latent vector `x`. For a Gaussian observation
 to GMRFs's `NonlinearLeastSquaresModel` (Gauss–Newton). `f = η_of_x_at(probe_hp)`
 is the forward operator (identity link ⇒ the natural param *is* the mean).
 
-This is increment 1: it fires only for the hyperparameter-free, homoskedastic
-case. Any of the following punts back to the AD fallback (returns `nothing`):
+The forward map `f` may depend on outer hyperparameters: those are carried into
+the residual via the NLS model's `hyperparams`, so the outer θ-gradient
+differentiates `f(x; θ)` exactly (only the latent Hessian is Gauss–Newton). The
+noise scale σ may be:
+- constant — shared or per-site (heteroskedastic), frozen into the model;
+- driven 1:1 by a hyperparameter named `:σ` — left flowing so the noise scale is
+  inferred (the single-obs path routes hyperparameters by name, matching the
+  exponential-family route).
+Any of the following punts back to the AD fallback (returns `nothing`):
 - non-Normal noise,
-- heteroskedastic σ (σ varies across sites),
-- a mean `f` or noise σ that depends on an outer hyperparameter.
+- σ that depends on the latent vector, on multiple hyperparameters, on a
+  differently-named hyperparameter, or on a transform of one.
 """
 function _try_nls_fast_obs(
         family, η_of_x_at, probe_hp::NamedTuple, hp_names::Tuple, n_latent::Int,
@@ -553,38 +560,68 @@ function _try_nls_fast_obs(
     )
     family === Normal || return nothing                       # NLS = Gaussian noise only
 
-    # Homoskedastic only (v1): one shared σ across all sites.
     σ_vals = Float64[d.σ for d in y_dists]
-    all(s -> isapprox(s, first(σ_vals); rtol = 1.0e-8), σ_vals) || return nothing
-    σ_const = first(σ_vals)
+    homoskedastic = all(s -> isapprox(s, first(σ_vals); rtol = 1.0e-8), σ_vals)
 
     f = η_of_x_at(probe_hp)
-    η0 = f(zeros(n_latent))
+    # Probe the mean's hp-dependence at both the zero seed and a nonzero latent:
+    # a multiplicative dependence such as `exp(α·x)` is invisible at x = 0
+    # (`exp(0) = 1` for every α) but shows at a nonzero x.
+    x_nz = fill(0.5, n_latent)
 
-    # hp-free obs only (v1): the mean and σ must be invariant under one-at-a-time
-    # outer-hp perturbations. A hp-dependent mean would need a parameterized
-    # residual; a hp-dependent σ would need a route — both are later increments.
-    for k_out in hp_names
-        hp_pert = NamedTuple{hp_names}(
-            Tuple(name === k_out ? 1.5 : 1.0 for name in hp_names)
-        )
-        isapprox(η0, η_of_x_at(hp_pert)(zeros(n_latent)); atol = 1.0e-4, rtol = 1.0e-6) ||
-            return nothing
-        pert = _probe_obs_distribution_sites(dppl_model, hp_pert, probe_x_nt)
-        obs_syms !== nothing && (pert = filter(s -> s.sym in obs_syms, pert))
-        all(s -> isapprox(s.dist.σ, σ_const; rtol = 1.0e-8), pert) || return nothing
+    # Classify each outer hp: does it drive the mean (→ parameterized residual),
+    # and/or σ (→ routed or punted below)? Probing evaluates the forward map and
+    # re-runs the model body, so guard it — any failure punts to the AD fallback.
+    mean_hp_names = Symbol[]
+    σ_driving_hp = Symbol[]
+    sigma_latent_invariant = try
+        η0 = f(zeros(n_latent))
+        η_nz = f(x_nz)
+        for k_out in hp_names
+            hp_pert = NamedTuple{hp_names}(
+                Tuple(name === k_out ? 1.5 : 1.0 for name in hp_names)
+            )
+            f_pert = η_of_x_at(hp_pert)
+            mean_moves = !isapprox(η0, f_pert(zeros(n_latent)); atol = 1.0e-4, rtol = 1.0e-6) ||
+                !isapprox(η_nz, f_pert(x_nz); atol = 1.0e-4, rtol = 1.0e-6)
+            mean_moves && push!(mean_hp_names, k_out)
+            pert = _probe_obs_distribution_sites(dppl_model, hp_pert, probe_x_nt)
+            obs_syms !== nothing && (pert = filter(s -> s.sym in obs_syms, pert))
+            σ_pert = Float64[s.dist.σ for s in pert]
+            all(i -> isapprox(σ_pert[i], σ_vals[i]; rtol = 1.0e-8), eachindex(σ_vals)) ||
+                push!(σ_driving_hp, k_out)
+        end
+        # σ must be latent-invariant. A latent-dependent noise such as
+        # `Normal(f(x), exp(x))` looks constant at the zero seed, but freezing or
+        # routing σ would fit the wrong model. Re-probe at a perturbed latent.
+        sites_xp = _probe_obs_distribution_sites(dppl_model, probe_hp, _perturb_latent_probe(probe_x_nt))
+        obs_syms !== nothing && (sites_xp = filter(s -> s.sym in obs_syms, sites_xp))
+        σ_xp = Float64[s.dist.σ for s in sites_xp]
+        all(i -> isapprox(σ_xp[i], σ_vals[i]; rtol = 1.0e-8), eachindex(σ_vals))
+    catch e
+        @debug "NLS fast-path: hp-classification probe failed" exception = e
+        return nothing
+    end
+    sigma_latent_invariant || return nothing
+
+    # Decide how σ enters the model:
+    #  - no hp drives it → freeze the constant (scalar if shared, else per-site);
+    #  - exactly the `:σ` hyperparameter drives it 1:1 (identity) and it's shared
+    #    across sites → leave σ flowing so the outer θ-gradient infers it;
+    #  - anything else (multiple hps, a transform, a differently-named hp,
+    #    heteroskedastic-and-hp-driven) → punt to AD.
+    σ_fixed = if isempty(σ_driving_hp)
+        homoskedastic ? first(σ_vals) : σ_vals
+    elseif homoskedastic && σ_driving_hp == [:σ] &&
+            _sigma_tracks_hp_identity(dppl_model, probe_hp, probe_x_nt, obs_syms)
+        nothing                                               # σ flows as a hyperparameter
+    else
+        return nothing
     end
 
-    # σ must also be latent-invariant. A latent-dependent noise such as
-    # `Normal(f(x), exp(x))` looks constant at the zero seed (so the
-    # homoskedastic check above passes), but fixing σ to its probe value would
-    # fit the wrong model. Re-probe at a perturbed latent and punt to AD if σ
-    # moves — mirroring the EF route's `_perturb_latent_probe` guard.
-    sites_xp = _probe_obs_distribution_sites(dppl_model, probe_hp, _perturb_latent_probe(probe_x_nt))
-    obs_syms !== nothing && (sites_xp = filter(s -> s.sym in obs_syms, sites_xp))
-    all(s -> isapprox(s.dist.σ, σ_const; rtol = 1.0e-8), sites_xp) || return nothing
-
     # Sparse Jacobian of the forward map → the Gauss–Newton Hessian pattern J'J.
+    # The ∂f/∂x sparsity pattern is hp-invariant (hp only scale the values), so
+    # probing at `probe_hp` is enough even for a hp-dependent mean.
     J = try
         prep = prepare_jacobian(f, backend, zeros(n_latent))
         SparseMatrixCSC(jacobian(f, prep, backend, probe_step))
@@ -594,13 +631,55 @@ function _try_nls_fast_obs(
     end
     pattern = _bool_pattern_AtA_from_jac(J)
 
-    nls = NonlinearLeastSquaresModel(f, n_latent)
-    inner = _FixedKwargsObservationModel(nls, (; σ = σ_const))
+    # hp-free mean → bake `probe_hp` into the residual; hp-dependent mean → a
+    # parameterized residual `f(x; θ...)` carrying `mean_hp_names`, which NLS
+    # splats in at materialization (Dual-θ safe, so the IFT θ-gradient is exact).
+    residual, nls_hyperparams = if isempty(mean_hp_names)
+        (f, ())
+    else
+        (
+            _make_nls_residual(η_of_x_at, hp_names, mean_hp_names, probe_hp),
+            Tuple(mean_hp_names),
+        )
+    end
+    nls = NonlinearLeastSquaresModel(residual, n_latent; hyperparams = nls_hyperparams)
+    inner = σ_fixed === nothing ? nls : _FixedKwargsObservationModel(nls, (; σ = σ_fixed))
     y_emission_order = [s.y for s in sites]
     y_for_component = obs_syms === nothing ?
         y_emission_order :
         _wrap_y_for_fast_component(family, y_emission_order, y_dists)
     return _FastObsResult(inner, nothing, pattern, y_for_component)
+end
+
+# Confirm the noise scale σ equals the `:σ` hyperparameter itself (identity map),
+# not a transform of it. Probe at two distinct `:σ` values: if the observed σ
+# matches each, the body passes σ straight through, so leaving it flowing is
+# exact. A transform such as `1/sqrt(σ)` fails this and punts.
+function _sigma_tracks_hp_identity(dppl_model, probe_hp::NamedTuple, probe_x_nt, obs_syms)
+    for σ_val in (1.0, 1.5)
+        hp = merge(probe_hp, (; σ = σ_val))
+        s = _probe_obs_distribution_sites(dppl_model, hp, probe_x_nt)
+        obs_syms !== nothing && (s = filter(t -> t.sym in obs_syms, s))
+        all(t -> isapprox(t.dist.σ, σ_val; rtol = 1.0e-8), s) || return false
+    end
+    return true
+end
+
+# Build a parameterized NLS residual `f(x; θ...)` for a mean that depends on the
+# `mean_hp_names` hyperparameters. NLS splats those θ in at materialization; the
+# remaining hyperparameters don't affect the mean, so they take their probe value
+# (the residual re-evaluates the natural predictor through `η_of_x_at`). Keeping
+# the dependence symbolic — rather than freezing it at the probe — is what lets
+# the outer θ-gradient differentiate the forward map exactly.
+function _make_nls_residual(η_of_x_at, hp_names::Tuple, mean_hp_names, probe_hp::NamedTuple)
+    mean_set = Tuple(mean_hp_names)
+    return function (x; kw...)
+        θ = NamedTuple(kw)
+        full = NamedTuple{hp_names}(
+            map(s -> (s in mean_set ? θ[s] : probe_hp[s]), hp_names)
+        )
+        return η_of_x_at(full)(x)
+    end
 end
 
 # Family-specific observation wrapping for grouped fast-path components.

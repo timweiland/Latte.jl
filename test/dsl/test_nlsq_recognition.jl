@@ -89,4 +89,77 @@ using Random
         @test !occursin("NonlinearLeastSquares", string(typeof(mild_optout.observation_model)))
         @test occursin("AutoDiff", string(typeof(mild_optout.observation_model)))
     end
+
+    # Heteroskedastic but constant σ (per-site fixed noise) is still NLS — the
+    # per-site σ vector is frozen into the model.
+    @testset "heteroskedastic constant σ is recognized as NLS" begin
+        @latte function nls_het(y, n)
+            τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(exp(x[i]), 0.05 + 0.02 * i)
+            end
+        end
+        lgm = nls_het(y, n)
+        @test occursin("NonlinearLeastSquares", string(typeof(lgm.observation_model)))
+        res = inla(nls_het(y, n), y; latent_marginalization_method = GaussianMarginal(), progress = false)
+        @test all(m -> isfinite(mean(m)) && isfinite(std(m)), latent_marginals(res))
+    end
+
+    # σ driven by a noise-scale hyperparameter named `σ` flows as a hyperparameter
+    # (inferred), rather than being frozen — the Gauss–Newton x-Hessian with exact
+    # θ-gradients through σ.
+    @testset "hp-dependent σ (named σ) flows as a hyperparameter" begin
+        @latte function nls_hpσ(y, n)
+            τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            σ ~ truncated(Normal(0.3, 0.2); lower = 0.01)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(exp(x[i]), σ)
+            end
+        end
+        lgm = nls_hpσ(y, n)
+        @test occursin("NonlinearLeastSquares", string(typeof(lgm.observation_model)))
+        # σ is NOT pre-bound (no _FixedKwargs wrapper): it flows as a hyperparameter.
+        @test !occursin("FixedKwargs", string(typeof(lgm.observation_model)))
+        # inla running to completion proves σ is routed: NLS requires σ as a kwarg
+        # at materialization, so a missing/misrouted σ would error here.
+        res = inla(nls_hpσ(y, n), y; latent_marginalization_method = GaussianMarginal(), progress = false)
+        @test all(m -> isfinite(mean(m)) && isfinite(std(m)), latent_marginals(res))
+    end
+
+    # A σ that is a *transform* of a hyperparameter can't be routed 1:1, so it
+    # must punt to the exact AD path rather than silently routing the wrong σ.
+    @testset "σ as a transform of a hyperparameter punts to AD" begin
+        @latte function nls_σtransform(y, n)
+            τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            λ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(exp(x[i]), 1.0 / sqrt(λ))
+            end
+        end
+        lgm = nls_σtransform(y, n)
+        @test !occursin("NonlinearLeastSquares", string(typeof(lgm.observation_model)))
+    end
+
+    # The latent field can enter the forward map nonlinearly *and* the map can
+    # depend on a hyperparameter (a parameterized residual). NLS carries the hp
+    # into the residual via its `hyperparams`, so the outer θ-gradient stays
+    # exact. The dependence is multiplicative (`exp(α·x)`), invisible at x = 0 —
+    # the recognizer must probe at a nonzero latent to catch it.
+    @testset "hp-dependent nonlinear mean routes the hp into the NLS residual" begin
+        @latte function nls_hpmean(y, n)
+            α ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(exp(α * x[i]), 0.1)
+            end
+        end
+        lgm = nls_hpmean(y, n)
+        @test occursin("NonlinearLeastSquares", string(typeof(lgm.observation_model)))
+        res = inla(nls_hpmean(y, n), y; latent_marginalization_method = GaussianMarginal(), progress = false)
+        @test all(m -> isfinite(mean(m)) && isfinite(std(m)), latent_marginals(res))
+    end
 end
