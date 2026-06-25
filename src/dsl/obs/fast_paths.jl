@@ -258,6 +258,7 @@ function _try_exponential_family_fast_path(
         obs_syms::Union{Nothing, Tuple} = nothing,
         infer_route::Bool = false,
         nls_only::Bool = false,
+        nls_enabled::Bool = true,
     )
     probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     # Detect scalar (univariate) latents so probe seeding uses scalars,
@@ -352,10 +353,14 @@ function _try_exponential_family_fast_path(
     # The predictor isn't affine in x, OR (for Normal noise) the tiny-step affine
     # probe above false-accepted a mildly-curved mean as affine. Either way, a
     # Gaussian obs `y[i] ~ Normal(f(x), σ)` with a curved forward map `f` is the
-    # Nonlinear Least Squares (Gauss–Newton) case — dispatch it to GMRFs's
-    # `NonlinearLeastSquaresModel`. Everything else punts to AD.
-    if baseline_affine === nothing ||
-            (family === Normal && _predictor_is_curved(η_of_x_at(probe_hp), n_latent, backend))
+    # Nonlinear Least Squares (Gauss–Newton) case. With NLS enabled (the default)
+    # dispatch it to GMRFs's `NonlinearLeastSquaresModel`; with NLS opted out
+    # (`nls = false`) punt to the exact AD path — never the affine linearization,
+    # which is exactly the approximation a curved mean must avoid.
+    treat_nonlinear = baseline_affine === nothing ||
+        (family === Normal && _predictor_is_curved(η_of_x_at(probe_hp), n_latent, backend))
+    if treat_nonlinear
+        nls_enabled || return nothing
         return _try_nls_fast_obs(
             family, η_of_x_at, probe_hp, hp_names, n_latent,
             sites, y_dists, obs_syms, dppl_model, probe_x_nt, backend, probe_step,

@@ -49,6 +49,7 @@ function latte_from_dppl(
         random::Union{Symbol, Tuple},
         force_ad_obs_model::Bool = false,
         try_nls_under_forced_ad::Bool = false,
+        nls_enabled::Bool = true,
         augment::Bool = false,
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
@@ -60,6 +61,7 @@ function latte_from_dppl(
         random = random,
         force_ad_obs_model = force_ad_obs_model,
         try_nls_under_forced_ad = try_nls_under_forced_ad,
+        nls_enabled = nls_enabled,
         augment = augment,
         likelihood_hessian_pattern = likelihood_hessian_pattern,
         obs_groups = obs_groups,
@@ -84,6 +86,7 @@ function _assemble_lgm(
         random::Union{Symbol, Tuple},
         force_ad_obs_model::Bool = false,
         try_nls_under_forced_ad::Bool = false,
+        nls_enabled::Bool = true,
         augment::Bool = false,
         likelihood_hessian_pattern::Union{Symbol, SparseMatrixCSC} = :auto,
         obs_groups = nothing,
@@ -143,6 +146,7 @@ function _assemble_lgm(
             dppl_model, random_syms, dims, hp_names;
             obs_syms = nothing, infer_route = false,
             nls_only = force_ad_obs_model,
+            nls_enabled = nls_enabled,
         ) : nothing
     fast_obs = fast_result === nothing ? nothing : fast_result.model
     use_fast_path = fast_obs !== nothing

@@ -27,6 +27,13 @@ markers inside the body to override the default classification.
 
 The same body is also forwarded to `DynamicPPL.@model` and made available
 via `Latte.dppl_model(name)` for Turing handoff.
+
+The returned constructor accepts construction keywords, including:
+- `augment` — augment the latent vector with the linear predictor.
+- `nls` (default `true`) — recognize a Gaussian observation whose mean is
+  nonlinear in the latent `x` as a Gauss–Newton `NonlinearLeastSquaresModel`.
+  Set `nls = false` to force the exact full-Hessian path instead.
+- `likelihood_hessian_pattern` — override the likelihood Hessian sparsity.
 """
 macro latte(modeldef)
     if !(modeldef isa Expr) || modeldef.head !== :function
@@ -163,7 +170,7 @@ macro latte(modeldef)
         $(esc(expanded_inner))
         $(lift_emit)
         $(struct_emit)
-        function $(esc(fname))(args...; likelihood_hessian_pattern = :auto, augment = false, kwargs...)
+        function $(esc(fname))(args...; likelihood_hessian_pattern = :auto, augment = false, nls = true, kwargs...)
             dppl = $(esc(inner_name))(args...; kwargs...)
             return $(@__MODULE__)._build_lgm_from_latte(
                 dppl, $rand_q, $fixed_q, $obs_q, $posargs_q, args;
@@ -172,6 +179,7 @@ macro latte(modeldef)
                 structured = $structured_expr,
                 likelihood_hessian_pattern = likelihood_hessian_pattern,
                 augment = augment,
+                nls = nls,
             )
         end
         $(@__MODULE__)._LATTE_DPPL_CONSTRUCTORS[$(esc(fname))] = $(esc(inner_name))
@@ -392,6 +400,7 @@ function _build_lgm_from_latte(
         structured = nothing,
         likelihood_hessian_pattern = :auto,
         augment::Bool = false,
+        nls::Bool = true,
     )
     random_syms = Tuple(unique(r[1] for r in random_records))
     hp_names = Tuple(unique(r[1] for r in fixed_records))
@@ -469,7 +478,7 @@ function _build_lgm_from_latte(
     # forced *only* by that heuristic, still let the detector try NLS — the EF
     # route stays suppressed. A scalar random effect, by contrast, breaks the
     # fast-path probe's latent seeding, so it disables NLS too.
-    try_nls_under_forced_ad = needs_ad_obs && !scalar_random
+    try_nls_under_forced_ad = needs_ad_obs && !scalar_random && nls
 
     # Recognition path: the macro recognized a concrete `LatentModel`. Build
     # the prebuilt latent and reuse the shared obs / hp / augmentation
@@ -485,6 +494,7 @@ function _build_lgm_from_latte(
                 obs_groups = obs_groups,
                 force_ad_obs_model = needs_ad_fallback,
                 try_nls_under_forced_ad = try_nls_under_forced_ad,
+                nls_enabled = nls,
                 likelihood_hessian_pattern = likelihood_hessian_pattern,
                 lift_spec = lift_spec,
             )
@@ -501,6 +511,7 @@ function _build_lgm_from_latte(
         obs_groups = obs_groups,
         force_ad_obs_model = needs_ad_fallback,
         try_nls_under_forced_ad = try_nls_under_forced_ad,
+        nls_enabled = nls,
         likelihood_hessian_pattern = likelihood_hessian_pattern,
         lift_spec = lift_spec,
         structured_spec = _build_structured_spec(structured, posarg_vals),

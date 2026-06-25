@@ -60,4 +60,33 @@ using Random
         lgm = nlmodel_mild(y, n)
         @test occursin("NonlinearLeastSquares", string(typeof(lgm.observation_model)))
     end
+
+    # Opt-out: `nls = false` forces the exact full-Hessian AD path instead of the
+    # Gauss–Newton NLS approximation — for both genuinely-nonlinear and
+    # mildly-curved Normal means. The curved case must reach AD, never the wrong
+    # affine linearization.
+    @testset "nls = false opts out to the exact AD path" begin
+        @latte function nlmodel_optout(y, n)
+            τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(exp(x[i]), 0.1)
+            end
+        end
+        @test occursin("NonlinearLeastSquares", string(typeof(nlmodel_optout(y, n).observation_model)))
+        optout = nlmodel_optout(y, n; nls = false)
+        @test !occursin("NonlinearLeastSquares", string(typeof(optout.observation_model)))
+        @test occursin("AutoDiff", string(typeof(optout.observation_model)))
+
+        @latte function nlmodel_optout_mild(y, n)
+            τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(x[i] + 0.01 * x[i]^2, 0.1)
+            end
+        end
+        mild_optout = nlmodel_optout_mild(y, n; nls = false)
+        @test !occursin("NonlinearLeastSquares", string(typeof(mild_optout.observation_model)))
+        @test occursin("AutoDiff", string(typeof(mild_optout.observation_model)))
+    end
 end
