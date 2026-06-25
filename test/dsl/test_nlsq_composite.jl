@@ -54,3 +54,36 @@ using Random
     # α is informed by the data (a frozen residual would leave it at the prior mode).
     @test mean(res.hyperparameter_marginals[:α]) > 1.05
 end
+
+# A composite NLS block whose noise scale is a hyperparameter named something
+# other than `:σ` needs an explicit rename route (`:σ ← :σ1`); the composite
+# passthrough can't supply NLS's required `:σ` kwarg under a different name.
+@testset "composite NLS: flowing σ named ≠ :σ routes via rename" begin
+    n = 6
+    Random.seed!(11)
+    y1 = exp.(0.2 .* randn(n)) .+ 0.3 .* randn(n)
+    y2 = 0.2 .* randn(n) .+ 0.2 .* randn(n)
+    y = vcat(y1, y2)
+
+    @latte function comp_rename(y1, y2, n)
+        σ1 ~ truncated(Normal(0.3, 0.2); lower = 0.01)
+        τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+        x ~ IIDModel(n)(τ = τ)
+        for i in eachindex(y1)
+            y1[i] ~ Normal(exp(x[i]), σ1)   # nonlinear; σ flows as σ1 (rename → NLS :σ)
+        end
+        for i in eachindex(y2)
+            y2[i] ~ Normal(x[i], 0.2)        # linear → exponential-family
+        end
+    end
+
+    lgm = comp_rename(y1, y2, n)
+    @test occursin("NonlinearLeastSquares", string(typeof(lgm.observation_model)))
+
+    res = inla(comp_rename(y1, y2, n), y; latent_marginalization_method = GaussianMarginal(), progress = false)
+    @test all(m -> isfinite(mean(m)) && isfinite(std(m)), latent_marginals(res))
+
+    # σ1 is genuinely routed and inferred: agrees with the exact-AD path.
+    res_ad = inla(comp_rename(y1, y2, n; nls = false), y; latent_marginalization_method = GaussianMarginal(), progress = false)
+    @test isapprox(mean(res.hyperparameter_marginals[:σ1]), mean(res_ad.hyperparameter_marginals[:σ1]); atol = 0.05)
+end

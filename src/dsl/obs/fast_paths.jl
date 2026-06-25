@@ -608,14 +608,20 @@ function _try_nls_fast_obs(
 
     # Decide how σ enters the model:
     #  - no hp drives it → freeze the constant (scalar if shared, else per-site);
-    #  - exactly the `:σ` hyperparameter drives it 1:1 (identity) and it's shared
-    #    across sites → leave σ flowing so the outer θ-gradient infers it;
-    #  - anything else (multiple hps, a transform, a differently-named hp,
-    #    heteroskedastic-and-hp-driven) → punt to AD.
+    #  - exactly one hp drives it 1:1 (identity) and it's shared across sites →
+    #    leave σ flowing so the outer θ-gradient infers it. On the single-obs path
+    #    that hp must be named `:σ` (no route to rename it); the composite path
+    #    can rename any 1:1 driver to NLS's `:σ` kwarg via an explicit route.
+    #  - anything else (multiple hps, a transform, heteroskedastic-and-hp-driven)
+    #    → punt to AD.
+    composite = obs_syms !== nothing
+    σ_flows_via = nothing
     σ_fixed = if isempty(σ_driving_hp)
         homoskedastic ? first(σ_vals) : σ_vals
-    elseif homoskedastic && σ_driving_hp == [:σ] &&
-            _sigma_tracks_hp_identity(dppl_model, probe_hp, probe_x_nt, obs_syms)
+    elseif homoskedastic && length(σ_driving_hp) == 1 &&
+            (composite || σ_driving_hp[1] === :σ) &&
+            _sigma_tracks_hp_identity(dppl_model, probe_hp, probe_x_nt, obs_syms, σ_driving_hp[1])
+        σ_flows_via = σ_driving_hp[1]
         nothing                                               # σ flows as a hyperparameter
     else
         return nothing
@@ -650,19 +656,34 @@ function _try_nls_fast_obs(
     y_for_component = obs_syms === nothing ?
         y_emission_order :
         _wrap_y_for_fast_component(family, y_emission_order, y_dists)
-    return _FastObsResult(inner, nothing, pattern, y_for_component)
+
+    # Route: the single-obs path materialises with all hp by name (route ignored),
+    # and the composite passthrough (`nothing`) already forwards mean-hps by name
+    # and a `:σ`-named flowing σ. Only a flowing σ whose driver isn't named `:σ`
+    # needs an explicit composite route to rename it to NLS's `:σ` kwarg — and
+    # that explicit route must also carry the mean hyperparameters, since it
+    # replaces passthrough.
+    route = if composite && σ_flows_via !== nothing && σ_flows_via !== :σ
+        inner_names = (mean_hp_names..., :σ)
+        outer_names = (mean_hp_names..., σ_flows_via)
+        NamedTuple{inner_names}(outer_names)
+    else
+        nothing
+    end
+    return _FastObsResult(inner, route, pattern, y_for_component)
 end
 
-# Confirm the noise scale σ equals the `:σ` hyperparameter itself (identity map),
-# not a transform of it. Probe at two distinct `:σ` values: if the observed σ
-# matches each, the body passes σ straight through, so leaving it flowing is
-# exact. A transform such as `1/sqrt(σ)` fails this and punts.
-function _sigma_tracks_hp_identity(dppl_model, probe_hp::NamedTuple, probe_x_nt, obs_syms)
-    for σ_val in (1.0, 1.5)
-        hp = merge(probe_hp, (; σ = σ_val))
+# Confirm the noise scale σ equals the `hp_name` hyperparameter itself (identity
+# map), not a transform of it. Probe at two distinct values: if the observed σ
+# matches each, the body passes that hyperparameter straight through as σ, so
+# routing it to NLS's `:σ` kwarg is exact. A transform such as `1/sqrt(λ)` fails
+# this and punts.
+function _sigma_tracks_hp_identity(dppl_model, probe_hp::NamedTuple, probe_x_nt, obs_syms, hp_name::Symbol)
+    for v in (1.0, 1.5)
+        hp = merge(probe_hp, NamedTuple{(hp_name,)}((v,)))
         s = _probe_obs_distribution_sites(dppl_model, hp, probe_x_nt)
         obs_syms !== nothing && (s = filter(t -> t.sym in obs_syms, s))
-        all(t -> isapprox(t.dist.σ, σ_val; rtol = 1.0e-8), s) || return false
+        all(t -> isapprox(t.dist.σ, v; rtol = 1.0e-8), s) || return false
     end
     return true
 end
