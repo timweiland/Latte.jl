@@ -270,8 +270,16 @@ function _try_exponential_family_fast_path(
         Tuple(_zero_seed(is_scalar[s], dims[s]) for s in random_syms)
     )
 
-    # 1) probe per-site (sym, dist, y) and filter to the requested group
-    sites = _probe_obs_distribution_sites(dppl_model, probe_hp, probe_x_nt)
+    # 1) probe per-site (sym, dist, y) and filter to the requested group.
+    # The flat-vector seed can't drive every latent shape (a matrix-slice block
+    # latent `x[:, t] ~ MvNormal(...)` rejects a flat `x`), so a probe failure
+    # means "not a fast-path candidate" → punt to AD rather than throw.
+    sites = try
+        _probe_obs_distribution_sites(dppl_model, probe_hp, probe_x_nt)
+    catch e
+        @debug "fast-path: initial obs-distribution probe failed (un-seedable latent?)" exception = e
+        return nothing
+    end
     if obs_syms !== nothing
         sites = filter(s -> s.sym in obs_syms, sites)
     end
