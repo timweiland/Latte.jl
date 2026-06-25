@@ -39,14 +39,36 @@ using Random
             @test haskey(d, :ess)
             @test haskey(d, :pareto_k)
             @test haskey(d, :interpretation)
+            @test haskey(d, :obs_hessian)
             @test haskey(d, :M)
 
             # Sanity of values
             @test 0 < d.rel_ess <= 1
             @test d.ess > 0
             @test d.interpretation in (:excellent, :acceptable, :unreliable)
+            @test d.obs_hessian === :exact   # Poisson EF: exact second-order Hessian
             @test d.M == 500
         end
+    end
+
+    # A Gaussian observation with a nonlinear-in-x mean is dispatched to the
+    # Gauss–Newton NonlinearLeastSquares model; diagnose() must flag that the
+    # observation Hessian is approximate rather than exact.
+    @testset "obs_hessian flags the Gauss–Newton NLS approximation" begin
+        @latte function nls_diag(y, n)
+            τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+            x ~ IIDModel(n)(τ = τ)
+            for i in eachindex(y)
+                y[i] ~ Normal(exp(x[i]), 0.1)
+            end
+        end
+        n = 8
+        Random.seed!(3)
+        y = exp.(0.2 .* randn(n)) .+ 0.1 .* randn(n)
+        r = inla(nls_diag(y, n), y; latent_marginalization_method = GaussianMarginal(), progress = false)
+        Random.seed!(2026)
+        d = diagnose(r; M = 200)
+        @test d.obs_hessian === :gauss_newton
     end
 
     @testset "Well-behaved Poisson yields acceptable / excellent verdict" begin

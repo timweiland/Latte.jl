@@ -22,7 +22,9 @@ export diagnose, diagnose_chain
 
 Compute the PSIS-k̂ diagnostic for the inner Laplace approximation at a
 given θ (natural scale, as a NamedTuple). Returns a NamedTuple:
-`(; pareto_k, ess, rel_ess, interpretation, M)`.
+`(; pareto_k, ess, rel_ess, interpretation, obs_hessian, M)`. `obs_hessian` is
+`:gauss_newton` when the observation likelihood uses a Gauss–Newton Hessian
+(`NonlinearLeastSquaresModel`) and `:exact` otherwise.
 """
 function psis_inner_laplace(
         model::LatentGaussianModel, y, θ_natural::NamedTuple;
@@ -32,6 +34,13 @@ function psis_inner_laplace(
     prior = model.latent_prior(; θ_natural...)
     obs_lik = model.observation_model(y; θ_natural...)
     q_post = gaussian_approximation(prior, obs_lik)
+
+    # Whether the inner Gaussian approximation used the exact observation Hessian
+    # or the Gauss–Newton approximation (`-JᵀWJ`, dropping residual curvature) of
+    # a `NonlinearLeastSquaresLikelihood`. The latter makes the latent marginals
+    # and `L(θ)` Gauss–Newton-approximate; surfacing it keeps that explicit.
+    obs_hessian = GaussianMarkovRandomFields._has_gauss_newton_jacobian(obs_lik) ?
+        :gauss_newton : :exact
 
     log_w = Vector{Float64}(undef, M)
     for i in 1:M
@@ -46,6 +55,7 @@ function psis_inner_laplace(
         ess = rel * M,
         pareto_k = k̂_est,
         interpretation = trust_verdict(rel),
+        obs_hessian = obs_hessian,
         M = M,
     )
 end
@@ -61,11 +71,14 @@ answer; HMC-Laplace uses it per-sample).
 
 # Returns
 
-`NamedTuple{(:rel_ess, :ess, :pareto_k, :interpretation, :M)}`:
+`NamedTuple{(:rel_ess, :ess, :pareto_k, :interpretation, :obs_hessian, :M)}`:
 - `rel_ess ∈ (0, 1]`  — relative effective sample size (primary metric)
 - `ess`               — absolute ESS of the importance weights
 - `pareto_k`          — Zhang-Stephens GPD shape parameter
 - `interpretation`    — `:excellent` / `:acceptable` / `:unreliable`
+- `obs_hessian`       — `:gauss_newton` if the observation Hessian is the
+                        Gauss–Newton approximation (`NonlinearLeastSquaresModel`),
+                        else `:exact`
 - `M`                 — number of Gaussian samples used
 
 `:unreliable` suggests switching to a method that doesn't rely on the

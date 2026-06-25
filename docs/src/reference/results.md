@@ -137,10 +137,18 @@ qualitative `interpretation` (`:excellent` / `:acceptable` / `:unreliable`):
 d = diagnose(result)
 d.rel_ess          # relative effective sample size, in (0, 1]
 d.interpretation   # :excellent / :acceptable / :unreliable
+d.obs_hessian      # :exact, or :gauss_newton for a NonlinearLeastSquares obs
 ```
 
 An `:unreliable` verdict means the Gaussian inner approximation is a poor fit at
 the mode, so the marginals downstream of it should be treated with caution.
+
+`obs_hessian` reports whether the inner approximation used the exact observation
+Hessian or the Gauss–Newton approximation that a `NonlinearLeastSquaresModel`
+applies — the default for a Gaussian observation with a nonlinear-in-`x` mean.
+When it is `:gauss_newton`, the latent marginals and `log p(y)` carry that
+approximation; pass `nls = false` to the model constructor to force the exact
+path instead.
 
 ## Reference
 
