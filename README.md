@@ -18,15 +18,15 @@ You have a latent Gaussian model — a spatial disease map, a temporal trend, a 
 Latte lets you write the model once and choose how to handle it. Describe the model with the `@latte` macro using `~` statements, then pick an inference engine: grid-based integration over the hyperparameters (INLA), a point estimate with a Gaussian covariance (TMB), or NUTS run on the Laplace marginal (tmbstan-style). The model definition does not change when you switch engines, and every engine returns results through the same set of accessors.
 
 > [!WARNING]
-> **Early development.** Latte is `v0.1.0-DEV`. The API is not yet stable and breaking changes should be expected before a 1.0 release. It is not yet in the General registry; install from the GitHub URL below.
+> **Early development.** The API is not yet stable and breaking changes should be expected before a 1.0 release.
 
 ## Installation
 
-```julia
-] add https://github.com/timweiland/Latte.jl
-```
+Latte is registered in the General registry:
 
-Once Latte is registered in the General registry, `] add Latte` will work too.
+```julia
+] add Latte
+```
 
 ## Example
 

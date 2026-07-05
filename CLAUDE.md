@@ -15,7 +15,7 @@ protocol:
 - `tmb` — TMB-style MAP + Laplace (delta-method) covariance.
 - `hmc_laplace` — NUTS on the Laplace marginal `L(θ)` (embedded Laplace + HMC, à la Margossian et al. 2020 / tmbstan).
 
-The package is pre-1.0 (`v0.1.0-DEV`); the API is not yet stable.
+The package is registered in the General registry but pre-1.0; the API is not yet stable.
 
 ## Common Commands
 

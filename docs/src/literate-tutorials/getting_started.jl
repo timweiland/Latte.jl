@@ -8,15 +8,12 @@
 #
 # ## Installation
 # If you haven't done so already, you need to install both
-# [Julia](https://julialang.org/install/) and this package. Latte is not yet
-# in the General registry, so install it from the GitHub URL:
+# [Julia](https://julialang.org/install/) and this package:
 #
 # ```julia
 # using Pkg
-# Pkg.add(url = "https://github.com/timweiland/Latte.jl")
+# Pkg.add("Latte")
 # ```
-#
-# Once Latte is registered, `Pkg.add("Latte")` will be the one-liner.
 #
 # ## Latent Gaussian models and the three engines
 #
