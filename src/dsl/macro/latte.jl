@@ -273,11 +273,26 @@ function _replace_fname(sig::Expr, new_name::Symbol)
     return Expr(sig.head, args...)
 end
 
-# Records: (lhs_sym::Symbol, free::Vector{Symbol}, dotted::Bool, family::Union{Symbol,Nothing}, marker::Symbol).
+# Records: (lhs_sym::Symbol, free::Vector{Symbol}, dotted::Bool, family::Union{Symbol,Nothing},
+# marker::Symbol, noise_key::Union{String,Nothing}).
 _serialise_records(it) = collect(
-    (b.lhs_sym, sort(collect(b.rhs_free)), b.is_dotted, b.family, b.marker)
+    (b.lhs_sym, sort(collect(b.rhs_free)), b.is_dotted, b.family, b.marker, _noise_key(b.family, b.rhs))
         for b in it
 )
+
+# Source text of a Normal observation's σ argument, used in the obs grouping
+# key: two constant-noise channels may share an obs group only when their σ
+# expressions match. A merged group with differing fixed σ would be
+# heteroskedastic, which the rename-only fast-path route can't represent —
+# the group would needlessly fall back to AD. `nothing` for non-Normal
+# families and for `Normal(μ)` (default σ); those merge as before.
+function _noise_key(family, rhs)
+    family === :Normal || return nothing
+    rhs isa Expr && rhs.head === :call || return nothing
+    args = [a for a in rhs.args[2:end] if !(a isa Expr && a.head in (:parameters, :kw))]
+    length(args) == 2 || return nothing
+    return string(args[2])
+end
 
 # Macro-time: build the spliceable `recognition` expression for the runtime
 # `_build_lgm_from_latte` call, or `:(nothing)` when the body isn't
@@ -380,16 +395,16 @@ end
 
 function _quote_records(records)
     items = Expr(:vect)
-    for (lhs, free_vec, dotted, family, marker) in records
-        free_e = Expr(:vect, [QuoteNode(s) for s in free_vec]...)
-        family_e = family === nothing ? :nothing : QuoteNode(family)
-        push!(
-            items.args,
-            Expr(:tuple, QuoteNode(lhs), free_e, dotted, family_e, QuoteNode(marker)),
-        )
+    for rec in records
+        push!(items.args, Expr(:tuple, map(_quote_record_field, rec)...))
     end
     return items
 end
+_quote_record_field(s::Symbol) = QuoteNode(s)
+_quote_record_field(v::Vector{Symbol}) = Expr(:vect, [QuoteNode(s) for s in v]...)
+_quote_record_field(b::Bool) = b
+_quote_record_field(::Nothing) = :nothing
+_quote_record_field(s::String) = s
 
 # ─── LGM construction from records ────────────────────────────────────────────
 function _build_lgm_from_latte(
@@ -409,7 +424,8 @@ function _build_lgm_from_latte(
     obs_dep = Dict{Symbol, Set{Symbol}}()
     obs_seen = Dict{Symbol, Set{Symbol}}()
     obs_family = Dict{Symbol, Union{Symbol, Nothing}}()
-    for (lhs, free_vec, _dotted, family, _marker) in obs_records
+    obs_noise = Dict{Symbol, Union{String, Nothing}}()
+    for (lhs, free_vec, _dotted, family, _marker, noise_key) in obs_records
         deps = intersect(Set(Symbol.(free_vec)), Set(hp_names))
         if haskey(obs_seen, lhs)
             if obs_seen[lhs] != deps
@@ -421,20 +437,30 @@ function _build_lgm_from_latte(
                     ),
                 )
             end
+            # Same symbol, differing σ expressions across blocks: the channel
+            # is internally heteroskedastic no matter how it's grouped. Mark it
+            # mixed so it merges the same way it does today (and falls back to
+            # AD in the group planner as before).
+            obs_noise[lhs] === noise_key || (obs_noise[lhs] = "__mixed__")
         else
             obs_seen[lhs] = deps
             obs_dep[lhs] = deps
             obs_family[lhs] = family
+            obs_noise[lhs] = noise_key
         end
     end
 
-    # Group obs syms by (family, deps). Same as Codex's approach: a Normal
-    # block and a Poisson block with the same hp set still split, because the
-    # downstream component needs to instantiate one likelihood family per
-    # component.
-    groups_by_key = Dict{Tuple{Union{Symbol, Nothing}, Set{Symbol}}, Vector{Symbol}}()
+    # Group obs syms by (family, deps, noise expression). Same as Codex's
+    # approach for (family, deps): a Normal block and a Poisson block with the
+    # same hp set still split, because the downstream component needs to
+    # instantiate one likelihood family per component. The noise expression
+    # additionally keeps constant-noise Normal channels with *different* fixed
+    # σ apart: merging them would make the group heteroskedastic, which the
+    # rename-only fast-path route can't represent — the merged group would
+    # needlessly fall back to AD.
+    groups_by_key = Dict{Tuple{Union{Symbol, Nothing}, Set{Symbol}, Union{String, Nothing}}, Vector{Symbol}}()
     for (sym, deps) in obs_dep
-        key = (obs_family[sym], deps)
+        key = (obs_family[sym], deps, obs_noise[sym])
         push!(get!(groups_by_key, key, Symbol[]), sym)
     end
 
@@ -444,13 +470,17 @@ function _build_lgm_from_latte(
     # would trip nested-AD tag stacking through the outer hp-gradient pass.
     # Multi-group case: composite is required for distinct-hp routing, even
     # at the cost of (currently) blocking gradient-based inference on those
-    # LGMs.
-    obs_groups = if isempty(obs_dep) || length(groups_by_key) <= 1
+    # LGMs. The single-vs-composite decision deliberately ignores the noise
+    # key: σ-splitting only refines a model that is already composite, so a
+    # pair of constant-σ channels with nothing else stays on the single path
+    # (with its AD fallback) rather than losing gradient-based engines.
+    unsplit_keys = Set((k[1], k[2]) for k in keys(groups_by_key))
+    obs_groups = if isempty(obs_dep) || length(unsplit_keys) <= 1
         nothing
     else
         ordered = sort(
             collect(groups_by_key);
-            by = ((k, _v),) -> (string(k[1]), sort(collect(k[2]))),
+            by = ((k, _v),) -> (string(k[1]), sort(collect(k[2])), string(k[3])),
         )
         [
             Symbol("group_$(i)") => Tuple(sort(syms))

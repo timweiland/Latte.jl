@@ -768,7 +768,8 @@ function _infer_fast_component_route(
         getter = getproperty(getters, inner_name)
         baseline_vals = [Float64(getter(s.dist)) for s in baseline_sites]
         if !all(isapprox(baseline_vals[1]; atol = 1.0e-9), baseline_vals)
-            return nothing  # heteroskedastic at baseline
+            @debug "fast-path route: `$inner_name` varies across sites (heteroskedastic at baseline)"
+            return nothing
         end
         baseline_v = baseline_vals[1]
 
@@ -784,7 +785,8 @@ function _infer_fast_component_route(
             isempty(sites_pert) && return nothing
             v_pert = [Float64(getter(s.dist)) for s in sites_pert]
             if !all(isapprox(v_pert[1]; atol = 1.0e-9), v_pert)
-                return nothing  # heteroskedastic under perturbation
+                @debug "fast-path route: `$inner_name` varies across sites under hp `$k_out`"
+                return nothing
             end
             v = v_pert[1]
             if isapprox(v, perturbed; atol = 1.0e-9)
@@ -792,6 +794,7 @@ function _infer_fast_component_route(
             elseif !isapprox(v, baseline_v; atol = 1.0e-9)
                 # Outer hp influenced the kwarg through some transform we
                 # can't represent as a rename — bail to AD.
+                @debug "fast-path route: `$inner_name` driven by a transform of hp `$k_out`"
                 return nothing
             end
         end
@@ -805,10 +808,12 @@ function _infer_fast_component_route(
         isempty(sites_x) && return nothing
         v_x = [Float64(getter(s.dist)) for s in sites_x]
         if !all(isapprox(v_x[1]; atol = 1.0e-9), v_x)
-            return nothing  # heteroskedastic under latent perturbation
+            @debug "fast-path route: `$inner_name` varies across sites under a latent perturbation"
+            return nothing
         end
         if !isapprox(v_x[1], baseline_v; atol = 1.0e-9)
-            return nothing  # latent-dependent — fast path can't represent this
+            @debug "fast-path route: `$inner_name` depends on the latent vector"
+            return nothing
         end
 
         if length(matches) == 1
@@ -816,7 +821,8 @@ function _infer_fast_component_route(
         elseif length(matches) == 0
             push!(fixed_pairs, inner_name => baseline_v)
         else
-            return nothing  # shared across multiple outer hps
+            @debug "fast-path route: `$inner_name` driven by multiple hps $matches"
+            return nothing
         end
     end
 

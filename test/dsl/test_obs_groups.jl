@@ -630,3 +630,113 @@ end
         end
     end
 end
+
+# Two constant-noise linear-Gaussian channels with *different* fixed σ share
+# family and hp deps, so grouping by (family, deps) alone would merge them into
+# one heteroskedastic group — which the rename-only fast-path route can't
+# represent, needlessly dropping the group to AutoDiff. The grouping key also
+# carries the σ expression, so the channels stay separate LTM components.
+@testset "constant-σ Normal channels with different σ stay separate LTM groups" begin
+    n, p = 6, 2
+    Random.seed!(21)
+    A = randn(n, p)
+    β0 = [0.5, -0.3]
+    y_a = A * β0 .+ 0.01 .* randn(n)   # tight channel
+    y_b = A * β0 .+ 0.1 .* randn(n)   # loose channel
+    y_c = A * β0 .+ 0.05 .* randn(n)   # hp-noise channel (forces the composite path)
+    y = vcat(y_a, y_b, y_c)
+
+    @latte function het_split(y_a, y_b, y_c, A, p)
+        σ_c ~ truncated(Normal(0.1, 0.05); lower = 0.01)
+        β ~ MvNormal(zeros(p), 100.0 * I(p))
+        for i in eachindex(y_a)
+            y_a[i] ~ Normal(dot(A[i, :], β), 0.01)
+        end
+        for i in eachindex(y_b)
+            y_b[i] ~ Normal(dot(A[i, :], β), 0.1)
+        end
+        for i in eachindex(y_c)
+            y_c[i] ~ Normal(dot(A[i, :], β), σ_c)
+        end
+    end
+
+    lgm = het_split(y_a, y_b, y_c, A, p)
+    comp = Latte._underlying_composite(lgm.observation_model)
+    @test comp !== nothing
+    @test length(comp.components) == 3
+    s = string(typeof(lgm.observation_model))
+    @test !occursin("AutoDiff", s)
+    @test !occursin("NonlinearLeastSquares", s)
+    @test occursin("LinearlyTransformed", s)
+
+    # Exactness: every component is a plain linear-Gaussian likelihood, so the
+    # posterior matches the exact single-AD reference.
+    res = inla(het_split(y_a, y_b, y_c, A, p), y; latent_marginalization_method = GaussianMarginal(), progress = false)
+    dppl = Latte.dppl_model(het_split)(y_a, y_b, y_c, A, p)
+    lgm_ad = Latte.latte_from_dppl(dppl; random = :β, force_ad_obs_model = true)
+    @test occursin("AutoDiff", string(typeof(lgm_ad.observation_model)))
+    res_ad = inla(lgm_ad, y; latent_marginalization_method = GaussianMarginal(), progress = false)
+    lm, lm_ad = latent_marginals(res), latent_marginals(res_ad)
+    @test maximum(abs, mean.(lm) .- mean.(lm_ad)) < 1.0e-3
+    @test maximum(abs, std.(lm) .- std.(lm_ad)) < 1.0e-3
+    @test isapprox(
+        mean(res.hyperparameter_marginals[:σ_c]),
+        mean(res_ad.hyperparameter_marginals[:σ_c]); atol = 0.02,
+    )
+end
+
+# Homoskedastic control: matching σ expressions still merge into one group —
+# the σ-key split only separates channels whose noise genuinely differs.
+@testset "constant-σ Normal channels with matching σ still merge into one group" begin
+    n, p = 6, 2
+    Random.seed!(22)
+    A = randn(n, p)
+    β0 = [0.5, -0.3]
+    y_a = A * β0 .+ 0.05 .* randn(n)
+    y_b = A * β0 .+ 0.05 .* randn(n)
+    y_c = A * β0 .+ 0.05 .* randn(n)
+
+    @latte function hom_merge_g(y_a, y_b, y_c, A, p)
+        σ_c ~ truncated(Normal(0.1, 0.05); lower = 0.01)
+        β ~ MvNormal(zeros(p), 100.0 * I(p))
+        for i in eachindex(y_a)
+            y_a[i] ~ Normal(dot(A[i, :], β), 0.05)
+        end
+        for i in eachindex(y_b)
+            y_b[i] ~ Normal(dot(A[i, :], β), 0.05)
+        end
+        for i in eachindex(y_c)
+            y_c[i] ~ Normal(dot(A[i, :], β), σ_c)
+        end
+    end
+
+    lgm = hom_merge_g(y_a, y_b, y_c, A, p)
+    comp = Latte._underlying_composite(lgm.observation_model)
+    @test comp !== nothing
+    @test length(comp.components) == 2   # merged constant-σ pair + hp channel
+    s = string(typeof(lgm.observation_model))
+    @test !occursin("AutoDiff", s)
+    @test occursin("LinearlyTransformed", s)
+end
+
+# A pair of constant-σ channels with nothing else in the model stays on the
+# single-obs path (today's AD fallback there is gradient-capable); the σ-key
+# split only refines models that are already composite.
+@testset "σ-key split does not flip a single-group model to composite" begin
+    n = 5
+    Random.seed!(23)
+    ya, yb = 0.2 .* randn(n), 0.2 .* randn(n)
+    @latte function two_chan_only(y_a, y_b, n)
+        τ ~ truncated(Normal(1.0, 0.5); lower = 0.1)
+        x ~ IIDModel(n)(τ = τ)
+        for i in eachindex(y_a)
+            y_a[i] ~ Normal(x[i], 0.01)
+        end
+        for i in eachindex(y_b)
+            y_b[i] ~ Normal(x[i], 0.1)
+        end
+    end
+    lgm = two_chan_only(ya, yb, n)
+    @test Latte._underlying_composite(lgm.observation_model) === nothing
+    @test occursin("AutoDiff", string(typeof(lgm.observation_model)))
+end
