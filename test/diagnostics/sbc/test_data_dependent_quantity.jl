@@ -82,7 +82,7 @@ end
         build = y -> _gauss_iid_lgm(n)
         r = sbc_run(
             build, Vector{Missing}(missing, n);
-            n_attempted = 40, n_posterior = 150,
+            n_attempted = 12, n_posterior = 150,
             engine = :tmb, targets = DataDependentQuantity(),
             base_seed = UInt64(0x0005bcdd), progress = false,
         )

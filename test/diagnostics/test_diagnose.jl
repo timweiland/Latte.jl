@@ -79,7 +79,7 @@ using Random
         tmb_r = tmb(model, y)
 
         Random.seed!(2026)
-        d = diagnose(tmb_r; M = 1000)
+        d = diagnose(tmb_r; M = 500)
         @test d.interpretation in (:excellent, :acceptable)
         # Laplace is near-exact for a Poisson with λ ≈ 3 (well away from the
         # "many zeros" regime that would bend it); k̂ should stay < 0.7

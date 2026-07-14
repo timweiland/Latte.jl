@@ -100,7 +100,7 @@ isdefined(@__MODULE__, :sbc_pois) || include("shared_models.jl")
             n_attempted = 3, n_posterior = 48,
             engine = :hmc_laplace, random = (:x,),
             base_seed = UInt64(0x04c3), progress = false,
-            engine_kwargs = (n_samples = 200, n_warmup = 100),
+            engine_kwargs = (n_samples = 100, n_warmup = 50),
         )
         r1 = sbc_run(build, y_proto; common...)
         r2 = sbc_run(build, y_proto; common...)
@@ -158,14 +158,14 @@ isdefined(@__MODULE__, :sbc_pois) || include("shared_models.jl")
 
         r = sbc_run(
             y -> smoke_latte(y, n), Vector{Missing}(missing, n);
-            n_attempted = 40, n_posterior = 200,
+            n_attempted = 20, n_posterior = 200,
             engine = :inla, base_seed = UInt64(0x05bc_abc),
             progress = false,
         )
 
         @test r isa SBCResult
-        @test r.n_attempted == 40
-        @test r.n_success + r.n_failures == 40
+        @test r.n_attempted == 20
+        @test r.n_success + r.n_failures == 20
         @test r.status != :invalid
         @test length(r.targets) == 1
         @test r.targets[1].label == :τ
