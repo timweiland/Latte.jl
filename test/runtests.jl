@@ -15,10 +15,10 @@ using Latte: marginalize
 const TEST_GROUP = get(ENV, "LATTE_TEST_GROUP", "all")
 ingroup(g::String) = TEST_GROUP == "all" || TEST_GROUP == g
 
+# Keep dsl files inside dsl shards: they amortize the DSL/non-Gaussian pipeline compile
+# across the group's process, so a dsl file moved into core costs far more there than its
+# in-shard marginal time.
 const DSL_GROUPED_FILES = (
-    core = [
-        "test_nlsq_recognition.jl", "test_structured_macro.jl",
-    ],
     dsl1 = [
         "test_adapter.jl", "test_end_to_end.jl", "test_fast_path_detection.jl",
         "test_constraints.jl", "test_fixed_gmrf_model.jl", "test_latent_layout.jl",
@@ -27,12 +27,12 @@ const DSL_GROUPED_FILES = (
         "test_dag_sparse_ad_plan.jl", "test_dotted_prior.jl", "test_landing_example.jl",
     ],
     dsl2 = [
-        "test_fast_path_agrees.jl", "test_nlsq_composite.jl",
+        "test_fast_path_agrees.jl", "test_nlsq_recognition.jl", "test_nlsq_composite.jl",
         "test_obs_groups.jl", "test_latte_macro.jl", "test_turing_handoff.jl",
     ],
     dsl3 = [
         "test_recognition.jl", "test_matrix_latents.jl", "test_factor_extraction.jl",
-        "test_structured_guard.jl", "test_block_latent.jl",
+        "test_structured_guard.jl", "test_structured_macro.jl", "test_block_latent.jl",
     ],
 )
 
@@ -74,9 +74,6 @@ const DSL_GROUPED_FILES = (
         include("posterior_sampling/runtests.jl")
         include("linear_combinations/runtests.jl")
         include("model_averaging/runtests.jl")
-        for f in DSL_GROUPED_FILES.core
-            include(joinpath("dsl", f))
-        end
     end
 
     if ingroup("dsl1")
