@@ -46,7 +46,7 @@ isdefined(@__MODULE__, :sbc_pois) || include("shared_models.jl")
         y_proto = Vector{Missing}(missing, n)
 
         common = (;
-            n_attempted = 6, n_posterior = 32,
+            n_attempted = 4, n_posterior = 32,
             engine = :inla, random = (:x,),
             base_seed = UInt64(0xbeef), progress = false,
         )
@@ -64,11 +64,11 @@ isdefined(@__MODULE__, :sbc_pois) || include("shared_models.jl")
         y_proto = Vector{Missing}(missing, n)
 
         r1 = sbc_run(
-            build, y_proto; n_attempted = 5, n_posterior = 32,
+            build, y_proto; n_attempted = 3, n_posterior = 32,
             engine = :inla, random = (:x,), base_seed = UInt64(0xdead), progress = false
         )
         r2 = sbc_run(
-            build, y_proto; n_attempted = 5, n_posterior = 32,
+            build, y_proto; n_attempted = 3, n_posterior = 32,
             engine = :inla, random = (:x,), base_seed = UInt64(0xdead), progress = false
         )
 

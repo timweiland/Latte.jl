@@ -12,21 +12,22 @@ import GaussianMarkovRandomFields as G
 _mu_Q(model, hp::NamedTuple) =
     (Distributions.mean(model; hp...), Matrix(Latte.precision_matrix(model; hp...)))
 
+# All-scalar broadcast IID prior, shared by the lowering and end-to-end testsets below.
+@latte function iid_dotted(y, n)
+    log_τ ~ Normal(0.0, 1.0)
+    τ = exp(log_τ)
+    u = Vector{Real}(undef, n)
+    u .~ Normal.(0.0, τ)
+    for i in 1:n
+        y[i] ~ Poisson(exp(u[i]); check_args = false)
+    end
+end
+
 @testset "IID broadcast prior matches the loop form's latent prior" begin
     # `u .~ Normal.(0.0, τ)` (all-scalar broadcast) used to crash at construction with
     # `UndefVarError: τ` (recognition mis-fire) and `BoundsError` (the broadcast collapsed to one
     # distribution). It must now lower to the IID Gaussian prior `N(0, τ²·I)`, identical to the loop.
     n = 12
-
-    @latte function iid_dotted(y, n)
-        log_τ ~ Normal(0.0, 1.0)
-        τ = exp(log_τ)
-        u = Vector{Real}(undef, n)
-        u .~ Normal.(0.0, τ)
-        for i in 1:n
-            y[i] ~ Poisson(exp(u[i]); check_args = false)
-        end
-    end
 
     # Plain-DPPL loop reference: the same model written element-wise.
     @model function iid_loop(y, n)
@@ -62,16 +63,6 @@ end
 
 @testset "Broadcast prior runs end-to-end through inla" begin
     n = 25
-
-    @latte function iid_dotted(y, n)
-        log_τ ~ Normal(0.0, 1.0)
-        τ = exp(log_τ)
-        u = Vector{Real}(undef, n)
-        u .~ Normal.(0.0, τ)
-        for i in 1:n
-            y[i] ~ Poisson(exp(u[i]); check_args = false)
-        end
-    end
 
     Random.seed!(20260619)
     u_true = 0.6 .* randn(n)

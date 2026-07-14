@@ -5,22 +5,13 @@ using GaussianMarkovRandomFields
 using SparseArrays
 using Random
 
+isdefined(@__MODULE__, :make_poisson_iid_model) ||
+    include(joinpath(@__DIR__, "..", "shared_test_models.jl"))
+
 # diagnose() works uniformly across the three Laplace-based InferenceResult
 # types. Well-behaved IID Poisson model → excellent/acceptable verdict;
 # exact k̂ varies with RNG but interpretation is stable.
 @testset "diagnose() on InferenceResult types" begin
-    function make_poisson_iid_model(n)
-        spec = @hyperparams begin
-            (τ ~ Gamma(2, 1), transform = log, space = natural)
-        end
-        function latent_func(; τ, kwargs...)
-            Q = spdiagm(0 => fill(τ, n))
-            return (zeros(n), Q)
-        end
-        obs_model = ExponentialFamily(Poisson)
-        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
-    end
-
     @testset "Uniform shape across INLA, TMB, HMC-Laplace" begin
         n = 15
         model = make_poisson_iid_model(n)

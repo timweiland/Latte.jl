@@ -6,32 +6,10 @@ using SparseArrays
 using Statistics
 using Random
 
+isdefined(@__MODULE__, :make_poisson_iid_model) ||
+    include(joinpath(@__DIR__, "..", "shared_test_models.jl"))
+
 @testset "rand(::INLAResult)" begin
-
-    # Shared model constructors
-    function make_normal_iid_model(n)
-        spec = @hyperparams begin
-            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
-        end
-        function latent_func(; σ, kwargs...)
-            Q = spdiagm(0 => fill(1 / σ^2, n))
-            return (zeros(n), Q)
-        end
-        obs_model = ExponentialFamily(Normal)
-        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
-    end
-
-    function make_poisson_iid_model(n)
-        spec = @hyperparams begin
-            (τ ~ Gamma(2, 1), transform = log, space = natural)
-        end
-        function latent_func(; τ, kwargs...)
-            Q = spdiagm(0 => fill(τ, n))
-            return (zeros(n), Q)
-        end
-        obs_model = ExponentialFamily(Poisson)
-        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
-    end
 
     # One shared fit (n = 10, seed 42) serves every testset that only inspects
     # sampling behaviour on a fitted result.
