@@ -26,6 +26,14 @@ make test     # run the full test suite
 To run a single test file: start `julia --project`, then
 `using TestEnv; TestEnv.activate(); include("test/…")`.
 
+CI shards the suite across four parallel jobs via the `LATTE_TEST_GROUP` env var
+(`core`, `dsl1`, `dsl2`, `dsl3`); the group → file mapping lives in `test/runtests.jl`,
+which runs everything when the variable is unset. A guard testset keeps the dsl shard
+lists in sync with `test/dsl/runtests.jl`. Expensive-to-compile models shared across
+dsl test files live in `test/dsl/shared_models.jl` (guarded include) — reuse those
+instead of redefining structurally identical `@model`/`@latte` functions, since every
+distinct model type pays its own DynamicPPL/AD compile specialization.
+
 ### Development
 ```bash
 make setup    # install dev dependencies

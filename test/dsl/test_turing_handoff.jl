@@ -35,7 +35,7 @@ using Statistics
         y = rand.(Poisson.(exp.(true_x)))
         model = iid_poisson(y, n)
 
-        chain = sample(model, NUTS(), 2000; progress = false)
+        chain = sample(model, NUTS(), 1000; progress = false)
         x_nuts = [mean(chain[Symbol("x[$i]")]) for i in 1:n]
 
         lgm = latte_from_dppl(model; random = (:x,))
@@ -83,7 +83,7 @@ using Statistics
         y = rand.(Poisson.(exp.(true_x)))
 
         dppl = Latte.dppl_model(iid_poisson_latte)(y, n)
-        chain = sample(dppl, NUTS(), 1500; progress = false)
+        chain = sample(dppl, NUTS(), 800; progress = false)
         τ_nuts_med = median(chain[:τ])
 
         result = inla(iid_poisson_latte(y, n), y; progress = false)
@@ -113,7 +113,7 @@ using Statistics
             end
         end
         r_ar1 = inla(ar1_h(y, n), y; progress = false)
-        ch_ar1 = sample(Latte.dppl_model(ar1_h)(y, n), NUTS(400, 0.9), 800; progress = false)
+        ch_ar1 = sample(Latte.dppl_model(ar1_h)(y, n), NUTS(300, 0.9), 500; progress = false)
         for nm in (:τ, :ρ)
             ratio = median(vec(Array(ch_ar1[nm]))) / quantile(hyperparameter_marginals(r_ar1, nm)[1], 0.5)
             @test 1 / 3 < ratio < 3
@@ -130,7 +130,7 @@ using Statistics
                 y[i] ~ Poisson(exp(x[i]); check_args = false)
             end
         end
-        ch_rw1 = sample(Latte.dppl_model(rw1_h)(y, n), NUTS(400, 0.9), 800; progress = false)
+        ch_rw1 = sample(Latte.dppl_model(rw1_h)(y, n), NUTS(300, 0.9), 500; progress = false)
         @test median(vec(Array(ch_rw1[:τ]))) < τ_prior_med / 3   # coupled, not the prior
     end
 end

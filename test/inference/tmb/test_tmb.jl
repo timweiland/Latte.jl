@@ -7,17 +7,16 @@ using SparseArrays
 using Random
 using Statistics
 
+isdefined(@__MODULE__, :make_poisson_iid_model) ||
+    include(joinpath(@__DIR__, "..", "..", "shared_test_models.jl"))
+
 @testset "tmb(LatentGaussianModel, y)" begin
-    function make_poisson_iid_model(n)
-        spec = @hyperparams begin
-            (τ ~ Gamma(2, 1), transform = log, space = natural)
-        end
-        function latent_func(; τ, kwargs...)
-            Q = spdiagm(0 => fill(τ, n))
-            return (zeros(n), Q)
-        end
-        obs_model = ExponentialFamily(Poisson)
-        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
+    # One shared fit (n = 10, seed 42) serves the alias / rand / reproducibility
+    # testsets, which only inspect the fitted result.
+    shared_n = 10
+    shared_result = let
+        Random.seed!(42)
+        tmb(make_poisson_iid_model(shared_n), rand(Poisson(3.0), shared_n))
     end
 
     @testset "Result shape and protocol conformance" begin
@@ -64,11 +63,7 @@ using Statistics
     end
 
     @testset "TMB aliases" begin
-        n = 10
-        model = make_poisson_iid_model(n)
-        Random.seed!(42)
-        y = rand(Poisson(3.0), n)
-        result = tmb(model, y)
+        n, result = shared_n, shared_result
 
         @test fixed_effects(result) === hyperparameter_marginals(result)
         @test random_effects(result) === latent_marginals(result)
@@ -77,11 +72,7 @@ using Statistics
     end
 
     @testset "rand(TMBResult, n) returns PosteriorSamples" begin
-        n = 10
-        model = make_poisson_iid_model(n)
-        Random.seed!(42)
-        y = rand(Poisson(3.0), n)
-        result = tmb(model, y)
+        n, result = shared_n, shared_result
 
         samples = rand(MersenneTwister(1), result, 20)
         @test samples isa PosteriorSamples
@@ -106,11 +97,7 @@ using Statistics
     end
 
     @testset "Reproducibility with seeded RNG" begin
-        n = 10
-        model = make_poisson_iid_model(n)
-        Random.seed!(42)
-        y = rand(Poisson(3.0), n)
-        result = tmb(model, y)
+        n, result = shared_n, shared_result
 
         s1 = rand(MersenneTwister(99), result, 5)
         s2 = rand(MersenneTwister(99), result, 5)

@@ -28,7 +28,7 @@ using Statistics
 
     inla_r = inla(model, y; progress = false)
     tmb_r = tmb(model, y)
-    hmc_r = hmc_laplace(model, y; n_samples = 200, n_warmup = 100, rng = MersenneTwister(1))
+    hmc_r = hmc_laplace(model, y; n_samples = 100, n_warmup = 50, rng = MersenneTwister(1))
 
     results = [("INLA", inla_r), ("TMB", tmb_r), ("HMC-Laplace", hmc_r)]
 

@@ -7,19 +7,10 @@ using SparseArrays
 using Random
 using Statistics
 
-@testset "hmc_laplace(LatentGaussianModel, y)" begin
-    function make_poisson_iid_model(n)
-        spec = @hyperparams begin
-            (τ ~ Gamma(2, 1), transform = log, space = natural)
-        end
-        function latent_func(; τ, kwargs...)
-            Q = spdiagm(0 => fill(τ, n))
-            return (zeros(n), Q)
-        end
-        obs_model = ExponentialFamily(Poisson)
-        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
-    end
+isdefined(@__MODULE__, :make_poisson_iid_model) ||
+    include(joinpath(@__DIR__, "..", "..", "shared_test_models.jl"))
 
+@testset "hmc_laplace(LatentGaussianModel, y)" begin
     @testset "Result shape and protocol conformance" begin
         n = 15
         model = make_poisson_iid_model(n)

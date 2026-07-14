@@ -6,39 +6,21 @@ using SparseArrays
 using Statistics
 using Random
 
+isdefined(@__MODULE__, :make_poisson_iid_model) ||
+    include(joinpath(@__DIR__, "..", "shared_test_models.jl"))
+
 @testset "rand(::INLAResult)" begin
 
-    # Shared model constructors
-    function make_normal_iid_model(n)
-        spec = @hyperparams begin
-            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
-        end
-        function latent_func(; σ, kwargs...)
-            Q = spdiagm(0 => fill(1 / σ^2, n))
-            return (zeros(n), Q)
-        end
-        obs_model = ExponentialFamily(Normal)
-        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
-    end
-
-    function make_poisson_iid_model(n)
-        spec = @hyperparams begin
-            (τ ~ Gamma(2, 1), transform = log, space = natural)
-        end
-        function latent_func(; τ, kwargs...)
-            Q = spdiagm(0 => fill(τ, n))
-            return (zeros(n), Q)
-        end
-        obs_model = ExponentialFamily(Poisson)
-        return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
+    # One shared fit (n = 10, seed 42) serves every testset that only inspects
+    # sampling behaviour on a fitted result.
+    shared_n = 10
+    shared_result = let
+        Random.seed!(42)
+        inla(make_normal_iid_model(shared_n), randn(shared_n); progress = false)
     end
 
     @testset "Deterministic with seed" begin
-        n = 10
-        model = make_normal_iid_model(n)
-        Random.seed!(42)
-        y = randn(n)
-        result = inla(model, y; progress = false)
+        n, result = shared_n, shared_result
 
         samples1 = rand(MersenneTwister(123), result, 5)
         samples2 = rand(MersenneTwister(123), result, 5)
@@ -50,11 +32,7 @@ using Random
     end
 
     @testset "Output structure" begin
-        n = 10
-        model = make_normal_iid_model(n)
-        Random.seed!(42)
-        y = randn(n)
-        result = inla(model, y; progress = false)
+        n, result = shared_n, shared_result
 
         # Multiple samples without include_y
         samples = rand(MersenneTwister(1), result, 3)
@@ -95,11 +73,7 @@ using Random
     end
 
     @testset "Hyperparameter values come from integration points" begin
-        n = 10
-        model = make_normal_iid_model(n)
-        Random.seed!(42)
-        y = randn(n)
-        result = inla(model, y; progress = false)
+        result = shared_result
 
         samples = rand(MersenneTwister(1), result, 50)
 
@@ -181,12 +155,8 @@ using Random
         end
     end
 
-    @testset "Edge case: n = 1" begin
-        n = 10
-        model = make_normal_iid_model(n)
-        Random.seed!(42)
-        y = randn(n)
-        result = inla(model, y; progress = false)
+    @testset "Edge case: a single sample" begin
+        n, result = shared_n, shared_result
 
         samples = rand(MersenneTwister(1), result, 1)
         @test length(samples) == 1
