@@ -35,7 +35,7 @@ jobs:
           - dsl2
           - dsl3
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
       - uses: julia-actions/setup-julia@v1
@@ -62,7 +62,7 @@ jobs:
       contents: write
       statuses: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
       - uses: julia-actions/setup-julia@v1
@@ -116,7 +116,7 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           lfs: true
       - uses: julia-actions/setup-julia@v1
