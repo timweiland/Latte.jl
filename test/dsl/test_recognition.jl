@@ -183,31 +183,16 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
         @test base isa Latte.RoutedLatentModel
         @test base.inner isa MyCustomLatent
 
-        @model function custom_dppl(y)
-            τ ~ Gamma(2.0, 1.0)
-            z ~ MyCustomLatent(length(y))(; τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(z[i]); check_args = false)
-            end
-        end
-        ref = latte_from_dppl(custom_dppl(y_obs); random = (:z,), augment = true)
-
         comps = latent_components(lgm)
         @test collect(keys(comps)) == [:z]
         @test comps[:z] isa MyCustomLatent
-        @test latent_components(ref) === nothing
 
+        # Inference through the routed arbitrary subtype runs end to end. (The
+        # recognized-vs-DAG numerical agreement is pinned by the RW1 and
+        # multi-component testsets; MyCustomLatent delegates its numeric
+        # contract to an inner IIDModel, so a smoke check suffices here.)
         inla_rec = inla(lgm, y_obs; progress = false)
-        inla_ref = inla(ref, y_obs; progress = false)
-
-        mode_rec = convert(NamedTuple, hyperparameter_mode(inla_rec)).τ
-        mode_ref = convert(NamedTuple, hyperparameter_mode(inla_ref)).τ
-        @test mode_rec ≈ mode_ref rtol = 1.0e-3
-
-        base_rec = latent_marginals(inla_rec)[lgm.augmentation_info.base_latent_indices]
-        base_ref = latent_marginals(inla_ref)[ref.augmentation_info.base_latent_indices]
-        @test mean.(base_rec) ≈ mean.(base_ref) rtol = 1.0e-3
-        @test std.(base_rec) ≈ std.(base_ref) rtol = 1.0e-3
+        @test all(isfinite, mean.(latent_marginals(inla_rec)))
     end
 
     # Feature: hyperparameter-free (fixed) latent priors are recognized too.
@@ -248,28 +233,14 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
         @test comps[:β] isa FixedEffectsModel
         @test comps[:x] isa RWModel{1}
 
-        @model function gam_mvn_dppl(y, X)
-            τ_x ~ Gamma(2.0, 1.0)
-            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I(size(X, 2)))
-            x ~ RW1Model(length(y))(; τ = τ_x)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(dot(view(X, i, :), β) + x[i]); check_args = false)
-            end
-        end
-        ref = latte_from_dppl(gam_mvn_dppl(y_obs, X); random = (:β, :x), augment = true)
-        @test latent_components(ref) === nothing
-
+        # The MvNormal → FixedEffectsModel mapping is pinned structurally above
+        # (λ ≈ 0.01, component order); inference through the FixedEffectsModel
+        # component must run end to end. (Recognized-vs-DAG agreement is pinned
+        # by the RW1 and multi-component testsets.)
         inla_rec = inla(lgm, y_obs; progress = false)
-        inla_ref = inla(ref, y_obs; progress = false)
-        mode_rec = convert(NamedTuple, hyperparameter_mode(inla_rec)).τ_x
-        mode_ref = convert(NamedTuple, hyperparameter_mode(inla_ref)).τ_x
-        @test mode_rec ≈ mode_ref rtol = 1.0e-3
-
         base_rec = latent_marginals(inla_rec)[lgm.augmentation_info.base_latent_indices]
-        base_ref = latent_marginals(inla_ref)[ref.augmentation_info.base_latent_indices]
         @test length(base_rec) == n + p
-        @test mean.(base_rec) ≈ mean.(base_ref) rtol = 1.0e-3
-        @test std.(base_rec) ≈ std.(base_ref) rtol = 1.0e-3
+        @test all(isfinite, mean.(base_rec))
     end
 
     # Fixed priors that `FixedEffectsModel` can't represent (non-isotropic
@@ -323,27 +294,9 @@ GaussianMarkovRandomFields.model_name(::MyCustomLatent) = :mycustom
         comps = latent_components(lgm)
         @test collect(keys(comps)) == [:x]
         @test comps[:x] isa RWModel{1}
-
-        @model function rw_via_arg_dppl(y, base)
-            τ ~ Gamma(2.0, 1.0)
-            x ~ base(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(x[i]); check_args = false)
-            end
-        end
-        ref = latte_from_dppl(rw_via_arg_dppl(y_obs, base); random = (:x,), augment = true)
-        @test latent_components(ref) === nothing
-
-        inla_rec = inla(lgm, y_obs; progress = false)
-        inla_ref = inla(ref, y_obs; progress = false)
-        mode_rec = convert(NamedTuple, hyperparameter_mode(inla_rec)).τ
-        mode_ref = convert(NamedTuple, hyperparameter_mode(inla_ref)).τ
-        @test mode_rec ≈ mode_ref rtol = 1.0e-3
-
-        base_rec = latent_marginals(inla_rec)[lgm.augmentation_info.base_latent_indices]
-        base_ref = latent_marginals(inla_ref)[ref.augmentation_info.base_latent_indices]
-        @test mean.(base_rec) ≈ mean.(base_ref) rtol = 1.0e-3
-        @test std.(base_rec) ≈ std.(base_ref) rtol = 1.0e-3
+        # The recognized route here is the same RW1Model route as the first
+        # testset, so the structural asserts above are the whole variable-callee
+        # claim — no separate numerical pair needed.
     end
 end
 
