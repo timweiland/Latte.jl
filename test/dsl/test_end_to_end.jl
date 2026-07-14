@@ -8,20 +8,9 @@ using Random
 # End-to-end validation: write a DPPL model, hand it to `latte_from_dppl`,
 # then run both `inla()` and `tmb()` on the resulting LGM. Exercises the
 # shared InferenceResult protocol across a DPPL-derived model.
-@testset "DPPL → latte_from_dppl → inla + tmb" begin
-    @model function hier_poisson(y, X, group)
-        n = length(y)
-        p = size(X, 2)
-        G = maximum(group)
-        τ_u ~ Gamma(2, 1)
-        β ~ MvNormal(zeros(p), 100.0 * I(p))
-        u ~ MvNormal(zeros(G), (1 / τ_u) * I(G))
-        η = X * β .+ u[group]
-        for i in 1:n
-            y[i] ~ Poisson(exp(η[i]); check_args = false)
-        end
-    end
+isdefined(@__MODULE__, :shared_hier_poisson) || include("shared_models.jl")
 
+@testset "DPPL → latte_from_dppl → inla + tmb" begin
     Random.seed!(2026)
     n, p, G = 40, 2, 5
     X = [ones(n) randn(n)]
@@ -31,7 +20,7 @@ using Random
     η_true = X * β_true .+ u_true[group]
     y_obs = [rand(Poisson(exp(η))) for η in η_true]
 
-    dppl = hier_poisson(y_obs, X, group)
+    dppl = shared_hier_poisson_vec(y_obs, X, group)
     model = latte_from_dppl(dppl; random = (:β, :u), augment = true)
 
     # Full defaults on all three methods — fast-path + Fix 2 eliminated

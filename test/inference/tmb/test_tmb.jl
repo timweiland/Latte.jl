@@ -20,6 +20,14 @@ using Statistics
         return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
     end
 
+    # One shared fit (n = 10, seed 42) serves the alias / rand / reproducibility
+    # testsets, which only inspect the fitted result.
+    shared_n = 10
+    shared_result = let
+        Random.seed!(42)
+        tmb(make_poisson_iid_model(shared_n), rand(Poisson(3.0), shared_n))
+    end
+
     @testset "Result shape and protocol conformance" begin
         n = 15
         model = make_poisson_iid_model(n)
@@ -64,11 +72,7 @@ using Statistics
     end
 
     @testset "TMB aliases" begin
-        n = 10
-        model = make_poisson_iid_model(n)
-        Random.seed!(42)
-        y = rand(Poisson(3.0), n)
-        result = tmb(model, y)
+        n, result = shared_n, shared_result
 
         @test fixed_effects(result) === hyperparameter_marginals(result)
         @test random_effects(result) === latent_marginals(result)
@@ -77,11 +81,7 @@ using Statistics
     end
 
     @testset "rand(TMBResult, n) returns PosteriorSamples" begin
-        n = 10
-        model = make_poisson_iid_model(n)
-        Random.seed!(42)
-        y = rand(Poisson(3.0), n)
-        result = tmb(model, y)
+        n, result = shared_n, shared_result
 
         samples = rand(MersenneTwister(1), result, 20)
         @test samples isa PosteriorSamples
@@ -106,11 +106,7 @@ using Statistics
     end
 
     @testset "Reproducibility with seeded RNG" begin
-        n = 10
-        model = make_poisson_iid_model(n)
-        Random.seed!(42)
-        y = rand(Poisson(3.0), n)
-        result = tmb(model, y)
+        n, result = shared_n, shared_result
 
         s1 = rand(MersenneTwister(99), result, 5)
         s2 = rand(MersenneTwister(99), result, 5)

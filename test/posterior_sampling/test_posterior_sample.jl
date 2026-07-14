@@ -33,12 +33,16 @@ using Random
         return LatentGaussianModel(spec, FunctionLatentModel(latent_func, n), obs_model)
     end
 
-    @testset "Deterministic with seed" begin
-        n = 10
-        model = make_normal_iid_model(n)
+    # One shared fit (n = 10, seed 42) serves every testset that only inspects
+    # sampling behaviour on a fitted result.
+    shared_n = 10
+    shared_result = let
         Random.seed!(42)
-        y = randn(n)
-        result = inla(model, y; progress = false)
+        inla(make_normal_iid_model(shared_n), randn(shared_n); progress = false)
+    end
+
+    @testset "Deterministic with seed" begin
+        n, result = shared_n, shared_result
 
         samples1 = rand(MersenneTwister(123), result, 5)
         samples2 = rand(MersenneTwister(123), result, 5)
@@ -50,11 +54,7 @@ using Random
     end
 
     @testset "Output structure" begin
-        n = 10
-        model = make_normal_iid_model(n)
-        Random.seed!(42)
-        y = randn(n)
-        result = inla(model, y; progress = false)
+        n, result = shared_n, shared_result
 
         # Multiple samples without include_y
         samples = rand(MersenneTwister(1), result, 3)
@@ -95,11 +95,7 @@ using Random
     end
 
     @testset "Hyperparameter values come from integration points" begin
-        n = 10
-        model = make_normal_iid_model(n)
-        Random.seed!(42)
-        y = randn(n)
-        result = inla(model, y; progress = false)
+        result = shared_result
 
         samples = rand(MersenneTwister(1), result, 50)
 
@@ -181,12 +177,8 @@ using Random
         end
     end
 
-    @testset "Edge case: n = 1" begin
-        n = 10
-        model = make_normal_iid_model(n)
-        Random.seed!(42)
-        y = randn(n)
-        result = inla(model, y; progress = false)
+    @testset "Edge case: a single sample" begin
+        n, result = shared_n, shared_result
 
         samples = rand(MersenneTwister(1), result, 1)
         @test length(samples) == 1
