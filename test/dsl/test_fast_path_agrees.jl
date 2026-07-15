@@ -9,17 +9,11 @@ using Random
 # Correctness cross-check: fast path must agree with the AD fallback to
 # numerical precision on loglik at random x points, and the downstream
 # `inla()` posterior must match within MC error.
+isdefined(@__MODULE__, :shared_hier_poisson) || include("shared_models.jl")
+
 @testset "Fast-path ↔ AD agreement" begin
 
     @testset "Poisson + LogLink: loglik matches AD fallback" begin
-        @model function hier_poisson(y, X, group)
-            τ_u ~ Gamma(2, 1)
-            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I)
-            u ~ MvNormal(zeros(maximum(group)), (1 / τ_u) * I)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(X[i, :] ⋅ β + u[group[i]]); check_args = false)
-            end
-        end
         Random.seed!(2026)
         n, p, G = 40, 2, 5
         X = [ones(n) randn(n)]
@@ -31,9 +25,9 @@ using Random
                 for i in 1:n
         ]
 
-        lgm_fast = latte_from_dppl(hier_poisson(y_obs, X, group); random = (:β, :u))
+        lgm_fast = latte_from_dppl(shared_hier_poisson(y_obs, X, group, G); random = (:β, :u))
         lgm_ad = latte_from_dppl(
-            hier_poisson(y_obs, X, group);
+            shared_hier_poisson(y_obs, X, group, G);
             random = (:β, :u), force_ad_obs_model = true,
         )
 
@@ -56,14 +50,6 @@ using Random
     end
 
     @testset "inla() posterior marginals match between paths" begin
-        @model function hier_poisson(y, X, group)
-            τ_u ~ Gamma(2, 1)
-            β ~ MvNormal(zeros(size(X, 2)), 100.0 * I)
-            u ~ MvNormal(zeros(maximum(group)), (1 / τ_u) * I)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(X[i, :] ⋅ β + u[group[i]]); check_args = false)
-            end
-        end
         Random.seed!(2026)
         n, p, G = 30, 2, 4
         X = [ones(n) randn(n)]
@@ -75,9 +61,9 @@ using Random
                 for i in 1:n
         ]
 
-        lgm_fast = latte_from_dppl(hier_poisson(y_obs, X, group); random = (:β, :u), augment = true)
+        lgm_fast = latte_from_dppl(shared_hier_poisson(y_obs, X, group, G); random = (:β, :u), augment = true)
         lgm_ad = latte_from_dppl(
-            hier_poisson(y_obs, X, group);
+            shared_hier_poisson(y_obs, X, group, G);
             random = (:β, :u), force_ad_obs_model = true,
         )
 

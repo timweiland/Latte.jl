@@ -1,0 +1,8 @@
+# Sharded CI: coverage merges across four test jobs, and Julia's per-process
+# instrumentation makes the trackable-line denominator wobble slightly between
+# runs. Tolerate that noise in the project status instead of flagging phantom drops.
+coverage:
+  status:
+    project:
+      default:
+        threshold: 1%

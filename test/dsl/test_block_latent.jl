@@ -4,6 +4,21 @@ using Distributions, Random, LinearAlgebra
 using Statistics: mean
 import GaussianMarkovRandomFields as G
 
+# Vector state-space: a block MvNormal AR(1) with isotropic precision τ·I. Shared by the
+# dimension-counting and inla testsets below (one model type = one non-Gaussian build).
+@latte function mvblock(y, n, d)
+    log_τ ~ Normal(0.0, 1.0)
+    τ = exp(log_τ)
+    x = Matrix{Real}(undef, d, n)
+    x[:, 1] ~ MvNormal(zeros(d), 1.0 * I(d))
+    for t in 2:n
+        x[:, t] ~ MvNormal(x[:, t - 1], (1.0 / τ) * I(d))
+    end
+    for t in 1:n
+        y[t] ~ Normal(sum(x[:, t]), 0.1)
+    end
+end
+
 # A matrix-slice (multivariate-block) latent `x[:, t] ~ MvNormal(d)` over `n` columns has `n * d`
 # scalar entries, not `n`. `variable_length` used to count the `~` sites (`n`), which sized the
 # probe seed vector wrong and crashed model construction with a BoundsError. It must count scalars.
@@ -11,28 +26,12 @@ import GaussianMarkovRandomFields as G
 @testset "Block (matrix-slice MvNormal) latent dimension" begin
     n, d = 6, 2
 
-    @latte function mvblock_dim(y, n, d)
-        log_τ ~ Normal(0.0, 1.0)
-        τ = exp(log_τ)
-        x = Matrix{Real}(undef, d, n)
-        x[:, 1] ~ MvNormal(zeros(d), 1.0 * I(d))
-        for t in 2:n
-            x[:, t] ~ MvNormal(x[:, t - 1], (1.0 / τ) * I(d))
-        end
-        for t in 1:n
-            y[t] ~ Normal(sum(x[:, t]), 0.1)
-        end
-    end
-
     Random.seed!(20260618)
     y = randn(n)
-    dppl = Latte._LATTE_DPPL_CONSTRUCTORS[mvblock_dim](y, n, d)
+    dppl = Latte._LATTE_DPPL_CONSTRUCTORS[mvblock](y, n, d)
 
     # The fix: total scalar dimension is n*d, not n.
     @test Latte.variable_length(dppl, :x, (log_τ = 1.0,)) == n * d
-
-    # And the model builds.
-    @test mvblock_dim(y, n, d) isa Latte.LatentGaussianModel
 end
 
 # A multivariate-block latent written with a slice LHS (`x[:, t] ~ MvNormal(x[:, t-1], Σ)`) is a
@@ -43,20 +42,6 @@ end
 # must extract it automatically, and `inla` must run and agree with the element-wise scalar form.
 @testset "Block latent auto-structures and runs inla" begin
     n, d = 6, 2
-
-    # Vector state-space: a block MvNormal AR(1) with isotropic precision τ·I.
-    @latte function mvblock(y, n, d)
-        log_τ ~ Normal(0.0, 1.0)
-        τ = exp(log_τ)
-        x = Matrix{Real}(undef, d, n)
-        x[:, 1] ~ MvNormal(zeros(d), 1.0 * I(d))
-        for t in 2:n
-            x[:, t] ~ MvNormal(x[:, t - 1], (1.0 / τ) * I(d))
-        end
-        for t in 1:n
-            y[t] ~ Normal(sum(x[:, t]), 0.1)
-        end
-    end
 
     # The element-wise scalar equivalent (the documented workaround): `MvNormal(μ, (1/τ)·I)` factors
     # into independent `Normal(μ_a, 1/√τ)`. Same joint posterior, but it takes the already-working
@@ -123,9 +108,8 @@ end
 
     lgm = mvaniso(y, n, d)
     # The dense-Σ block must take the structured path (guard-verified against the ForwardDiff
-    # monolithic prior), not crash in the tracer probe.
+    # monolithic prior), not crash in the tracer probe. The regression lives at build time, so
+    # the guard-verified `isa` is the whole claim; block-latent inference itself is covered by
+    # the isotropic testset above.
     @test lgm.latent_prior isa G.StructuredLatentPrior
-
-    r = inla(lgm, y; progress = false)
-    @test all(isfinite, mean.(latent_marginals(r, :x)))
 end

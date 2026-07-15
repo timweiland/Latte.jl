@@ -33,3 +33,9 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 StatsFuns = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
 StatsModels = "3eaba693-59b7-5ba5-a881-562e759f1c8d"
 Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
+
+[compat]
+# Ferrite 1.5 changes the FEM assembly enough that the barrier tutorial's precision
+# matrix gains entries outside GMRFs' precomputed workspace pattern and inla() throws
+# (the known pattern-probe fragility). Cap until that is fixed upstream.
+Ferrite = "~1.4"

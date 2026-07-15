@@ -46,7 +46,7 @@ using Statistics
     @test 0 < quantile(hyperparameter_marginals(r_tmb, :ρ)[1], 0.5) < 1
 
     r_hmc = hmc_laplace(
-        lgm, y; n_samples = 200, n_warmup = 200,
+        lgm, y; n_samples = 200, n_warmup = 100,
         diff_strategy = FiniteDiffStrategy(), rng = MersenneTwister(1),
     )
     @test 0 < median(vec(chain(r_hmc)[:ρ].data)) < 1

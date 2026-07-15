@@ -102,20 +102,21 @@ using Statistics: mean
         end for k in 1:K
     ]
 
+    # One fit of the matrix form serves both testsets below.
+    lgm = sam_mat(logC, nA, nY)
+    r_mat = inla(lgm, logC; progress = false)
+
     @testset "recognition + end-to-end (exercises the pointwise path)" begin
-        lgm = sam_mat(logC, nA, nY)
         @test lgm.latent_prior isa NonGaussianLatentPrior
         @test length(lgm.latent_prior) == 2 * K
 
         # Default accumulators (WAIC / CPO / DIC) drive the pointwise path that used to throw
         # "No value for logF[1, 2]" on a matrix-indexed latent. It must run and stay finite.
-        r = inla(lgm, logC; progress = false)
-        @test all(isfinite, mean.(latent_marginals(r, :logN)))
-        @test all(isfinite, mean.(latent_marginals(r, :logF)))
+        @test all(isfinite, mean.(latent_marginals(r_mat, :logN)))
+        @test all(isfinite, mean.(latent_marginals(r_mat, :logF)))
     end
 
     @testset "matrix layout agrees with the flat-vector workaround" begin
-        r_mat = inla(sam_mat(logC, nA, nY), logC; progress = false)
         r_flat = inla(sam_flat(logC, nA, nY), logC; progress = false)
         for s in (:logN, :logF)
             m_mat = vec(collect(mean.(latent_marginals(r_mat, s))))

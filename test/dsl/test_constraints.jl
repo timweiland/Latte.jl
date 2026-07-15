@@ -20,22 +20,16 @@ import GaussianMarkovRandomFields: constraints
 # `latte_from_dppl` needs to detect that and forward the `(A, e)` pair all
 # the way to the `LatentGaussianModel`'s latent prior so downstream
 # inference (mode finding / GA) sees and respects the constraint.
+isdefined(@__MODULE__, :shared_hier_poisson) || include("shared_models.jl")
+
 @testset "DPPL adapter: constrained atomic Gaussian priors" begin
 
     @testset "sum-to-zero constraint surfaces on the LGM's latent prior" begin
-        @model function m(y, n_iid)
-            τ ~ Gamma(2, 1)
-            u ~ IIDModel(n_iid, constraint = :sumtozero)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(u[i]); check_args = false)
-            end
-        end
-
         Random.seed!(11)
         n = 8
         y_obs = rand(Poisson(1.0), n)
 
-        lgm = latte_from_dppl(m(y_obs, n); random = (:u,), augment = true)
+        lgm = latte_from_dppl(shared_iid_sumtozero_poisson(y_obs, n); random = (:u,), augment = true)
 
         # The augmented latent prior must carry the constraint. Augmentation
         # prepends `n` η-positions before the base latent, so the constraint
@@ -57,21 +51,13 @@ import GaussianMarkovRandomFields: constraints
         # constraint. Downstream INLA machinery (grid exploration,
         # per-variable Laplace marginals) is tested elsewhere and has its
         # own subtleties around joint vs. per-marginal means.
-        @model function m(y, n_iid)
-            τ ~ Gamma(2, 1)
-            u ~ IIDModel(n_iid, constraint = :sumtozero)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(u[i]); check_args = false)
-            end
-        end
-
         Random.seed!(12)
         n = 40
         u_true = randn(n) .* 0.6
         u_true .-= sum(u_true) / n
         y_obs = rand.(Poisson.(exp.(u_true)))
 
-        lgm = latte_from_dppl(m(y_obs, n); random = (:u,), augment = true)
+        lgm = latte_from_dppl(shared_iid_sumtozero_poisson(y_obs, n); random = (:u,), augment = true)
 
         # Materialise prior + likelihood at τ=1 and run the GA directly.
         y_norm = Latte._normalize_observations(y_obs, lgm.observation_model)
@@ -91,21 +77,13 @@ import GaussianMarkovRandomFields: constraints
         # DPPL's default sampling-based `extract_priors` then tries to rand
         # from a Dual-typed ConstrainedGMRF (for which `_rand!` is not
         # defined). Latent extraction must use the no-sample path.
-        @model function m(y, n_iid)
-            τ ~ Gamma(2, 1)
-            u ~ IIDModel(n_iid, constraint = :sumtozero)(τ = τ)
-            for i in eachindex(y)
-                y[i] ~ Poisson(exp(u[i]); check_args = false)
-            end
-        end
-
         Random.seed!(42)
         n = 40
         u_true = randn(n) .* 0.5
         u_true .-= sum(u_true) / n
         y_obs = rand.(Poisson.(exp.(u_true)))
 
-        lgm = latte_from_dppl(m(y_obs, n); random = (:u,), augment = true)
+        lgm = latte_from_dppl(shared_iid_sumtozero_poisson(y_obs, n); random = (:u,), augment = true)
         result = tmb(lgm, y_obs)
 
         # Augmented LGM: latent = [η₁…η_n; u₁…u_n]; constraint sits on u.

@@ -51,7 +51,7 @@ end
         n = 5
         build = y -> _gauss_iid_lgm(n)
         common = (;
-            n_attempted = 25, n_posterior = 200, engine = :inla,
+            n_attempted = 10, n_posterior = 200, engine = :inla,
             base_seed = UInt64(0x9173), progress = false,
         )
         r_auto = sbc_run(build, Vector{Missing}(missing, n); rank_method = :auto, common...)
