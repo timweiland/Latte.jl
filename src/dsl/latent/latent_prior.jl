@@ -110,7 +110,7 @@ function build_latent_model(
         extra_pattern::Union{Nothing, SparseMatrixCSC} = nothing,
         structured_spec::Union{Nothing, NamedTuple} = nothing,
     )
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    probe_hp = _hp_probe_nt(dppl_model, hp_names)
 
     info = analyze_structure(dppl_model, random_syms, probe_hp)
     all_atomic = all(info.classification[s] === :atomic_gaussian for s in random_syms)
@@ -305,7 +305,7 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern,
     # (no per-call sparse-AD probe) and unblocks outer AD over the latent
     # function — `extract_linear_map`'s SCT-based sparsity tracing collides
     # with `ForwardDiff.Dual` when called inside an outer AD pass.
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    probe_hp = _hp_probe_nt(dppl_model, hp_names)
     linear_maps_cached = Dict{Tuple{Symbol, Symbol}, NamedTuple}()
     for child in random_syms, parent in info.edges[child]
         linear_maps_cached[(child, parent)] = extract_linear_map(

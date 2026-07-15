@@ -89,6 +89,55 @@ end
 # p(log σ) = Exponential(1.0)(σ) · |dσ/d(log σ)| = Exponential(1.0)(σ) · σ
 ```
 
+### Vector-valued hyperparameters
+
+A free hyperparameter may carry a continuous *vector* prior, so several
+components share one joint distribution — for example regression-style
+coefficients with a non-diagonal covariance:
+
+```julia
+spec = @hyperparams begin
+    (σ ~ Exponential(1.0), transform = log, space = natural)
+    κ ~ MvNormal(zeros(2), [0.7 0.4; 0.4 1.3])   # one vector-valued hyperparameter
+end
+```
+
+The flat parameter vector concatenates the entries in declaration order — here
+`[σ; κ[1]; κ[2]]`, three coordinates — and the wrappers expose each entry under
+its name, as a scalar or a `Vector`:
+
+```julia
+θ_n = NaturalHyperparameters([2.0, 0.1, -0.3], spec)
+θ_n.σ                     # 2.0
+θ_n.κ                     # [0.1, -0.3]
+convert(NamedTuple, θ_n)  # (σ = 2.0, κ = [0.1, -0.3])
+```
+
+Model functions receive the vector entry as a `Vector` keyword argument, in
+natural space, exactly as written in the prior.
+
+Two restrictions keep the flat layout well-defined:
+
+- Transforms on vector entries must be dimension-preserving and act
+  elementwise: `identity` (the default, right for `MvNormal`) or
+  `elementwise(f)` (e.g. `elementwise(log)` for a positive vector).
+  Dimension-changing bijectors — simplex, Cholesky — are rejected at
+  construction.
+- The prior must be vector-shaped (`Distribution{Multivariate}`);
+  matrix-variate priors are not supported.
+
+Inference engines treat each coordinate as one dimension of the θ-space, so
+marginals stay per-coordinate: a vector entry `κ` of length 2 contributes
+marginals named `κ[1]` and `κ[2]`, and the by-name accessor
+`hyperparameter_marginals(result, :κ)` returns both. `hyperparameter_groups`
+maps `:κ` to its coordinate range. Note that grid exploration is exponential
+in the total θ dimension — a long vector hyperparameter calls for the CCD
+strategy (selected automatically for more than two coordinates).
+
+In the [`@latte` macro](latte.md), mark a vector prior with `@fixed` to make
+it a hyperparameter — an unmarked `MvNormal` site classifies as a latent
+(fixed-effects) block.
+
 ```@docs
 @hyperparams
 HyperparameterSpec

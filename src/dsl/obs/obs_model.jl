@@ -28,7 +28,7 @@ function extract_obs_model(
     # `RWModel`, `BesagModel`, `IIDModel(...; constraint=:sumtozero)`,
     # etc.) which has no method for `Dual` eltype, blowing up under outer
     # AD. Caching the layout side-steps the issue cleanly.
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    probe_hp = _hp_probe_nt(dppl_model, hp_names)
     cond_probe = DynamicPPL.fix(dppl_model, probe_hp)
     vnt_cached = DynamicPPL._default_vnt(cond_probe, DynamicPPL.UnlinkAll())
     # Flat-vector → VarName ranges from the SAME layout the main `loglik` uses. This lets
@@ -157,7 +157,7 @@ function _build_single_lifted_obs_model(
         lift_spec::NamedTuple,
     )
     args = dppl_model.args
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    probe_hp = _hp_probe_nt(dppl_model, hp_names)
     is_scalar_dict = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
     offsets_dict = _component_offsets(Tuple(random_syms), dims)
 

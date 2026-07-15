@@ -9,10 +9,17 @@
 # builds the hyperparameter spec via `Bijectors.bijector`, and wraps the
 # likelihood as an `AutoDiffObservationModel`.
 
-using Distributions: UnivariateDistribution
+using Distributions: UnivariateDistribution, Continuous, Multivariate, Distribution
 using OrderedCollections: OrderedDict
 
 export latte_from_dppl
+
+# A non-`random` prior qualifies as a hyperparameter when it is scalar
+# univariate or a continuous vector (multivariate) distribution — the latter
+# becomes one vector-valued hyperparameter (issue #41). Matrix-variate and
+# discrete priors are not supported.
+_is_hyperparameter_prior(d) =
+    d isa UnivariateDistribution || d isa Distribution{Multivariate, Continuous}
 
 """
     latte_from_dppl(dppl_model; random::Union{Symbol, Tuple}) -> LatentGaussianModel
@@ -23,8 +30,12 @@ Turn a DynamicPPL `@model` into a `LatentGaussianModel`.
 effects" in TMB / MixedModels vocabulary — the conditionally-Gaussian field
 that inference methods Laplace-integrate or sample over).
 
-All remaining scalar univariate priors in the model are treated as
-hyperparameters. Non-scalar non-`random` priors are not supported.
+All remaining priors in the model are treated as hyperparameters: scalar
+univariate priors become scalar hyperparameters, and continuous vector
+priors (e.g. `κ ~ MvNormal(μ, Σ)`) become vector-valued hyperparameters
+whose components share the joint prior. Models with a vector hyperparameter
+use the AD observation model (the exponential-family fast path only handles
+scalar hyperparameters).
 
 The returned model can be fed into any Latte inference method:
 
@@ -106,18 +117,22 @@ function _assemble_lgm(
     priors = extract_priors(dppl_model)
     random_set = Set(random_syms)
 
-    # Hyperparameters = scalar univariate priors not in `random`.
+    # Hyperparameters = non-`random` priors that are scalar univariate or
+    # vector-valued (continuous multivariate, e.g. `κ ~ MvNormal(μ, Σ)`).
     hp_names = Tuple(
         unique(
             getsym(vn) for (vn, d) in pairs(priors)
-                if !(getsym(vn) in random_set) && d isa UnivariateDistribution
+                if !(getsym(vn) in random_set) && _is_hyperparameter_prior(d)
         )
     )
 
     spec = extract_hp_spec(dppl_model, hp_names)
 
     # Probe dims (used by both fast-path detection and obs-model extraction).
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    # Probe values are shaped per prior: 1.0 per scalar, ones(d) per vector hp.
+    by_sym_prior = Dict(getsym(vn) => d for (vn, d) in pairs(priors))
+    probe_hp = NamedTuple{hp_names}(Tuple(_hp_probe_value(by_sym_prior[k]) for k in hp_names))
+    has_vector_hp = any(v -> v isa AbstractVector, values(probe_hp))
     dims = Dict(s => variable_length(dppl_model, s, probe_hp) for s in random_syms)
 
     # Composite-obs path: when `obs_groups` is supplied each group goes
@@ -140,7 +155,11 @@ function _assemble_lgm(
     # forces AD to suppress the EF route, but the Nonlinear Least Squares route
     # is still safe to attempt (`nls_only = true` makes the detector return
     # `nothing` for any EF-eligible/affine case, leaving EF behavior untouched).
-    run_fast = !use_obs_groups && (!force_ad_obs_model || try_nls_under_forced_ad)
+    # The EF / NLS fast-path detectors probe by perturbing one scalar hp at a
+    # time, which has no analogue for a vector hyperparameter — bail to the AD
+    # observation model (correct, modestly slower) whenever one is present.
+    run_fast = !use_obs_groups && (!force_ad_obs_model || try_nls_under_forced_ad) &&
+        !has_vector_hp
     fast_result = run_fast ?
         _try_exponential_family_fast_path(
             dppl_model, random_syms, dims, hp_names;
@@ -152,8 +171,8 @@ function _assemble_lgm(
     use_fast_path = fast_obs !== nothing
 
     # Per-group fast-path planning. Only attempted when grouping is in
-    # play and the user hasn't forced AD.
-    group_fast = if use_obs_groups && !force_ad_obs_model
+    # play and the user hasn't forced AD (and no vector hp; see above).
+    group_fast = if use_obs_groups && !force_ad_obs_model && !has_vector_hp
         Dict(
             name => try_group_exponential_family_fast_path(
                     dppl_model, syms, random_syms, dims, hp_names;
@@ -338,7 +357,7 @@ function _try_structured_obs(spec::NamedTuple, n_latent::Int, obs_mono, dppl_mod
         structured isa ObservationModel ||
             return nothing, "the structured obs builder did not return an observation model"
         y = getfield(dppl_model.args, only(spec.obs_syms))
-        probe_hp = NamedTuple{hp_names}(ntuple(_ -> 1.0, length(hp_names)))
+        probe_hp = _hp_probe_nt(dppl_model, hp_names)
         lik_s = structured(y; probe_hp...)
         lik_m = obs_mono(y; probe_hp...)
         xp = 0.13 .* sin.(1:n_latent)

@@ -71,7 +71,7 @@ function resolve_mode_starts(::PriorModeStart, spec::HyperparameterSpec)
 end
 
 function resolve_mode_starts(strategy::RandomStarts, spec::HyperparameterSpec)
-    n_hp = length(keys(spec.free))
+    n_hp = _hp_total_dim(spec)
     base = initial_hyperparameter_guess(spec).θ
     starts = WorkingHyperparameters[]
     for _ in 1:strategy.n
@@ -116,17 +116,18 @@ function _resolve_single_named_tuple(nt::NamedTuple, spec::HyperparameterSpec)
         )
     )
 
-    # Build NaturalHyperparameters in canonical spec order, then convert.
-    natural_vec = [Float64(nt[name]) for name in hp_names]
+    # Build NaturalHyperparameters in canonical spec order (flattening
+    # vector-valued entries in place), then convert.
+    natural_vec = _flatten_hp_namedtuple(nt, spec)
     θ_natural = NaturalHyperparameters(natural_vec, spec)
     θ_working = convert(WorkingHyperparameters, θ_natural)
 
     # Validate finiteness in working space (catches e.g. log(0)).
-    for (i, name) in enumerate(hp_names)
-        v = θ_working.θ[i]
+    coord_names = _expanded_hp_names(spec)
+    for (i, v) in enumerate(θ_working.θ)
         isfinite(v) || throw(
             ArgumentError(
-                "mode_init: natural value $(name) = $(nt[name]) maps to non-finite " *
+                "mode_init: natural value $(coord_names[i]) = $(natural_vec[i]) maps to non-finite " *
                     "working-space coordinate ($v). This usually means the value is at " *
                     "or past a hard boundary (e.g. 0 for a log-transformed positive prior)."
             )

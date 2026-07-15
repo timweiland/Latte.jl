@@ -53,21 +53,8 @@ function _build_descriptors(requested::AbstractVector{Symbol}, lgm)
     return descriptors
 end
 
-# Number of scalar components contributed to θ by a given
-# Hyperparameter. For univariate priors this is 1; for multivariate
-# it's `length(prior)`.
-_hp_dim(hp) = _prior_dim(hp.prior)
-_prior_dim(d::Distribution{Univariate}) = 1
-_prior_dim(d::Distribution{Multivariate}) = length(d)
-# Fallback — e.g. Distributions on transformed spaces may not have a
-# clean variate-form dispatch. Best effort: `length`, defaulting to 1.
-function _prior_dim(d)
-    try
-        return length(d)
-    catch
-        return 1
-    end
-end
+# `_hp_dim` (scalar components contributed to θ by a Hyperparameter) comes
+# from the shared layout helpers in model/hyperparameter_layout.jl.
 
 function _append_descriptors!(descriptors, sym::Symbol, col_offset::Int, dim::Int)
     if dim == 1

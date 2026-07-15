@@ -40,8 +40,9 @@ struct WorkingHyperparameters{T, Spec} <: AbstractVector{T}
     spec::Spec
 
     function WorkingHyperparameters(θ::Vector{T}, spec::HyperparameterSpec) where {T}
-        if length(θ) != length(keys(spec.free))
-            error("Vector length ($(length(θ))) does not match number of free parameters ($(length(keys(spec.free))))")
+        n = _hp_total_dim(spec)
+        if length(θ) != n
+            error("Vector length ($(length(θ))) does not match the total dimension of the free parameters ($n)")
         end
         return new{T, typeof(spec)}(θ, spec)
     end
@@ -81,8 +82,9 @@ struct NaturalHyperparameters{T, Spec} <: AbstractVector{T}
     spec::Spec
 
     function NaturalHyperparameters(θ::Vector{T}, spec::HyperparameterSpec) where {T}
-        if length(θ) != length(keys(spec.free))
-            error("Vector length ($(length(θ))) does not match number of free parameters ($(length(keys(spec.free))))")
+        n = _hp_total_dim(spec)
+        if length(θ) != n
+            error("Vector length ($(length(θ))) does not match the total dimension of the free parameters ($n)")
         end
         return new{T, typeof(spec)}(θ, spec)
     end
@@ -173,15 +175,12 @@ spec = HyperparameterSpec(
 ```
 """
 function Base.convert(::Type{NaturalHyperparameters}, θ_working::WorkingHyperparameters{T, Spec}) where {T, Spec}
-    # Transform each parameter from working to natural space
-    θ_natural = map(enumerate(keys(θ_working.spec.free))) do (i, name)
-        hp = θ_working.spec.free[name]
-        working_value = θ_working.θ[i]
+    # Transform each parameter block from working to natural space
+    θ_natural = _map_hp_blocks(θ_working.spec, θ_working.θ) do hp, working_value
         # Apply inverse: working → natural
         inverse(hp.transform)(working_value)
     end
-
-    return NaturalHyperparameters(collect(θ_natural), θ_working.spec)
+    return NaturalHyperparameters(θ_natural, θ_working.spec)
 end
 
 """
@@ -199,15 +198,12 @@ spec = HyperparameterSpec(
 ```
 """
 function Base.convert(::Type{WorkingHyperparameters}, θ_natural::NaturalHyperparameters{T, Spec}) where {T, Spec}
-    # Transform each parameter from natural to working space
-    θ_working = map(enumerate(keys(θ_natural.spec.free))) do (i, name)
-        hp = θ_natural.spec.free[name]
-        natural_value = θ_natural.θ[i]
+    # Transform each parameter block from natural to working space
+    θ_working = _map_hp_blocks(θ_natural.spec, θ_natural.θ) do hp, natural_value
         # Apply forward transformation: natural → working
         hp.transform(natural_value)
     end
-
-    return WorkingHyperparameters(collect(θ_working), θ_natural.spec)
+    return WorkingHyperparameters(θ_working, θ_natural.spec)
 end
 
 """
@@ -226,9 +222,9 @@ nt = convert(NamedTuple, θ_w)  # (σ = 0.5, μ = 0.0)
 ```
 """
 function Base.convert(::Type{NamedTuple}, θ::WorkingHyperparameters)
-    # Build NamedTuple of free parameters in working space
-    free_names = keys(θ.spec.free)
-    free_nt = NamedTuple{free_names}(θ.θ)
+    # Build NamedTuple of free parameters in working space (scalar per
+    # univariate entry, Vector per vector-valued entry)
+    free_nt = _hp_blocks_namedtuple(θ.spec, getfield(θ, :θ))
 
     # Merge with fixed parameters
     return merge(free_nt, θ.spec.fixed)
@@ -250,12 +246,26 @@ nt = convert(NamedTuple, θ_n)  # (σ = 2.0, μ = 0.0)
 ```
 """
 function Base.convert(::Type{NamedTuple}, θ::NaturalHyperparameters)
-    # Build NamedTuple of free parameters in natural space
-    free_names = keys(θ.spec.free)
-    free_nt = NamedTuple{free_names}(θ.θ)
+    # Build NamedTuple of free parameters in natural space (scalar per
+    # univariate entry, Vector per vector-valued entry)
+    free_nt = _hp_blocks_namedtuple(θ.spec, getfield(θ, :θ))
 
     # Merge with fixed parameters
     return merge(free_nt, θ.spec.fixed)
+end
+
+# Per-name blocks of a flat parameter vector as a NamedTuple.
+function _hp_blocks_namedtuple(spec::HyperparameterSpec, θ::AbstractVector)
+    names = keys(spec.free)
+    off = 0
+    vals = map(names) do name
+        hp = spec.free[name]
+        d = _hp_dim(hp)
+        v = _hp_isscalar(hp) ? θ[off + 1] : θ[(off + 1):(off + d)]
+        off += d
+        v
+    end
+    return NamedTuple{names}(vals)
 end
 
 ################################
@@ -288,10 +298,11 @@ function Base.getproperty(θ::WorkingHyperparameters, name::Symbol)
 
     # Look up in free parameters
     spec = getfield(θ, :spec)
-    free_names = keys(spec.free)
-    if name ∈ free_names
-        idx = findfirst(==(name), free_names)
-        return getfield(θ, :θ)[idx]
+    loc = _hp_locate(spec, name)
+    if loc !== nothing
+        start, d, isscalar = loc
+        flat = getfield(θ, :θ)
+        return isscalar ? flat[start] : flat[start:(start + d - 1)]
     end
 
     # Look up in fixed parameters
@@ -329,10 +340,11 @@ function Base.getproperty(θ::NaturalHyperparameters, name::Symbol)
 
     # Look up in free parameters
     spec = getfield(θ, :spec)
-    free_names = keys(spec.free)
-    if name ∈ free_names
-        idx = findfirst(==(name), free_names)
-        return getfield(θ, :θ)[idx]
+    loc = _hp_locate(spec, name)
+    if loc !== nothing
+        start, d, isscalar = loc
+        flat = getfield(θ, :θ)
+        return isscalar ? flat[start] : flat[start:(start + d - 1)]
     end
 
     # Look up in fixed parameters
@@ -342,6 +354,19 @@ function Base.getproperty(θ::NaturalHyperparameters, name::Symbol)
 
     # Not found
     error("type NaturalHyperparameters has no field $name")
+end
+
+# Locate free parameter `name` in the flat layout without allocating:
+# `(start, dim, isscalar)`, or `nothing` when `name` is not a free parameter.
+function _hp_locate(spec::HyperparameterSpec, name::Symbol)
+    off = 0
+    for k in keys(spec.free)
+        hp = spec.free[k]
+        d = _hp_dim(hp)
+        k === name && return (off + 1, d, _hp_isscalar(hp))
+        off += d
+    end
+    return nothing
 end
 
 ################################
@@ -372,9 +397,7 @@ log_density_natural = log_density_working + logdetjac(θ_w)
 ```
 """
 function logdetjac(θ::WorkingHyperparameters)
-    return mapreduce(+, enumerate(keys(θ.spec.free)); init = 0.0) do (i, name)
-        hp = θ.spec.free[name]
-        working_value = θ.θ[i]
+    return _sum_hp_blocks(θ.spec, θ.θ) do hp, working_value
         # Jacobian of working → natural transformation
         # This is logabsdetjac of inverse(transform)
         Bijectors.logabsdetjac(inverse(hp.transform), working_value)
@@ -405,12 +428,26 @@ log_density_working = log_prior_natural + logdetjac(θ_n)
 ```
 """
 function logdetjac(θ::NaturalHyperparameters)
-    return mapreduce(+, enumerate(keys(θ.spec.free)); init = 0.0) do (i, name)
-        hp = θ.spec.free[name]
-        natural_value = θ.θ[i]
+    return _sum_hp_blocks(θ.spec, θ.θ) do hp, natural_value
         # Jacobian of natural → working transformation
         Bijectors.logabsdetjac(hp.transform, natural_value)
     end
+end
+
+# Sum `f(hp, block)` over the free blocks of a flat parameter vector. Vector
+# blocks are passed as views; elementwise transforms return a summed scalar
+# for them. Starts from 0.0 and lets the accumulator promote (e.g. to Dual).
+function _sum_hp_blocks(f, spec::HyperparameterSpec, θ::AbstractVector)
+    total = 0.0
+    off = 0
+    for name in keys(spec.free)
+        hp = spec.free[name]
+        d = _hp_dim(hp)
+        v = _hp_isscalar(hp) ? θ[off + 1] : view(θ, (off + 1):(off + d))
+        total += f(hp, v)
+        off += d
+    end
+    return total
 end
 
 ################################
@@ -426,8 +463,7 @@ function Base.show(io::IO, ::MIME"text/plain", θ::WorkingHyperparameters{T, Spe
     n_params = length(θ.θ)
     println(io, "WorkingHyperparameters{$T} with $n_params parameters:")
 
-    for (i, name) in enumerate(keys(θ.spec.free))
-        value = θ.θ[i]
+    for (name, value) in pairs(_hp_blocks_namedtuple(θ.spec, getfield(θ, :θ)))
         println(io, "  $name = $value")
     end
 
@@ -443,8 +479,7 @@ function Base.show(io::IO, ::MIME"text/plain", θ::NaturalHyperparameters{T, Spe
     n_params = length(θ.θ)
     println(io, "NaturalHyperparameters{$T} with $n_params parameters:")
 
-    for (i, name) in enumerate(keys(θ.spec.free))
-        value = θ.θ[i]
+    for (name, value) in pairs(_hp_blocks_namedtuple(θ.spec, getfield(θ, :θ)))
         println(io, "  $name = $value")
     end
 

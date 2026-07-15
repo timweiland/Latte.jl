@@ -20,7 +20,7 @@ so the latent-prior Q can be augmented with this pattern, making its sparsity
 a superset of the posterior Hessian's.
 """
 function detect_likelihood_pattern(dppl_model, hp_names::Tuple, n_latent::Int)
-    hp_probe = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    hp_probe = _hp_probe_nt(dppl_model, hp_names)
     cond = DynamicPPL.fix(dppl_model, hp_probe)
     ldf = DynamicPPL.LogDensityFunction(cond, getloglikelihood)
     loglik(x) = LogDensityProblems.logdensity(ldf, x)

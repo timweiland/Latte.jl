@@ -19,7 +19,8 @@ function _marginalize_impl(
 
     spec = exploration.transform.θ_star.spec
     n_dim = length(exploration.transform.θ_star)
-    param_names = collect(keys(spec.free))
+    # One marginal per flat coordinate; vector blocks expand to `name[i]`.
+    param_names = _expanded_hp_names(spec)
 
     # Extract (θ, log_density) from grid points
     grid_points = exploration.grid_points

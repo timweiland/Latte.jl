@@ -160,7 +160,7 @@ probe used by the fast-path detector, but we collect varname syms instead
 of distributions.
 """
 function _probe_obs_syms(dppl_model, hp_names::Tuple, random_syms::Tuple, dims::Dict)
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    probe_hp = _hp_probe_nt(dppl_model, hp_names)
     # Seed univariate latents as scalars; DPPL's body for `α ~ Normal(0,1)`
     # crashes on `exp(::Vector{Float64})` if we hand it a 1-vector.
     is_scalar = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
@@ -359,7 +359,7 @@ function _build_obs_groups_composite(
         fast_results::AbstractDict = Dict{Symbol, Any}(),
     )
     args = dppl_model.args
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    probe_hp = _hp_probe_nt(dppl_model, hp_names)
     is_scalar = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
 
     built = map(groups) do (name, syms)
@@ -603,7 +603,7 @@ function _build_obs_groups_observation_model(
 
     # ─── Lifted path ──────────────────────────────────────────────────────
     args = dppl_model.args
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    probe_hp = _hp_probe_nt(dppl_model, hp_names)
     is_scalar_dict = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
     offsets_dict = _component_offsets(random_syms, dims)
 

@@ -5,6 +5,19 @@ from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Vector-valued hyperparameters ([#41]): a free hyperparameter may carry a continuous
+  vector prior — e.g. `κ ~ MvNormal(μ, Σ)` with a non-diagonal covariance — through
+  `@hyperparams`, `latte_from_dppl`, and `@latte` (via the `@fixed` marker). Components
+  share the joint prior; marginals are reported per coordinate (`κ[1]`, `κ[2]`, …) and
+  `hyperparameter_groups` maps the name to its coordinate range. Vector entries admit
+  `identity` or `elementwise(f)` transforms; models with a vector hyperparameter use the
+  AD observation model (the exponential-family fast path handles scalar hyperparameters
+  only).
+
+[#41]: https://github.com/timweiland/Latte.jl/issues/41
+
 ## [0.1.0]
 
 First public release.

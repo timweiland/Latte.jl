@@ -58,11 +58,11 @@ function _build_hmc_marginals(
     n_latent = size(x_cond_means, 2)
 
     # θ-marginals: empirical marginals in natural (user-facing) space,
-    # obtained by pushing each working-space sample through the
-    # per-parameter inverse transform.
-    hp_names = collect(keys(spec.free))
+    # obtained by pushing each working-space sample through its block's
+    # (elementwise) inverse transform, per flat coordinate.
     θ_marginals = map(1:n_θ) do j
-        inv_tr = inverse(spec.free[hp_names[j]].transform)
+        _, hp, _ = _coordinate_hp(spec, j)
+        inv_tr = inverse(hp.transform)
         natural = inv_tr.(view(θ_samples, :, j))
         SampleMarginal(collect(natural))
     end
@@ -97,14 +97,10 @@ function Base.getproperty(r::HMCLaplaceResult, name::Symbol)
     end
 end
 
-function hyperparameter_groups(r::HMCLaplaceResult)
-    names = collect(keys(r.model.hyperparameter_spec.free))
-    groups = OrderedDict{Symbol, UnitRange{Int}}()
-    for (i, name) in enumerate(names)
-        groups[name] = i:i
-    end
-    return groups
-end
+# Base name → flat-coordinate range, from the spec's layout (vector-valued
+# hyperparameters span multi-element ranges).
+hyperparameter_groups(r::HMCLaplaceResult) =
+    hyperparameter_groups(r.model.hyperparameter_spec)
 
 function hyperparameter_mode(r::HMCLaplaceResult)
     wh = WorkingHyperparameters(r.tmb_mode, r.model.hyperparameter_spec)
@@ -149,11 +145,12 @@ plotting).
 """
 function chain(r::HMCLaplaceResult)
     spec = r.model.hyperparameter_spec
-    names = collect(keys(spec.free))
+    names = _expanded_hp_names(spec)
     n_samples, n_θ = size(r.θ_samples)
     natural = Matrix{Float64}(undef, n_samples, n_θ)
     for j in 1:n_θ
-        inv_tr = inverse(spec.free[names[j]].transform)
+        _, hp, _ = _coordinate_hp(spec, j)
+        inv_tr = inverse(hp.transform)
         @views natural[:, j] .= inv_tr.(r.θ_samples[:, j])
     end
     arr = reshape(natural, n_samples, n_θ, 1)
@@ -198,7 +195,7 @@ mean_step_size(r::HMCLaplaceResult) = mean(s -> s.step_size, r.stats)
 # ─── Pretty printing ───────────────────────────────────────────────────────
 function Base.show(io::IO, r::HMCLaplaceResult)
     spec = r.model.hyperparameter_spec
-    names = collect(keys(spec.free))
+    names = _expanded_hp_names(spec)
     n_samples = size(r.θ_samples, 1)
 
     println(io, "HMCLaplaceResult:")
