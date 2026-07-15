@@ -16,15 +16,18 @@ Number of scalar coordinates a hyperparameter contributes to the flat
 parameter vector: 1 for univariate priors, `length(prior)` for multivariate
 (vector-valued) priors.
 """
-_hp_dim(hp::Hyperparameter) = _prior_dim(hp.prior)
+# The `::Int` pin matters: `prior` is an abstractly-typed field, so without
+# it inference sees `Any` here and that poisons the return types of every
+# layout walk (the suite asserts `@inferred` on the conversions and logpdfs).
+_hp_dim(hp::Hyperparameter) = _prior_dim(hp.prior)::Int
 
 _prior_dim(d::Distribution{Univariate}) = 1
-_prior_dim(d::Distribution{Multivariate}) = length(d)
+_prior_dim(d::Distribution{Multivariate}) = length(d)::Int
 # Best effort for distributions without a clean variate-form dispatch
 # (e.g. custom working-space priors): `length`, defaulting to 1.
 function _prior_dim(d)
     try
-        return length(d)
+        return Int(length(d))
     catch
         return 1
     end
@@ -134,20 +137,31 @@ end
 
 Apply `f(hp, value)` to each free block of the flat vector `θ` (a scalar for
 univariate entries, a `Vector` slice for vector-valued ones) and re-flatten
-the results in layout order. Result eltype is promoted across blocks, so AD
-number types pass through.
+the results in layout order. The output is preallocated with eltype
+`float(eltype(θ))`, so the return type is inferrable (the θ-space transforms
+are eltype-preserving on floats and AD number types) — the block dispatch
+stays purely internal.
 """
 function _map_hp_blocks(f, spec::HyperparameterSpec, θ::AbstractVector)
-    names = keys(spec.free)
-    blocks = Vector{Any}(undef, length(names))
+    out = similar(θ, float(eltype(θ)))
     off = 0
-    for (i, name) in enumerate(names)
+    for name in keys(spec.free)
         hp = spec.free[name]
         d = _hp_dim(hp)
-        blocks[i] = _hp_isscalar(hp) ? f(hp, θ[off + 1]) : f(hp, θ[(off + 1):(off + d)])
+        if _hp_isscalar(hp)
+            out[off + 1] = f(hp, θ[off + 1])
+        else
+            v = f(hp, θ[(off + 1):(off + d)])
+            length(v) == d || throw(
+                ArgumentError(
+                    "transform for hyperparameter `$name` returned length $(length(v)), expected $d"
+                )
+            )
+            out[(off + 1):(off + d)] .= v
+        end
         off += d
     end
-    return _flatten_hp_blocks(blocks)
+    return out
 end
 
 """

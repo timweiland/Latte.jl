@@ -436,18 +436,20 @@ end
 
 # Sum `f(hp, block)` over the free blocks of a flat parameter vector. Vector
 # blocks are passed as views; elementwise transforms return a summed scalar
-# for them. Starts from 0.0 and lets the accumulator promote (e.g. to Dual).
+# for them. The accumulator type is pinned to `float(eltype(θ))` (Dual-safe)
+# so the return type is inferrable despite the per-block dynamic dispatch.
 function _sum_hp_blocks(f, spec::HyperparameterSpec, θ::AbstractVector)
-    total = 0.0
+    T = float(eltype(θ))
+    total = zero(T)
     off = 0
     for name in keys(spec.free)
         hp = spec.free[name]
         d = _hp_dim(hp)
         v = _hp_isscalar(hp) ? θ[off + 1] : view(θ, (off + 1):(off + d))
-        total += f(hp, v)
+        total += convert(T, f(hp, v))::T
         off += d
     end
-    return total
+    return total::T
 end
 
 ################################
