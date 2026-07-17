@@ -12,7 +12,7 @@ using ADTypes: AutoSparse, AutoForwardDiff
 using DifferentiationInterface
 using SparseConnectivityTracer: TracerLocalSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
-using Distributions: Poisson, Bernoulli, Binomial, Normal, NegativeBinomial, Gamma, mean
+using Distributions: Poisson, Bernoulli, Binomial, Normal, NegativeBinomial, Gamma, mean, params
 using GaussianMarkovRandomFields:
     ExponentialFamily, LinearlyTransformedObservationModel,
     NonlinearLeastSquaresModel,
@@ -65,6 +65,66 @@ end
 function _probe_obs_distributions(dppl_model, hp_nt::NamedTuple, latent_nt::NamedTuple)
     return [s.dist for s in _probe_obs_distribution_sites(dppl_model, hp_nt, latent_nt)]
 end
+
+# ─── Vector-hp probing helpers ─────────────────────────────────────────────
+# One perturbed hp NamedTuple per scalar degree of freedom of `k_out`,
+# stepping a single coordinate by +0.5 from its probe value. Other hps keep
+# their (possibly vector-valued) probe values.
+function _hp_perturbation_directions(probe_hp::NamedTuple, k_out::Symbol)
+    v = probe_hp[k_out]
+    v isa AbstractVector || return [merge(probe_hp, NamedTuple{(k_out,)}((v + 0.5,)))]
+    return [
+        merge(probe_hp, NamedTuple{(k_out,)}((_bump_component(v, i),)))
+            for i in eachindex(v)
+    ]
+end
+_bump_component(v::AbstractVector, i::Int) = (w = copy(v); w[i] += 0.5; w)
+
+# Prove the observation sites independent of every vector-valued hp: probe
+# each component direction and compare the FULL site distributions (family
+# type and all parameters — natural and nuisance alike) against the
+# baseline, at both the zero latent seed and a nonzero one (a coupling like
+# `σ = exp(κ[i]·x)` is invisible at x = 0). Probe failures count as "not
+# provably independent" — the caller punts to AD, the conservative side.
+function _sites_independent_of_vector_hps(
+        dppl_model, probe_hp::NamedTuple, probe_x_nt::NamedTuple, obs_syms,
+        sites_x0::AbstractVector,
+    )
+    any(v -> v isa AbstractVector, values(probe_hp)) || return true
+    return try
+        x_pert_nt = _perturb_latent_probe(probe_x_nt)
+        probe(hp_nt, x_nt) = begin
+            s = _probe_obs_distribution_sites(dppl_model, hp_nt, x_nt)
+            obs_syms === nothing ? s : filter(t -> t.sym in obs_syms, s)
+        end
+        sites_xp = probe(probe_hp, x_pert_nt)
+        for k in keys(probe_hp)
+            probe_hp[k] isa AbstractVector || continue
+            for hp_pert in _hp_perturbation_directions(probe_hp, k)
+                _same_obs_sites(sites_x0, probe(hp_pert, probe_x_nt)) || return false
+                _same_obs_sites(sites_xp, probe(hp_pert, x_pert_nt)) || return false
+            end
+        end
+        true
+    catch e
+        @debug "fast-path: vector-hp independence probe failed" exception = e
+        false
+    end
+end
+
+function _same_obs_sites(a::AbstractVector, b::AbstractVector)
+    length(a) == length(b) || return false
+    for i in eachindex(a)
+        a[i].sym === b[i].sym || return false
+        typeof(a[i].dist) === typeof(b[i].dist) || return false
+        pa, pb = params(a[i].dist), params(b[i].dist)
+        length(pa) == length(pb) || return false
+        all(_param_approx(pa[j], pb[j]) for j in eachindex(pa)) || return false
+    end
+    return true
+end
+_param_approx(x::Number, y::Number) = isapprox(x, y; atol = 1.0e-9, rtol = 1.0e-8)
+_param_approx(x, y) = isequal(x, y)
 
 # ─── Family dispatch: distribution type → (family, link, natural-param) ──
 # Extension point: one line per new family. `nothing` signals "not
@@ -165,11 +225,12 @@ function try_group_exponential_family_fast_path(
         dppl_model, group_syms::Tuple, random_syms::Tuple,
         dims::Dict{Symbol, Int}, hp_names::Tuple;
         nls_enabled::Bool = true,
+        probe_hp::NamedTuple = _hp_probe_nt(dppl_model, hp_names),
     )
     return _try_exponential_family_fast_path(
         dppl_model, random_syms, dims, hp_names;
         obs_syms = group_syms, infer_route = true,
-        nls_enabled = nls_enabled,
+        nls_enabled = nls_enabled, probe_hp = probe_hp,
     )
 end
 
@@ -261,8 +322,8 @@ function _try_exponential_family_fast_path(
         infer_route::Bool = false,
         nls_only::Bool = false,
         nls_enabled::Bool = true,
+        probe_hp::NamedTuple = _hp_probe_nt(dppl_model, hp_names),
     )
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     # Detect scalar (univariate) latents so probe seeding uses scalars,
     # not 1-vectors — DPPL's body for `α ~ Normal(0,1)` needs scalar α.
     is_scalar = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
@@ -284,6 +345,21 @@ function _try_exponential_family_fast_path(
         sites = filter(s -> s.sym in obs_syms, sites)
     end
     isempty(sites) && return nothing
+
+    # 1b) vector-hp inertness: none of the fast components can carry a
+    # vector-valued hyperparameter (the affine design builders, the
+    # parameterized offset, and the rename-only nuisance routes are all
+    # scalar-per-name). Rather than rejecting on mere presence, prove the
+    # observation sites independent of every vector hp — per-component
+    # perturbations compared on the full distribution parameters (so
+    # σ/r/phi-type nuisance dependence is caught, not just the natural
+    # predictor). Any dependence punts to AD; a latent-only vector hp (the
+    # common case: a joint prior on latent-precision parameters) sails
+    # through and keeps the fast path. Predictor-through-x couplings that
+    # are invisible at the probe seeds are caught by the A/b invariance
+    # loop below, which also perturbs vector components.
+    _sites_independent_of_vector_hps(dppl_model, probe_hp, probe_x_nt, obs_syms, sites) ||
+        return nothing
 
     y_dists = [s.dist for s in sites]
 
@@ -391,9 +467,20 @@ function _try_exponential_family_fast_path(
     b_hp_names = Symbol[]
     if !isempty(hp_names)
         for k_out in hp_names
-            hp_pert = NamedTuple{hp_names}(
-                Tuple(name === k_out ? 1.5 : 1.0 for name in hp_names)
-            )
+            if probe_hp[k_out] isa AbstractVector
+                # Vector hp: the parameterized design/offset builders are
+                # scalar-per-name, so any dependence (probed per component)
+                # punts to AD instead of being parameterized.
+                for hp_pert in _hp_perturbation_directions(probe_hp, k_out)
+                    pert_affine = compute_affine(hp_pert)
+                    pert_affine === nothing && return nothing
+                    A_pert, b_pert = pert_affine
+                    isapprox(A, A_pert; atol = 1.0e-4, rtol = 1.0e-6) || return nothing
+                    isapprox(b, b_pert; atol = 1.0e-4, rtol = 1.0e-6) || return nothing
+                end
+                continue
+            end
+            hp_pert = merge(probe_hp, NamedTuple{(k_out,)}((probe_hp[k_out] + 0.5,)))
             pert_affine = compute_affine(hp_pert)
             pert_affine === nothing && return nothing
             A_pert, b_pert = pert_affine
@@ -429,7 +516,7 @@ function _try_exponential_family_fast_path(
     fixed_kwargs = NamedTuple()
     if infer_route
         route_result = _infer_fast_component_route(
-            dppl_model, family, hp_names, probe_x_nt, sites,
+            dppl_model, family, hp_names, probe_hp, probe_x_nt, sites,
         )
         route_result === nothing && return nothing
         route, fixed_kwargs = route_result
@@ -588,18 +675,24 @@ function _try_nls_fast_obs(
         η0 = f(zeros(n_latent))
         η_nz = f(x_nz)
         for k_out in hp_names
-            hp_pert = NamedTuple{hp_names}(
-                Tuple(name === k_out ? 1.5 : 1.0 for name in hp_names)
-            )
-            f_pert = η_of_x_at(hp_pert)
-            mean_moves = !isapprox(η0, f_pert(zeros(n_latent)); atol = 1.0e-4, rtol = 1.0e-6) ||
-                !isapprox(η_nz, f_pert(x_nz); atol = 1.0e-4, rtol = 1.0e-6)
+            mean_moves = false
+            σ_moves = false
+            for hp_pert in _hp_perturbation_directions(probe_hp, k_out)
+                f_pert = η_of_x_at(hp_pert)
+                mean_moves |= !isapprox(η0, f_pert(zeros(n_latent)); atol = 1.0e-4, rtol = 1.0e-6) ||
+                    !isapprox(η_nz, f_pert(x_nz); atol = 1.0e-4, rtol = 1.0e-6)
+                pert = _probe_obs_distribution_sites(dppl_model, hp_pert, probe_x_nt)
+                obs_syms !== nothing && (pert = filter(s -> s.sym in obs_syms, pert))
+                σ_pert = Float64[s.dist.σ for s in pert]
+                σ_moves |= !all(
+                    i -> isapprox(σ_pert[i], σ_vals[i]; rtol = 1.0e-8), eachindex(σ_vals),
+                )
+            end
+            # A vector hp can't ride the parameterized residual or the σ
+            # route (both scalar-per-name) — any dependence punts to AD.
+            (mean_moves || σ_moves) && probe_hp[k_out] isa AbstractVector && return nothing
             mean_moves && push!(mean_hp_names, k_out)
-            pert = _probe_obs_distribution_sites(dppl_model, hp_pert, probe_x_nt)
-            obs_syms !== nothing && (pert = filter(s -> s.sym in obs_syms, pert))
-            σ_pert = Float64[s.dist.σ for s in pert]
-            all(i -> isapprox(σ_pert[i], σ_vals[i]; rtol = 1.0e-8), eachindex(σ_vals)) ||
-                push!(σ_driving_hp, k_out)
+            σ_moves && push!(σ_driving_hp, k_out)
         end
         # σ must be latent-invariant. A latent-dependent noise such as
         # `Normal(f(x), exp(x))` looks constant at the zero seed, but freezing or
@@ -744,7 +837,7 @@ end
 # Returns either `(route::NamedTuple{(driving_inners...,)}, fixed::NamedTuple{(constant_inners...,)})`
 # or `nothing` when classification fails.
 function _infer_fast_component_route(
-        dppl_model, family, hp_names::Tuple,
+        dppl_model, family, hp_names::Tuple, probe_hp::NamedTuple,
         probe_x_nt::NamedTuple, baseline_sites::AbstractVector,
     )
     getters = _fast_family_hyperparam_getters(family)
@@ -753,8 +846,6 @@ function _infer_fast_component_route(
 
     inner_names = keys(getters)
     baseline_syms = unique(s.sym for s in baseline_sites)
-    base_hp_val = 1.0
-    base_hp_nt = NamedTuple{hp_names}(Tuple(base_hp_val for _ in hp_names))
 
     # A nonzero latent probe — used to verify nuisance kwargs don't
     # depend on the latent vector (e.g. `σ = exp(α)` would slip through
@@ -774,12 +865,14 @@ function _infer_fast_component_route(
         baseline_v = baseline_vals[1]
 
         # 1) hp-perturbation pass: which outer hps influence this kwarg?
+        # Vector hps are proven inert on the observation sites before route
+        # inference runs (see `_sites_independent_of_vector_hps`), and a
+        # rename-only route is scalar by construction — skip them here.
         matches = Symbol[]
         for k_out in hp_names
-            perturbed = base_hp_val + 0.5     # 1.5
-            hp_pert = NamedTuple{hp_names}(
-                Tuple(name === k_out ? perturbed : base_hp_val for name in hp_names)
-            )
+            probe_hp[k_out] isa AbstractVector && continue
+            perturbed = probe_hp[k_out] + 0.5
+            hp_pert = merge(probe_hp, NamedTuple{(k_out,)}((perturbed,)))
             sites_pert = _probe_obs_distribution_sites(dppl_model, hp_pert, probe_x_nt)
             sites_pert = filter(s -> s.sym in baseline_syms, sites_pert)
             isempty(sites_pert) && return nothing
@@ -803,7 +896,7 @@ function _infer_fast_component_route(
         # whether classified as driven or fixed. The fast path encodes
         # nuisance values as a per-component NamedTuple at materialisation
         # time; a latent-dependent value can't be represented.
-        sites_x = _probe_obs_distribution_sites(dppl_model, base_hp_nt, latent_pert_nt)
+        sites_x = _probe_obs_distribution_sites(dppl_model, probe_hp, latent_pert_nt)
         sites_x = filter(s -> s.sym in baseline_syms, sites_x)
         isempty(sites_x) && return nothing
         v_x = [Float64(getter(s.dist)) for s in sites_x]

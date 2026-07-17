@@ -71,11 +71,14 @@ covariance being the canonical case — becomes a single vector-valued
 hyperparameter: its components enter the flat θ vector together and share the
 joint prior, so correlations between hyperparameters are expressible. Vector
 priors must be continuous and vector-shaped (matrix-variate priors such as
-`InverseWishart` are not supported), and a model with a vector hyperparameter
-uses the AD observation model — the exponential-family fast path only handles
-scalar hyperparameters. See [Vector-valued hyperparameters](@ref) in the
-lower-level reference for the layout, transform restrictions, and how
-marginals are reported.
+`InverseWishart` are not supported). The exponential-family fast path remains
+available when the likelihood does not depend on the vector hyperparameter —
+the usual case, where it only drives the latent prior. A likelihood that does
+depend on one (say, a noise scale computed from a component) falls back to
+the AD observation model, since the fast components route hyperparameters
+per scalar name. See [Vector-valued hyperparameters](@ref) in the lower-level
+reference for the layout, transform restrictions, and how marginals are
+reported.
 
 ## How `@latte` compiles your model
 

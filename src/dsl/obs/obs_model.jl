@@ -19,6 +19,7 @@ function extract_obs_model(
         dppl_model, n_latent::Int, random_syms, dims;
         hp_names::Tuple,
         hessian_pattern::Union{Nothing, SparseMatrixCSC} = nothing,
+        probe_hp::NamedTuple = _hp_probe_nt(dppl_model, hp_names),
     )
     # Build the flat-vector layout (`vnt`) ONCE at adapter time using a
     # primal probe hp_nt. `LogDensityFunction(model, getlogdensity)` (3-arg
@@ -28,7 +29,6 @@ function extract_obs_model(
     # `RWModel`, `BesagModel`, `IIDModel(...; constraint=:sumtozero)`,
     # etc.) which has no method for `Dual` eltype, blowing up under outer
     # AD. Caching the layout side-steps the issue cleanly.
-    probe_hp = _hp_probe_nt(dppl_model, hp_names)
     cond_probe = DynamicPPL.fix(dppl_model, probe_hp)
     vnt_cached = DynamicPPL._default_vnt(cond_probe, DynamicPPL.UnlinkAll())
     # Flat-vector → VarName ranges from the SAME layout the main `loglik` uses. This lets
@@ -155,9 +155,9 @@ function _build_single_lifted_obs_model(
         hp_names::Tuple,
         hessian_pattern::Union{Nothing, SparseMatrixCSC} = nothing,
         lift_spec::NamedTuple,
+        probe_hp::NamedTuple = _hp_probe_nt(dppl_model, hp_names),
     )
     args = dppl_model.args
-    probe_hp = _hp_probe_nt(dppl_model, hp_names)
     is_scalar_dict = Dict(s => _is_scalar_latent(dppl_model, s, probe_hp) for s in random_syms)
     offsets_dict = _component_offsets(Tuple(random_syms), dims)
 
@@ -187,7 +187,7 @@ function _build_single_lifted_obs_model(
 
     # All observed syms are in the single group — sourced from the DPPL
     # probe-obs symbol set already validated at adapter time.
-    group_syms = _probe_obs_syms(dppl_model, hp_names, rsyms, dims)
+    group_syms = _probe_obs_syms(dppl_model, hp_names, rsyms, dims; probe_hp = probe_hp)
     group_syms_t = Tuple(sort(collect(group_syms)))
 
     return _LiftedSingleObsModel(

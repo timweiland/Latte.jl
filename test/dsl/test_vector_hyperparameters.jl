@@ -74,9 +74,32 @@ using Statistics
         @test haskey(Latte.latent_groups(lgm), :β)
     end
 
-    @testset "Vector hp coexists with a fast-path-shaped likelihood" begin
+    @testset "Latent-only vector hp keeps the EF fast path" begin
+        # The vector hp drives only the latent precision; the likelihood never
+        # touches it, so the exponential-family fast path must still fire.
+        @model function mv_hp_latent_only(y)
+            κ ~ MvNormal(zeros(2), [0.5 0.2; 0.2 0.5])
+            x ~ MvNormal(
+                zeros(6),
+                Diagonal(vcat(fill(exp(-κ[1]), 3), fill(exp(-κ[2]), 3)))
+            )
+            for i in 1:6
+                y[i] ~ Poisson(exp(x[i]); check_args = false)
+            end
+        end
+        y_pois = [1, 0, 2, 1, 3, 0]
+        lgm = latte_from_dppl(mv_hp_latent_only(y_pois); random = (:x,), augment = true)
+        @test lgm.observation_model isa ExponentialFamily{Poisson, LogLink}
+
+        r = inla(lgm, y_pois)
+        @test length(hyperparameter_marginals(r)) == 2
+        @test all(isfinite, mean.(hyperparameter_marginals(r)))
+    end
+
+    @testset "Vector hp in the likelihood degrades to the AD obs model" begin
         # With only scalar hps this model takes the EF fast path; a vector hp
-        # must degrade gracefully to the AD observation model, not crash.
+        # the likelihood depends on must degrade gracefully to the AD
+        # observation model (no scalar route can carry it), not crash.
         @model function mv_hp_pois(y)
             κ ~ MvNormal(zeros(2), 0.5 * I(2))
             x ~ MvNormal(zeros(6), exp(-κ[1]) * I(6))

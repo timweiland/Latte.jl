@@ -19,8 +19,10 @@ point, as a `SparseMatrixCSC` with structural nonzeros. Computed once at setup
 so the latent-prior Q can be augmented with this pattern, making its sparsity
 a superset of the posterior Hessian's.
 """
-function detect_likelihood_pattern(dppl_model, hp_names::Tuple, n_latent::Int)
-    hp_probe = _hp_probe_nt(dppl_model, hp_names)
+function detect_likelihood_pattern(
+        dppl_model, hp_names::Tuple, n_latent::Int;
+        hp_probe::NamedTuple = _hp_probe_nt(dppl_model, hp_names),
+    )
     cond = DynamicPPL.fix(dppl_model, hp_probe)
     ldf = DynamicPPL.LogDensityFunction(cond, getloglikelihood)
     loglik(x) = LogDensityProblems.logdensity(ldf, x)

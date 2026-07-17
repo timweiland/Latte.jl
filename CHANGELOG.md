@@ -12,9 +12,10 @@ from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
   `@hyperparams`, `latte_from_dppl`, and `@latte` (via the `@fixed` marker). Components
   share the joint prior; marginals are reported per coordinate (`κ[1]`, `κ[2]`, …) and
   `hyperparameter_groups` maps the name to its coordinate range. Vector entries admit
-  `identity` or `elementwise(f)` transforms; models with a vector hyperparameter use the
-  AD observation model (the exponential-family fast path handles scalar hyperparameters
-  only).
+  `identity` or `elementwise(f)` transforms. The exponential-family fast path stays
+  available when the likelihood is independent of the vector hyperparameter (the usual
+  case — a joint prior on latent-precision parameters); a likelihood that depends on one
+  falls back to the AD observation model.
 
 [#41]: https://github.com/timweiland/Latte.jl/issues/41
 
