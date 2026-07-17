@@ -9,10 +9,17 @@
 # builds the hyperparameter spec via `Bijectors.bijector`, and wraps the
 # likelihood as an `AutoDiffObservationModel`.
 
-using Distributions: UnivariateDistribution
+using Distributions: UnivariateDistribution, Continuous, Multivariate, Distribution
 using OrderedCollections: OrderedDict
 
 export latte_from_dppl
+
+# A non-`random` prior qualifies as a hyperparameter when it is scalar
+# univariate or a continuous vector (multivariate) distribution — the latter
+# becomes one vector-valued hyperparameter (issue #41). Matrix-variate and
+# discrete priors are not supported.
+_is_hyperparameter_prior(d) =
+    d isa UnivariateDistribution || d isa Distribution{Multivariate, Continuous}
 
 """
     latte_from_dppl(dppl_model; random::Union{Symbol, Tuple}) -> LatentGaussianModel
@@ -23,8 +30,14 @@ Turn a DynamicPPL `@model` into a `LatentGaussianModel`.
 effects" in TMB / MixedModels vocabulary — the conditionally-Gaussian field
 that inference methods Laplace-integrate or sample over).
 
-All remaining scalar univariate priors in the model are treated as
-hyperparameters. Non-scalar non-`random` priors are not supported.
+All remaining priors in the model are treated as hyperparameters: scalar
+univariate priors become scalar hyperparameters, and continuous vector
+priors (e.g. `κ ~ MvNormal(μ, Σ)`) become vector-valued hyperparameters
+whose components share the joint prior. The exponential-family fast path
+stays available as long as the likelihood does not depend on a vector
+hyperparameter (the usual case — a joint prior on latent-precision
+parameters); a likelihood that does depend on one falls back to the AD
+observation model.
 
 The returned model can be fed into any Latte inference method:
 
@@ -106,18 +119,21 @@ function _assemble_lgm(
     priors = extract_priors(dppl_model)
     random_set = Set(random_syms)
 
-    # Hyperparameters = scalar univariate priors not in `random`.
+    # Hyperparameters = non-`random` priors that are scalar univariate or
+    # vector-valued (continuous multivariate, e.g. `κ ~ MvNormal(μ, Σ)`).
     hp_names = Tuple(
         unique(
             getsym(vn) for (vn, d) in pairs(priors)
-                if !(getsym(vn) in random_set) && d isa UnivariateDistribution
+                if !(getsym(vn) in random_set) && _is_hyperparameter_prior(d)
         )
     )
 
     spec = extract_hp_spec(dppl_model, hp_names)
 
     # Probe dims (used by both fast-path detection and obs-model extraction).
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
+    # Probe values are shaped per prior: 1.0 per scalar, ones(d) per vector hp.
+    by_sym_prior = Dict(getsym(vn) => d for (vn, d) in pairs(priors))
+    probe_hp = NamedTuple{hp_names}(Tuple(_hp_probe_value(by_sym_prior[k]) for k in hp_names))
     dims = Dict(s => variable_length(dppl_model, s, probe_hp) for s in random_syms)
 
     # Composite-obs path: when `obs_groups` is supplied each group goes
@@ -127,7 +143,9 @@ function _assemble_lgm(
     obs_groups_spec = _normalize_obs_groups(obs_groups)
     use_obs_groups = obs_groups_spec !== nothing
     if use_obs_groups
-        _validate_obs_groups(obs_groups_spec, dppl_model, hp_names, random_syms, dims)
+        _validate_obs_groups(
+            obs_groups_spec, dppl_model, hp_names, random_syms, dims; probe_hp = probe_hp,
+        )
     end
 
     # Detect whole-model fast path first (skipped when grouping is requested).
@@ -140,6 +158,10 @@ function _assemble_lgm(
     # forces AD to suppress the EF route, but the Nonlinear Least Squares route
     # is still safe to attempt (`nls_only = true` makes the detector return
     # `nothing` for any EF-eligible/affine case, leaving EF behavior untouched).
+    # Vector hyperparameters are handled inside the detectors: the fast path
+    # fires when the observation sites are provably independent of every
+    # vector hp, and punts to the AD observation model on any dependence
+    # (no scalar route or affine builder can carry a vector value).
     run_fast = !use_obs_groups && (!force_ad_obs_model || try_nls_under_forced_ad)
     fast_result = run_fast ?
         _try_exponential_family_fast_path(
@@ -147,6 +169,7 @@ function _assemble_lgm(
             obs_syms = nothing, infer_route = false,
             nls_only = force_ad_obs_model,
             nls_enabled = nls_enabled,
+            probe_hp = probe_hp,
         ) : nothing
     fast_obs = fast_result === nothing ? nothing : fast_result.model
     use_fast_path = fast_obs !== nothing
@@ -157,7 +180,7 @@ function _assemble_lgm(
         Dict(
             name => try_group_exponential_family_fast_path(
                     dppl_model, syms, random_syms, dims, hp_names;
-                    nls_enabled = nls_enabled,
+                    nls_enabled = nls_enabled, probe_hp = probe_hp,
                 ) for (name, syms) in obs_groups_spec
         )
     else
@@ -199,7 +222,7 @@ function _assemble_lgm(
             dense_pattern()
         elseif likelihood_hessian_pattern === :auto
             try
-                detect_likelihood_pattern(dppl_model, hp_names, n_tot)
+                detect_likelihood_pattern(dppl_model, hp_names, n_tot; hp_probe = probe_hp)
             catch e
                 @warn "Tracer-based sparsity detection failed; falling back to a dense likelihood Hessian pattern. Pass `likelihood_hessian_pattern = ...` to silence or override." exception = e
                 dense_pattern()
@@ -218,7 +241,7 @@ function _assemble_lgm(
         # OrdinaryDiffEq solvers), fall back to a dense pattern. Dense costs
         # a bit more per evaluation but is correct for any likelihood.
         try
-            detect_likelihood_pattern(dppl_model, hp_names, n_tot)
+            detect_likelihood_pattern(dppl_model, hp_names, n_tot; hp_probe = probe_hp)
         catch e
             @warn "Tracer-based sparsity detection failed; falling back to a dense likelihood Hessian pattern. Pass `likelihood_hessian_pattern = ...` to silence or override." exception = e
             dense_pattern()
@@ -242,6 +265,7 @@ function _assemble_lgm(
             skip_pattern_augment = true,
             extra_pattern = extra_pattern,
             structured_spec = structured_spec,
+            probe_hp = probe_hp,
         )
         @debug "latent extraction path" path fast_path = use_fast_path augmented = augment
         l
@@ -266,18 +290,20 @@ function _assemble_lgm(
             dppl_model, obs_groups_spec, hp_names, length(latent),
             random_syms, dims, extra_pattern;
             fast_results = group_fast, lift_spec = lift_spec,
+            probe_hp = probe_hp,
         )
     elseif lift_spec !== nothing
         _build_single_lifted_obs_model(
             dppl_model, length(latent), random_syms, dims;
             hp_names = hp_names, hessian_pattern = extra_pattern,
-            lift_spec = lift_spec,
+            lift_spec = lift_spec, probe_hp = probe_hp,
         )
     else
         extract_obs_model(
             dppl_model, length(latent), random_syms, dims;
             hp_names = hp_names,
             hessian_pattern = extra_pattern,  # nothing, dense, or user-supplied
+            probe_hp = probe_hp,
         )
     end
 
@@ -285,7 +311,9 @@ function _assemble_lgm(
     # `StructuredObservationModel`. Accept it only if it reproduces the monolithic obs's
     # loglik/loggrad/loghessian at a probe point; otherwise keep the monolithic obs.
     if structured_spec !== nothing && !use_fast_path && !use_obs_groups && lift_spec === nothing
-        obs_structured, obs_reason = _try_structured_obs(structured_spec, length(latent), obs, dppl_model, hp_names)
+        obs_structured, obs_reason = _try_structured_obs(
+            structured_spec, length(latent), obs, dppl_model, hp_names, probe_hp,
+        )
         if obs_structured === nothing
             # Warn only when we actually tried to structure the obs (a builder existed) and failed,
             # and the prior didn't already warn — `AutoDiffLatentPrior` is the monolithic prior that
@@ -328,7 +356,10 @@ end
 # obs_syms, posarg_vals, …)`. Returns `(model, nothing)` on success, or `(nothing, reason)` — where
 # `reason` is `nothing` when there was no obs builder to try (caller stays quiet) and a string when
 # a build error, wrong type, or likelihood mismatch caused a fall back.
-function _try_structured_obs(spec::NamedTuple, n_latent::Int, obs_mono, dppl_model, hp_names::Tuple)
+function _try_structured_obs(
+        spec::NamedTuple, n_latent::Int, obs_mono, dppl_model, hp_names::Tuple,
+        probe_hp::NamedTuple = _hp_probe_nt(dppl_model, hp_names),
+    )
     spec.obs_builder === nothing && return nothing, nothing
     length(spec.obs_syms) == 1 ||
         return nothing, "the structured observation path handles a single observed symbol; this model has $(length(spec.obs_syms))"
@@ -338,7 +369,6 @@ function _try_structured_obs(spec::NamedTuple, n_latent::Int, obs_mono, dppl_mod
         structured isa ObservationModel ||
             return nothing, "the structured obs builder did not return an observation model"
         y = getfield(dppl_model.args, only(spec.obs_syms))
-        probe_hp = NamedTuple{hp_names}(ntuple(_ -> 1.0, length(hp_names)))
         lik_s = structured(y; probe_hp...)
         lik_m = obs_mono(y; probe_hp...)
         xp = 0.13 .* sin.(1:n_latent)

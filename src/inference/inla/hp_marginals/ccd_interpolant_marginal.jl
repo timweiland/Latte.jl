@@ -20,7 +20,8 @@ function _marginalize_impl(
     θ_star = transform.θ_star
     spec = θ_star.spec
     n_dim = length(θ_star)
-    param_names = collect(keys(spec.free))
+    # One marginal per flat coordinate; vector blocks expand to `name[i]`.
+    param_names = _expanded_hp_names(spec)
 
     # One workspace reused across the skewness-correction evaluations.
     θ_star_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_star))

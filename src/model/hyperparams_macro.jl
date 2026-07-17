@@ -253,6 +253,13 @@ end
 spec = @hyperparams begin
     (σ ~ Exponential(1.0), transform = log, prior_space = natural)
 end
+
+# Example 7: Vector-valued hyperparameter (joint prior over the components).
+# Vector entries admit `identity` (default) or `elementwise(f)` transforms.
+spec = @hyperparams begin
+    (σ ~ Exponential(1.0), transform = log, space = natural)
+    κ ~ MvNormal(zeros(2), [1.0 0.5; 0.5 2.0])
+end
 ```
 
 # Comparison with Manual Construction

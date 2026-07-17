@@ -28,14 +28,11 @@ log_p = logpdf_prior(θ_w)  # Evaluates log p(η) in working space
 ```
 """
 function logpdf_prior(θ::WorkingHyperparameters{T}) where {T}
-    result = zero(T)
-    for (i, name) in enumerate(keys(θ.spec.free))
-        hp = θ.spec.free[name]
-        working_value = θ.θ[i]
+    result = _sum_hp_blocks(θ.spec, θ.θ) do hp, working_value
         # Prior is stored in working space, evaluate directly
-        result += logpdf(hp.prior, working_value)
+        logpdf(hp.prior, working_value)
     end
-    return result::T
+    return convert(T, result)::T
 end
 
 """
@@ -96,8 +93,7 @@ log_p = logpdf_prior(θ_natural, spec)  # Evaluates log π(σ)
 ```
 """
 function logpdf_prior(θ_natural::NamedTuple, spec::HyperparameterSpec)
-    # Extract free parameters as vector
-    θ_vec = [θ_natural[name] for name in keys(spec.free)]
-    θ_n = NaturalHyperparameters(θ_vec, spec)
+    # Flatten free parameters (vector-valued entries in place) into the layout
+    θ_n = NaturalHyperparameters(_flatten_hp_namedtuple(θ_natural, spec), spec)
     return logpdf_prior(θ_n)
 end

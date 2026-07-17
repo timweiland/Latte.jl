@@ -253,10 +253,13 @@ end
 
 # ─── Codegen: prelude + obs body + pointwise from a LiftPlan ──────────────────
 
-# Rewrite a single prelude statement: drop hp `~` priors entirely; pass other
-# statements through verbatim. Returns `nothing` to signal "remove this stmt".
+# Rewrite a single prelude statement: drop hp `~` priors entirely (including
+# marker-wrapped ones like `@fixed κ ~ …`, which would otherwise survive as a
+# literal Base `~` call in the generated prelude); pass other statements
+# through verbatim. Returns `nothing` to signal "remove this stmt".
 function _lift_lower_prelude_stmt(stmt, hp_syms::Set{Symbol})
-    pair = _detect_tilde_pair(stmt)
+    _, inner = _peel_marker(stmt)
+    pair = _detect_tilde_pair(inner)
     if pair !== nothing
         lhs_sym = _lhs_top_sym(pair[1])
         lhs_sym in hp_syms && return nothing
@@ -381,10 +384,12 @@ end
 
 # Promote-type expression for the loglik accumulator. Guards against empty
 # hp lists (which would call `promote_type(eltype(x))` — fine, but the
-# explicit branch matches Codex's guidance).
+# explicit branch matches Codex's guidance). Vector-valued hyperparameters
+# contribute their eltype (`typeof` would promote to `Any`).
 function _logp_eltype_expr(hp_syms::Vector{Symbol})
     isempty(hp_syms) && return :(eltype(__flat_x))
-    return :(promote_type(eltype(__flat_x), map(typeof, values(__hp_nt))...))
+    el = GlobalRef(@__MODULE__, :_block_eltype)
+    return :(promote_type(eltype(__flat_x), map($el, values(__hp_nt))...))
 end
 
 """
