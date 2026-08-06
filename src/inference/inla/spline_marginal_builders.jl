@@ -24,7 +24,9 @@ function _build_spline_marginal(
         )
     )
 
-    hp = spec.free[dim]
+    # `dim` is a flat working-space coordinate; for vector-valued blocks the
+    # per-coordinate transform is the block's elementwise transform.
+    _, hp, _ = _coordinate_hp(spec, dim)
     tfm = hp.transform              # natural → working
     inv_tfm = Bijectors.inverse(tfm)  # working → natural
 

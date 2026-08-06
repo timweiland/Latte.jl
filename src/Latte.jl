@@ -65,6 +65,7 @@ include("distributions/distributions.jl")
 # ─── Model layer (types used throughout) ─────────────────────────────────────
 include("model/hyperparameter.jl")
 include("model/hyperparameter_spec.jl")
+include("model/hyperparameter_layout.jl")
 include("model/working_and_natural.jl")
 include("model/logpdf.jl")
 include("model/hyperparams_macro.jl")

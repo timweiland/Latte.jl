@@ -37,14 +37,10 @@ hyperparameter_marginals(r::INLAResult) = collect(values(r.hyperparameter_margin
 # formula layers will populate this later.
 latent_groups(r::INLAResult) = latent_groups(r.model)
 
-function hyperparameter_groups(r::INLAResult)
-    names = collect(keys(r.hyperparameter_marginals))
-    groups = OrderedDict{Symbol, UnitRange{Int}}()
-    for (i, name) in enumerate(names)
-        groups[name] = i:i
-    end
-    return groups
-end
+# Base name → flat-coordinate range, from the spec's layout (vector-valued
+# hyperparameters span multi-element ranges).
+hyperparameter_groups(r::INLAResult) =
+    hyperparameter_groups(r.model.hyperparameter_spec)
 
 # ─── Mode (working → natural) ───────────────────────────────────────────────
 hyperparameter_mode(r::INLAResult) =

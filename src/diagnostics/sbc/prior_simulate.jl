@@ -106,7 +106,9 @@ function _prior_simulate(
         replicate_id::Int = 0, obs_name::Symbol = :y,
     )
     spec = lgm.hyperparameter_spec
-    θ_working = WorkingHyperparameters([rand(rng, hp.prior) for hp in values(spec.free)], spec)
+    θ_working = WorkingHyperparameters(
+        _flatten_hp_blocks([rand(rng, hp.prior) for hp in values(spec.free)]), spec,
+    )
     θ_natural = convert(NaturalHyperparameters, θ_working)
     θ_nt = convert(NamedTuple, θ_natural)
 

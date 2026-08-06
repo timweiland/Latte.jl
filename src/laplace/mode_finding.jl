@@ -50,7 +50,7 @@ Since priors are stored in working space, we directly use the mode (or mean for 
 with boundary modes like Exponential) from the working-space prior.
 """
 function initial_hyperparameter_guess(spec::HyperparameterSpec)
-    θ_init = [_initial_guess_for_hyperparameter(hp) for hp in values(spec.free)]
+    θ_init = _flatten_hp_blocks([_initial_guess_for_hyperparameter(hp) for hp in values(spec.free)])
     return WorkingHyperparameters(θ_init, spec)
 end
 
@@ -102,8 +102,16 @@ end
 function _robust_initial_value(dist::Bijectors.TransformedDistribution)
     base_value = _robust_initial_value(dist.dist)
     u_natural = dist.transform(base_value)
+    # Vector-valued (multivariate) priors skip the 1-D Brent polish; the
+    # mapped mode is a serviceable multi-dimensional starting point.
+    u_natural isa AbstractVector && return u_natural
     return _working_space_mode_1d(dist, u_natural)
 end
+
+# Product-form multivariate priors delegate to the per-component rule, so
+# boundary-mode components (e.g. Exponential) keep their robust seeds.
+_robust_initial_value(dist::Distributions.Product) =
+    [_robust_initial_value(c) for c in dist.v]
 
 function _working_space_mode_1d(dist::Bijectors.TransformedDistribution, u0::Real)
     neg_log_pw = u -> begin

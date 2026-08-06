@@ -161,10 +161,11 @@ function Base.show(io::IO, result::INLAResult)
         println(io, "    - Base latent components: ", info.n_base_latent, " variables")
     end
 
-    # Show mode as named tuple in natural space
+    # Show mode as named tuple in natural space (vector-valued
+    # hyperparameters display as rounded vectors)
     mode_natural = convert(NaturalHyperparameters, result.hyperparameter_mode)
     mode_nt = convert(NamedTuple, mode_natural)
-    mode_str = join(["$k=$(round(v, digits = 4))" for (k, v) in pairs(mode_nt)], ", ")
+    mode_str = join(["$k=$(round.(v, digits = 4))" for (k, v) in pairs(mode_nt)], ", ")
     println(io, "  Mode: (", mode_str, ")")
 
     # Show convergence status

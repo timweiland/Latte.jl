@@ -6,4 +6,5 @@
     include("test_working_and_natural.jl")
     include("test_logpdf.jl")
     include("test_hyperparams_macro.jl")
+    include("test_vector_hyperparameters.jl")
 end

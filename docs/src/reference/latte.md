@@ -42,7 +42,8 @@ Each `~` block is classified by static analysis of the function body. The rules:
   `BYM2Model`, `SeparableModel`, `GMRF`, `ConstrainedGMRF`, and similar latent-model
   constructors;
 - **hyperparameter / fixed effect** — anything else (a scalar univariate prior such
-  as `τ ~ Gamma(1.0, 1.0)` falls here).
+  as `τ ~ Gamma(1.0, 1.0)` falls here). A continuous vector prior forced into this
+  class with `@fixed` becomes one *vector-valued* hyperparameter (see below).
 
 Composite observation grouping is detected automatically from each observation
 block's hyperparameter dependencies, so two Gaussian channels with distinct noise
@@ -55,7 +56,7 @@ Two markers placed in front of a `~` block override the per-block default:
 ```julia
 @latte function marked(y, X)
     @random α ~ Normal(0, 1)          # scalar, but marginalised as a latent (TMB-style)
-    @fixed   Σ ~ InverseWishart(...)  # multivariate, but treated as a hyperparameter
+    @fixed   κ ~ MvNormal(μ0, Σ0)     # vector prior, but treated as a hyperparameter
     σ ~ Gamma(2, 1)                   # default: scalar prior → fixed/hyperparameter
     β ~ MvNormal(...)                 # default: multivariate Gaussian → random
     # ...
@@ -64,6 +65,20 @@ end
 
 `@random` promotes a site into the latent Gaussian field; `@fixed` keeps a site in
 the hyperparameter block regardless of its shape.
+
+A `@fixed`-marked continuous vector prior — `MvNormal` with a non-diagonal
+covariance being the canonical case — becomes a single vector-valued
+hyperparameter: its components enter the flat θ vector together and share the
+joint prior, so correlations between hyperparameters are expressible. Vector
+priors must be continuous and vector-shaped (matrix-variate priors such as
+`InverseWishart` are not supported). The exponential-family fast path remains
+available when the likelihood does not depend on the vector hyperparameter —
+the usual case, where it only drives the latent prior. A likelihood that does
+depend on one (say, a noise scale computed from a component) falls back to
+the AD observation model, since the fast components route hyperparameters
+per scalar name. See [Vector-valued hyperparameters](@ref) in the lower-level
+reference for the layout, transform restrictions, and how marginals are
+reported.
 
 ## How `@latte` compiles your model
 

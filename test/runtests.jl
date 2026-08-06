@@ -33,6 +33,7 @@ const DSL_GROUPED_FILES = (
     dsl3 = [
         "test_recognition.jl", "test_matrix_latents.jl", "test_factor_extraction.jl",
         "test_structured_guard.jl", "test_structured_macro.jl", "test_block_latent.jl",
+        "test_vector_hyperparameters.jl",
     ],
 )
 

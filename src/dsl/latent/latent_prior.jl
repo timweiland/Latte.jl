@@ -109,15 +109,15 @@ function build_latent_model(
         skip_pattern_augment::Bool = false,
         extra_pattern::Union{Nothing, SparseMatrixCSC} = nothing,
         structured_spec::Union{Nothing, NamedTuple} = nothing,
+        probe_hp::NamedTuple = _hp_probe_nt(dppl_model, hp_names),
     )
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
 
     info = analyze_structure(dppl_model, random_syms, probe_hp)
     all_atomic = all(info.classification[s] === :atomic_gaussian for s in random_syms)
     n_latent = sum(info.dims[s] for s in random_syms)
 
     detected_pattern = skip_pattern_augment ? nothing :
-        detect_likelihood_pattern(dppl_model, hp_names, n_latent)
+        detect_likelihood_pattern(dppl_model, hp_names, n_latent; hp_probe = probe_hp)
     lik_pattern = _union_patterns(detected_pattern, extra_pattern)
 
     joint_constraint = _extract_joint_constraint(dppl_model, random_syms, info.dims, probe_hp)
@@ -133,7 +133,8 @@ function build_latent_model(
         end
         if linear_ok
             return _build_dag_latent(
-                    dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint
+                    dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint,
+                    probe_hp,
                 ), :dag
         end
     end
@@ -297,7 +298,10 @@ function _matches_local_quadratic(a, b; rtol = 1.0e-6, atol = 1.0e-8)
     return isapprox(a.logp_ref, b.logp_ref; rtol = rtol, atol = atol)
 end
 
-function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint)
+function _build_dag_latent(
+        dppl_model, random_syms, info, hp_names, lik_pattern, joint_constraint,
+        probe_hp::NamedTuple = _hp_probe_nt(dppl_model, hp_names),
+    )
     # Linear maps are *structural*: they encode the per-edge `child = A·parent + b`
     # relation in the model graph and do not depend on hyperparameter values.
     # Compute them once at adapter-build time with concrete Float64 inputs,
@@ -305,7 +309,6 @@ function _build_dag_latent(dppl_model, random_syms, info, hp_names, lik_pattern,
     # (no per-call sparse-AD probe) and unblocks outer AD over the latent
     # function — `extract_linear_map`'s SCT-based sparsity tracing collides
     # with `ForwardDiff.Dual` when called inside an outer AD pass.
-    probe_hp = NamedTuple{hp_names}(Tuple(1.0 for _ in hp_names))
     linear_maps_cached = Dict{Tuple{Symbol, Symbol}, NamedTuple}()
     for child in random_syms, parent in info.edges[child]
         linear_maps_cached[(child, parent)] = extract_linear_map(

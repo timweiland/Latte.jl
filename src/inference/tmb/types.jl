@@ -59,14 +59,10 @@ function Base.getproperty(r::TMBResult, name::Symbol)
     end
 end
 
-function hyperparameter_groups(r::TMBResult)
-    names = collect(keys(r.model.hyperparameter_spec.free))
-    groups = OrderedDict{Symbol, UnitRange{Int}}()
-    for (i, name) in enumerate(names)
-        groups[name] = i:i
-    end
-    return groups
-end
+# Base name → flat-coordinate range, from the spec's layout (vector-valued
+# hyperparameters span multi-element ranges).
+hyperparameter_groups(r::TMBResult) =
+    hyperparameter_groups(r.model.hyperparameter_spec)
 
 function hyperparameter_mode(r::TMBResult)
     wh = WorkingHyperparameters(r.θ_map, r.model.hyperparameter_spec)
@@ -114,7 +110,7 @@ ranef(r::TMBResult) = latent_marginals(r)
 # ─── Pretty printing ───────────────────────────────────────────────────────
 function Base.show(io::IO, r::TMBResult)
     spec = r.model.hyperparameter_spec
-    names = collect(keys(spec.free))
+    names = _expanded_hp_names(spec)
     println(io, "TMBResult:")
     println(io, "  Model: ", typeof(r.model))
     println(io, "  Hyperparameters (working-space MAP ± SE):")

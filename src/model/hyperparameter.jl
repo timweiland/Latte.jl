@@ -71,6 +71,12 @@ Construct a Hyperparameter with automatic prior space conversion.
 The prior is always stored internally in working space for numerical stability. When `prior_space=:natural`,
 the prior is automatically transformed to working space using `transformed(prior, transform)`.
 
+The prior may be a continuous multivariate (vector) distribution, making this a
+vector-valued hyperparameter whose components share the joint prior. Vector
+entries require a dimension-preserving elementwise transform — `identity` or
+`elementwise(f)` — so working and natural space share one flat layout;
+dimension-changing bijectors are rejected.
+
 # Examples
 ```julia
 using Bijectors
@@ -91,6 +97,7 @@ function Hyperparameter(
         transform = identity,
         prior_space::Symbol = :working
     )
+    _validate_hyperparameter_prior(prior, transform)
 
     if prior_space == :natural
         # Prior in natural space, transform to working space
@@ -117,3 +124,32 @@ Extract the prior space from a Hyperparameter's type.
 Returns `:natural` or `:working`.
 """
 prior_space(::Hyperparameter{T, S}) where {T, S} = S
+
+# Vector-valued hyperparameters (multivariate priors) share one flat layout
+# between working and natural space, so their transforms must be
+# dimension-preserving and act elementwise: `identity` or
+# `Bijectors.elementwise(f)` (`Base.Fix1{typeof(broadcast)}`).
+# Dimension-changing bijectors (simplex, Cholesky, ...) are rejected here
+# rather than failing obscurely in space conversion or marginal extraction.
+function _validate_hyperparameter_prior(prior::Distribution, transform)
+    prior isa Distribution{Univariate} && return nothing
+    prior isa Distribution{Multivariate} || throw(
+        ArgumentError(
+            "Hyperparameter priors must be univariate or multivariate " *
+                "(vector-valued); got a $(typeof(prior))."
+        )
+    )
+    _is_elementwise_transform(transform) || throw(
+        ArgumentError(
+            "Vector-valued hyperparameters support only dimension-preserving " *
+                "elementwise transforms — `identity` or `elementwise(f)` (e.g. " *
+                "`elementwise(log)`); got $(typeof(transform)). Dimension-changing " *
+                "bijectors such as the simplex bijector are not supported."
+        )
+    )
+    return nothing
+end
+
+_is_elementwise_transform(::typeof(identity)) = true
+_is_elementwise_transform(::Base.Fix1{typeof(broadcast)}) = true
+_is_elementwise_transform(::Any) = false

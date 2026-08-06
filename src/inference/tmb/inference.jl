@@ -56,7 +56,6 @@ function tmb(
     # Σ_θ = inv(Hessian(objective)) where objective = -log p(θ, y). Using
     # `_compute_negative_hessian` gives -Hessian(objective); we negate
     # once more to get the positive-definite Hessian, then invert.
-    names = collect(keys(spec.free))
     # Build the workspace at the MAP, where the objective is evaluated. A
     # blanket sentinel of 1.0 is out of domain for bounded hyperparameters
     # (e.g. an AR(1) ρ needs |ρ|<1), so seed the workspace from θ̂ instead.
@@ -91,7 +90,7 @@ function tmb(
     # ─── Marginal Distribution objects (the protocol shape) ─────────────
     # Hyperparameter marginals reported in natural space (matching INLA
     # and HMC-Laplace) via `TransformedNormalMarginal`.
-    hp_marg = _natural_hp_marginals(names, θ̂, θ_se, spec)
+    hp_marg = _natural_hp_marginals(θ̂, θ_se, spec)
     latent_marg = [Normal(x_mean[i], x_std[i]) for i in eachindex(x_mean)]
 
     return TMBResult(
@@ -162,10 +161,12 @@ end
 
 # Per-hyperparameter natural-space marginals from the working-space
 # Gaussian Laplace approximation.
-function _natural_hp_marginals(names, θ̂, θ_se, spec)
+function _natural_hp_marginals(θ̂, θ_se, spec)
     out = Vector{TransformedNormalMarginal}(undef, length(θ̂))
     for j in eachindex(θ̂)
-        tr = spec.free[names[j]].transform
+        # Flat coordinate j → its block's (elementwise) transform.
+        _, hp, _ = _coordinate_hp(spec, j)
+        tr = hp.transform
         inv_tr = inverse(tr)
         out[j] = TransformedNormalMarginal(θ̂[j], θ_se[j], tr, inv_tr)
     end
