@@ -5,6 +5,8 @@ from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-06
+
 ### Added
 
 - Vector-valued hyperparameters ([#41]): a free hyperparameter may carry a continuous
@@ -19,7 +21,36 @@ from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
 
 [#41]: https://github.com/timweiland/Latte.jl/issues/41
 
-## [0.1.0]
+## [0.1.1] - 2026-07-05
+
+### Added
+
+- Nonlinear-in-`x` Gaussian observations are recognized as a nonlinear least-squares
+  model and handled with a Gauss–Newton observation Hessian, by default. A curvature
+  check routes mildly-curved Normal means down the same path.
+- The Gauss–Newton path covers heteroskedastic and hyperparameter-dependent σ,
+  hyperparameter-dependent means, and composite observation blocks — including a flowing
+  σ bound to a name other than `:σ`.
+- `nls = false` on a model function forces the exact full-Hessian observation path.
+- Fixed (hyperparameter-independent) GMRF latent priors ([#36]): `@random x ~ g` for a
+  runtime `AbstractGMRF` value `g` is recognized as a constant latent prior, with any
+  `ConstrainedGMRF` constraint threaded through. This previously failed at model
+  construction, because the fixed-prior coercion probed `cov(d)` and hit the GMRF
+  dense-covariance guard.
+- `diagnose` surfaces the Gauss–Newton observation Hessian.
+
+### Changed
+
+- Observation groups are split by the Normal σ expression.
+- Docs deploy to the lattejl.org custom domain.
+
+### Fixed
+
+- The observation fast-path probe punts to AD when it cannot seed the latent.
+
+[#36]: https://github.com/timweiland/Latte.jl/pull/36
+
+## [0.1.0] - 2026-06-25
 
 First public release.
 
