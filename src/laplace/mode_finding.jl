@@ -177,10 +177,26 @@ This is the INLA approximation to the hyperparameter posterior.
 - Main implementation is for `WorkingHyperparameters` (working space)
 - `NaturalHyperparameters` converts to working space and adds Jacobian correction
 """
+# Prototype toggle for the predictor-corrector warm start (A/B benchmarking).
+# Measured OFF-better at 4.8k (FINDINGS.md F7 addendum): the last-mode warm
+# start already converges the inner Newton in ~3 quadratic iterations; the
+# stale-Hessian extrapolation cannot improve on that and occasionally hurts.
+const PREDICTOR_WARMSTART = Ref(false)
+const PREDICTOR_FIRED = Ref(0)
+
 function hyperparameter_logpdf(
         model::LatentGaussianModel, θ::WorkingHyperparameters, y, ga = nothing;
         ws, x0 = nothing, mode_out = nothing,
+        mean_change_tol::Real = 1.0e-8,
+        newton_dec_tol::Real = 1.0e-10,
+        predictor_ok = nothing,
     )
+    # Inner-solve tolerances default far below the outer optimizer's g_abstol
+    # (1e-6): the objective this function returns is consumed by FD gradients
+    # and FD Hessian stencils, whose accuracy is bounded by the inner solve's
+    # noise floor. GMRFs' own defaults (1e-4/1e-5) INVERT that ordering and
+    # make the outer tolerances unreachable. Newton converges quadratically,
+    # so the tighter tolerance typically costs one extra inner iteration.
     # Compute INLA approximation: log π(x*, θ, y) - log π̃_G(x* | θ, y)
 
     # Evaluate prior in working space
@@ -217,10 +233,41 @@ function hyperparameter_logpdf(
 
     latent_prior = latent_gmrf(model, ws, θ_nt)
 
+    # --- Predictor-corrector warm start (prototype; FINDINGS.md Finding 7) ---
+    # `latent_gmrf` only *marked* the workspace factor stale: numerically it
+    # still holds the previous evaluation's Q_post. With F(x0, θ_prev) ≈ 0,
+    # one stale-Hessian Newton step
+    #     x_warm = x0 + Q_post_prev⁻¹ F(x0, θ_new)
+    # is the first-order IFT response of the inner mode to the θ-step, for one
+    # matvec + one triangular solve and zero factorizations.
+    x_warm = x0
+    unconstrained = latent_prior.constraints === nothing
+    if PREDICTOR_WARMSTART[] && predictor_ok isa Base.RefValue && predictor_ok[] &&
+            x0 !== nothing && unconstrained && eltype(θ.θ) === Float64
+        try
+            r0 = x0 .- mean(latent_prior)
+            F = loggrad(x0, obs_lik) .- latent_prior.precision * r0
+            x_warm = x0 .+ (ws.backend.factor \ Vector(F))
+            PREDICTOR_FIRED[] += 1
+        catch
+            x_warm = x0
+        end
+    end
+    predictor_ok isa Base.RefValue && (predictor_ok[] = false)
+
+    # Prior logdet BEFORE the GA: factorizes Q_prior once, records the number.
+    # The prior density is assembled manually further down (matvec quadform),
+    # so the workspace is never reloaded after the GA and the evaluation ends
+    # with the Q_post factor alive — which is what the next predictor needs.
+    ldc_prior = unconstrained ? logdetcov(latent_prior) : nothing
+
     # Use provided Gaussian approximation or compute it
     if ga === nothing
-        # Find Gaussian approximation (warm-start from x0 if provided)
-        x_G = gaussian_approximation(latent_prior, obs_lik; x0 = x0)
+        # Find Gaussian approximation (warm-start from predictor if available)
+        x_G = gaussian_approximation(
+            latent_prior, obs_lik; x0 = x_warm,
+            mean_change_tol = mean_change_tol, newton_dec_tol = newton_dec_tol
+        )
     else
         x_G = ga
     end
@@ -244,7 +291,15 @@ function hyperparameter_logpdf(
         return -Inf
     end
 
-    log_prior_x = logpdf(latent_prior, x_star)
+    if ldc_prior === nothing
+        log_prior_x = logpdf(latent_prior, x_star)   # constrained fallback: old path
+    else
+        r_prior = x_star .- mean(latent_prior)
+        log_prior_x = -0.5 * dot(r_prior, latent_prior.precision * r_prior) -
+            0.5 * ldc_prior - 0.5 * length(r_prior) * log(2π)
+        # Workspace factor is Q_post at this θ and mode_out/last_mode match it.
+        ga === nothing && predictor_ok isa Base.RefValue && (predictor_ok[] = true)
+    end
     log_likelihood = loglik(x_star, obs_lik)
 
     joint_logpdf = log_prior_θ + log_prior_x + log_likelihood
@@ -352,10 +407,11 @@ function find_hyperparameter_mode(
             _latent_x0 === nothing ? nothing : copy(_latent_x0),
         )
         mode_buf = Ref(Float64[])
+        pred_ok = Ref(false)
 
         objective = let _spec = spec, _model = model, _y = y, _ws = ws,
                 _points = points, _logps = logps, _collect = collect_points,
-                _warm = do_warm, _last = last_mode, _buf = mode_buf
+                _warm = do_warm, _last = last_mode, _buf = mode_buf, _pred = pred_ok
             function (θ_vec)
                 θ = WorkingHyperparameters(θ_vec, _spec)
                 logpdf_val = 0.0
@@ -364,8 +420,10 @@ function find_hyperparameter_mode(
                         _model, θ, _y; ws = _ws,
                         x0 = _warm ? _last[] : nothing,
                         mode_out = _warm ? _buf : nothing,
+                        predictor_ok = _warm ? _pred : nothing,
                     )
                 catch e
+                    _pred[] = false
                     _is_numerical_failure(e) || rethrow(e)
                     return Inf
                 end
