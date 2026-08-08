@@ -15,6 +15,7 @@
 # selects + renames just the inner model's kwargs and forwards them.
 
 import Distributions
+import GaussianMarkovRandomFields
 import LinearSolve
 using SparseArrays: SparseMatrixCSC
 using LinearAlgebra: Diagonal
@@ -127,11 +128,53 @@ Distributions.mean(m::_PatternAugmentedLatentModel; kwargs...) = Distributions.m
 constraints(m::_PatternAugmentedLatentModel; kwargs...) = constraints(m.inner; kwargs...)
 
 precision_matrix(m::_PatternAugmentedLatentModel; kwargs...) =
-    augment_pattern(SparseMatrixCSC(precision_matrix(m.inner; kwargs...)), m.pattern)
+    _augment_unless_structured(precision_matrix(m.inner; kwargs...), m.pattern)
+
+_augment_unless_structured(Q, pattern) = augment_pattern(SparseMatrixCSC(Q), pattern)
+
+# Structured precisions (lazy Kronecker / block-diagonal, GMRFs.jl with
+# structured priors) must pass through un-augmented: the workspace prior path
+# keeps them out of the joint pattern entirely, so augmentation is unnecessary
+# there — and `SparseMatrixCSC` on a lazy structured matrix materializes via
+# generic O(n²) indexing, destroying both the structure and the performance.
+@static if isdefined(GaussianMarkovRandomFields, :BlockDiagonalPrecision)
+    _augment_unless_structured(
+        Q::GaussianMarkovRandomFields.BlockDiagonalPrecision, ::Any
+    ) = Q
+    _augment_unless_structured(
+        Q::GaussianMarkovRandomFields.AbstractKroneckerProduct, ::Any
+    ) = Q
+end
+
+# Fast lowering to concrete sparse, used where a materialized matrix is
+# unavoidable (workspace pattern construction, cold path). The structured
+# types lower factor-wise instead of through generic indexing.
+_materialize_precision(Q::AbstractMatrix) = SparseMatrixCSC(Q)
+@static if isdefined(GaussianMarkovRandomFields, :BlockDiagonalPrecision)
+    _materialize_precision(Q::GaussianMarkovRandomFields.BlockDiagonalPrecision) =
+        GaussianMarkovRandomFields._ensure_sparse(Q)
+    _materialize_precision(Q::GaussianMarkovRandomFields.AbstractKroneckerProduct) =
+        GaussianMarkovRandomFields._ensure_sparse(Q)
+end
+
+_augmented_materialized(m::_PatternAugmentedLatentModel; kwargs...) =
+    augment_pattern(_materialize_precision(precision_matrix(m.inner; kwargs...)), m.pattern)
+
+# The workspace carries the JOINT pattern (prior ∪ likelihood-Hessian): the
+# Newton loop adds the observation Hessian into this workspace's factor slot.
+# `precision_matrix` no longer augments for structured priors, so workspace
+# construction must not route through it — build from the materialized
+# augmented pattern explicitly.
+make_workspace(m::_PatternAugmentedLatentModel; kwargs...) =
+    GMRFWorkspace(_augmented_materialized(m; kwargs...))
+make_workspace_pool(
+    m::_PatternAugmentedLatentModel; size::Int = Threads.nthreads(), kwargs...
+) = GaussianMarkovRandomFields.WorkspacePool(_augmented_materialized(m; kwargs...); size = size)
 
 function (m::_PatternAugmentedLatentModel)(; kwargs...)
     μ = Distributions.mean(m.inner; kwargs...)
-    Q = precision_matrix(m; kwargs...)
+    # Cold path builds a plain CHOLMOD-backed GMRF, so always materialize.
+    Q = _augmented_materialized(m; kwargs...)
     c = constraints(m.inner; kwargs...)
     g = GMRF(μ, Q, LinearSolve.CHOLMODFactorization())
     return c === nothing ? g : ConstrainedGMRF(g, c[1], c[2])
