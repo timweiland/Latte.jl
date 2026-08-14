@@ -200,6 +200,23 @@ function _extract_observed(y::AbstractVector{<:Union{Missing, Integer}}, observe
     return PoissonObservations(Int[y[i] for i in eachindex(y) if observed_mask[i]])
 end
 
+# NegativeBinomial: integer vector → wrap into NegativeBinomialObservations
+function _extract_observed(y::AbstractVector{<:Union{Missing, Integer}}, observed_mask::AbstractVector{Bool}, obs_model::ExponentialFamily{NegativeBinomial})
+    return NegativeBinomialObservations(Int[y[i] for i in eachindex(y) if observed_mask[i]])
+end
+
+# LinearlyTransformedObservationModel — delegate to the base obs model, mirroring
+# _normalize_observations (the base model decides the observations container).
+function _extract_observed(y::AbstractVector, observed_mask::AbstractVector{Bool}, m::LinearlyTransformedObservationModel)
+    return _extract_observed(y, observed_mask, m.base_model)
+end
+
+# Disambiguation vs the LTM delegation above (MissingPoissonObservations is an
+# AbstractVector); the base model decides the container here too.
+function _extract_observed(y::MissingPoissonObservations, observed_mask::AbstractVector{Bool}, m::LinearlyTransformedObservationModel)
+    return _extract_observed(y, observed_mask, m.base_model)
+end
+
 # MissingPoissonObservations with exposure
 function _extract_observed(y::MissingPoissonObservations, observed_mask::AbstractVector{Bool}, obs_model)
     counts_obs = Int[y.counts[i] for i in eachindex(y.counts) if observed_mask[i]]
