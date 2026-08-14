@@ -289,4 +289,58 @@ using Random
             @test length(observed_marginals(result)) == n_obs - 2
         end
     end
+
+    @testset "Compact-path prediction includes the observation offset" begin
+        Random.seed!(7)
+        n_base, n_obs = 5, 40
+        A = sparse(1:n_obs, [mod1(i, n_base) for i in 1:n_obs], 1.0, n_obs, n_base)
+        offset = [isodd(i) ? 0.0 : 3.0 for i in 1:n_obs]
+
+        hp_spec = @hyperparams begin
+            (τ ~ Exponential(1.0), transform = log, space = natural)
+        end
+
+        x_true = 0.4 .* randn(n_base) .+ 1.0
+        η_true = A * x_true .+ offset
+        y_full = rand.(Poisson.(exp.(η_true)))
+
+        obs_model = LinearlyTransformedObservationModel(
+            ExponentialFamily(Poisson), A; offset = offset
+        )
+        model = LatentGaussianModel(
+            hp_spec, IIDModel(n_base), obs_model; augment_latent = false
+        )
+
+        k = n_obs  # an offset-3 observation, held out for prediction
+        y = Vector{Union{Missing, Int}}(y_full)
+        y[k] = missing
+
+        result = inla(model, y; progress = false)
+
+        # The predicted marginal is the lincomb marginal shifted by the offset.
+        pm = predicted_marginals(result)[1]
+        lc = linear_combinations(result, Vector(A[k, :]))
+        @test mean(pm) ≈ mean(lc) + offset[k] atol = 1.0e-8
+        @test std(pm) ≈ std(lc) atol = 1.0e-8
+
+        # The offset (3.0) dwarfs the posterior error, so this catches dropping it.
+        @test abs(mean(pm) - η_true[k]) < 1.0
+
+        # observed_marginals must include offsets as well.
+        j = 2  # observed offset-3 row; index 2 in the observed set (only row k missing)
+        om = observed_marginals(result)[j]
+        lcj = linear_combinations(result, Vector(A[j, :]))
+        @test mean(om) ≈ mean(lcj) + offset[j] atol = 1.0e-8
+
+        # linear_combinations offsets keyword: exact shift, no variance change.
+        M = Matrix(A[1:3, :])
+        c = [0.5, -1.0, 2.0]
+        base = linear_combinations(result, M)
+        shifted = linear_combinations(result, M; offsets = c)
+        for i in 1:3
+            @test mean(shifted[i]) ≈ mean(base[i]) + c[i] atol = 1.0e-10
+            @test std(shifted[i]) ≈ std(base[i]) atol = 1.0e-10
+        end
+        @test_throws DimensionMismatch linear_combinations(result, M; offsets = [1.0])
+    end
 end
