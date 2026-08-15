@@ -73,6 +73,15 @@ make_workspace(m::RoutedLatentModel; kwargs...) =
 make_workspace_pool(m::RoutedLatentModel; size::Int = Threads.nthreads(), kwargs...) =
     make_workspace_pool(m.inner; size = size, _route_inner_kwargs(m, kwargs)...)
 
+# Forward the cheap-prior-logdet structure hook through both wrappers, so the
+# materialized prior carries it and `logdetcov` never factorizes the joint
+# workspace at Q_prior. Both forwards are exact: routing only renames kwargs,
+# and pattern augmentation adds structural zeros (no determinant effect).
+@static if isdefined(GaussianMarkovRandomFields, :precision_logdet)
+    GaussianMarkovRandomFields.precision_logdet(m::RoutedLatentModel; kwargs...) =
+        GaussianMarkovRandomFields.precision_logdet(m.inner; _route_inner_kwargs(m, kwargs)...)
+end
+
 # Probing stand-in for the `~` slot of a recognized latent in the DPPL model
 # behind `@latte` — serves both `@latte` assembly and the `Latte.dppl_model`
 # Turing handoff.
@@ -129,6 +138,11 @@ constraints(m::_PatternAugmentedLatentModel; kwargs...) = constraints(m.inner; k
 
 precision_matrix(m::_PatternAugmentedLatentModel; kwargs...) =
     _augment_unless_structured(precision_matrix(m.inner; kwargs...), m.pattern)
+
+@static if isdefined(GaussianMarkovRandomFields, :precision_logdet)
+    GaussianMarkovRandomFields.precision_logdet(m::_PatternAugmentedLatentModel; kwargs...) =
+        GaussianMarkovRandomFields.precision_logdet(m.inner; kwargs...)
+end
 
 _augment_unless_structured(Q, pattern) = augment_pattern(SparseMatrixCSC(Q), pattern)
 

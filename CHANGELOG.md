@@ -5,6 +5,28 @@ from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
 
 ## [Unreleased]
 
+### Added
+
+- Second-order hyperparameter mode finding: passing an Optim second-order method
+  (e.g. `mode_method = NewtonTrustRegion()`) now works and builds its model Hessian
+  from forward differences of AD gradients every `hessian_refresh` accepted
+  iterates, with SR1 secant updates from every gradient evaluation in between. Trust-region steps stay bounded, so
+  no line search and none of its extreme-θ failure modes. Requires `ADStrategy`
+  (the default differentiation strategy). The model Hessian at the accepted mode is
+  handed to exploration (`mode_info.negative_hessian`), which reuses it as the
+  reparameterization curvature instead of re-differencing gradients around θ*.
+- Stall detection in mode finding: when `stall_iterations` consecutive outer
+  iterations improve the objective by less than `stall_f_tol` (about the inner-solve
+  noise floor), the optimization stops early with a diagnostic warning and
+  `mode_info.stalled = true` instead of spending the remaining `mode_iterations`
+  budget at the noise floor.
+- `RoutedLatentModel` and the pattern-augmentation wrapper forward GMRFs.jl's
+  `precision_logdet` structure hook (when the installed GMRFs version provides it),
+  so recognized separable/combined priors keep their cheap prior log-determinant —
+  without the forwarding, every hyperparameter evaluation pays a joint-scale prior
+  factorization. Both forwards are exact: routing only renames hyperparameters, and
+  pattern augmentation adds structural zeros.
+
 ## [0.1.2] - 2026-08-06
 
 ### Added
