@@ -67,14 +67,15 @@ function explore_hyperparameter_posterior(
         progress_callback = nothing,
         accumulators::Tuple = (),
         executor::ParallelExecutor = SequentialExecutor(),
-        diff_strategy::DifferentiationStrategy = ADStrategy()
+        diff_strategy::DifferentiationStrategy = ADStrategy(),
+        negative_hessian::Union{Nothing, AbstractMatrix} = nothing
     )
     d = length(θ_star)
     if d >= 3
         return explore_hyperparameter_posterior(
             CCDExplorationStrategy(),
             model, y, θ_star, marginalization_method, marginalization_indices;
-            progress_callback, accumulators, executor, diff_strategy,
+            progress_callback, accumulators, executor, diff_strategy, negative_hessian,
         )
     end
 
@@ -89,6 +90,7 @@ function explore_hyperparameter_posterior(
     transform = compute_reparameterization(
         model, y, θ_star;
         pool = pool, executor = executor, diff_strategy = diff_strategy,
+        negative_hessian = negative_hessian,
     )
 
     z_points, weights = _inla_grid_design(d)

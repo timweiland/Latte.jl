@@ -24,7 +24,9 @@ selecting sensible defaults while supporting advanced customization.
 - `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = AutoHyperparameterMarginal()`: Method for hyperparameter marginalization (GridSum for D=1, CCD interpolant for D≥2)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
 - `exploration_strategy::ExplorationStrategy = AutoExplorationStrategy()`: Hyperparameter exploration strategy. `AutoExplorationStrategy()` uses grid for D ≤ 2, CCD for D ≥ 3. Can also pass `GridExplorationStrategy(...)` or `CCDExplorationStrategy(...)` directly.
-- `mode_method = BFGS()`: Optimization method for mode finding
+- `mode_method = BFGS()`: Optimization method for mode finding. Second-order methods
+  (e.g. `NewtonTrustRegion()`) build a trust-region model Hessian from AD gradients;
+  see [`find_hyperparameter_mode`](@ref).
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
 - `progress::Bool = true`: Enable progress tracking
 - `accumulators::Tuple = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy())`: Tuple of `PosteriorStrategy` configs for model comparison metrics. Each strategy is materialised into a fresh accumulator per call, so the tuple can be safely reused across multiple `inla()` runs. Pass e.g. `WAICStrategy(n_nodes=25)` to tune knobs.
@@ -146,7 +148,11 @@ function inla(
         progress_callback = exploration_callback,
         accumulators = accumulators,
         executor = executor,
-        diff_strategy = diff_strategy
+        diff_strategy = diff_strategy,
+        # Second-order mode finders hand their model Hessian at the mode
+        # through mode_info; the reparameterization reuses it instead of
+        # re-differencing gradients around θ*.
+        negative_hessian = mode_info.negative_hessian
     )
 
     timing[:exploration] = time() - exploration_start_time
