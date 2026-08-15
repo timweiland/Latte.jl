@@ -24,9 +24,10 @@ selecting sensible defaults while supporting advanced customization.
 - `hyperparameter_marginalization_method::HyperparameterMarginalizationMethod = AutoHyperparameterMarginal()`: Method for hyperparameter marginalization (GridSum for D=1, CCD interpolant for D≥2)
 - `latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing`: Indices to marginalize (default: all)
 - `exploration_strategy::ExplorationStrategy = AutoExplorationStrategy()`: Hyperparameter exploration strategy. `AutoExplorationStrategy()` uses grid for D ≤ 2, CCD for D ≥ 3. Can also pass `GridExplorationStrategy(...)` or `CCDExplorationStrategy(...)` directly.
-- `mode_method = BFGS()`: Optimization method for mode finding. Second-order methods
-  (e.g. `NewtonTrustRegion()`) build a trust-region model Hessian from AD gradients;
-  see [`find_hyperparameter_mode`](@ref).
+- `mode_method = nothing`: Optimization method for mode finding. The default
+  resolves to `NewtonTrustRegion()` for AD gradients and `dim(θ) ≤ 6` (a
+  trust-region model Hessian from AD gradients) and `BFGS` + backtracking
+  otherwise; see [`find_hyperparameter_mode`](@ref).
 - `mode_iterations::Int = 1000`: Maximum iterations for mode finding
 - `progress::Bool = true`: Enable progress tracking
 - `accumulators::Tuple = (DICStrategy(), MarginalLogLikelihoodStrategy(), WAICStrategy(), CPOStrategy())`: Tuple of `PosteriorStrategy` configs for model comparison metrics. Each strategy is materialised into a fresh accumulator per call, so the tuple can be safely reused across multiple `inla()` runs. Pass e.g. `WAICStrategy(n_nodes=25)` to tune knobs.
@@ -70,7 +71,7 @@ function inla(
         hyperparameter_marginalization_method = AutoHyperparameterMarginal(),
         latent_indices::Union{Nothing, AbstractVector{<:Integer}} = nothing,
         exploration_strategy::ExplorationStrategy = AutoExplorationStrategy(),
-        mode_method = BFGS(linesearch = Optim.LineSearches.BackTracking(order = 3, maxstep = 5.0)),
+        mode_method = nothing,
         mode_iterations::Int = 1000,
         mode_init = PriorModeStart(),
         latent_init = ZeroLatentStart(),

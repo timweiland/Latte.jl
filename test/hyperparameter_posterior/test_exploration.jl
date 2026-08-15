@@ -7,6 +7,7 @@ using LinearAlgebra
 using SparseArrays
 using FiniteDiff
 using Optim
+using Optim.LineSearches: BackTracking
 
 @testset "Posterior Exploration" begin
 
@@ -182,7 +183,10 @@ using Optim
         end
 
         @testset "end-to-end: NTR handoff matches BFGS exploration" begin
-            r_bfgs = inla(model, y; progress = false, accumulators = ())
+            r_bfgs = inla(
+                model, y; progress = false, accumulators = (),
+                mode_method = BFGS(linesearch = BackTracking(order = 3, maxstep = 5.0)),
+            )
             r_ntr = inla(
                 model, y; progress = false, accumulators = (),
                 mode_method = NewtonTrustRegion(),

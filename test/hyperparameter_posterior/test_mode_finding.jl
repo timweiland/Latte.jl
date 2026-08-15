@@ -6,8 +6,10 @@ using Distributions
 using LinearAlgebra
 using SparseArrays
 using Optim
+using Optim.LineSearches: BackTracking
 using FiniteDiff
 using Random
+using DynamicPPL: @model
 
 # Regression: a prior without `Distributions.mode` must yield an actionable
 # error from the mode-finder, not a cryptic `MethodError: iterate`.
@@ -189,6 +191,40 @@ end
         @test θ_init[3] ≈ 0 atol = 1.0e-6
     end
 
+    @testset "Constrained prior through the DPPL adapter under AD" begin
+        # Regression: a Besag (sum-to-zero) prior materializes as a plain
+        # ConstrainedGMRF on the Dual-θ DAG path — no `constraints` FIELD, the
+        # constraint lives in the type. The prior-logdet fast path must not
+        # claim it; misclassifying it as unconstrained either throws (missing
+        # Dual logdetcov method) or silently drops the constraint correction.
+        using DynamicPPL: @model
+        n = 6
+        W = spdiagm(-1 => ones(n - 1), 1 => ones(n - 1))
+        @model function besag_chain(y, W, n)
+            τ ~ Gamma(2.0, 1.0)
+            u ~ BesagModel(W)(τ = τ)
+            fixed ~ MvNormal(zeros(1), 100.0 * I(1))
+            for i in 1:n
+                y[i] ~ Poisson(exp(fixed[1] + u[i]))
+            end
+        end
+        Random.seed!(5)
+        y = rand(1:5, n)
+        lgm = latte_from_dppl(besag_chain(y, W, n); random = (:fixed, :u))
+
+        θ_ad, _, _, info_ad = find_hyperparameter_mode(lgm, y)
+        @test all(isfinite, collect(θ_ad))
+        @test isfinite(maximum(info_ad.final_logdensities))
+
+        # The AD path must agree with finite differences (which never enter
+        # the Dual branch) — a silently dropped constraint correction would
+        # shift the mode.
+        θ_fd, _, _, _ = find_hyperparameter_mode(
+            lgm, y; diff_strategy = FiniteDiffStrategy(),
+        )
+        @test collect(θ_ad) ≈ collect(θ_fd) atol = 1.0e-3
+    end
+
     @testset "Second-order mode finding (trust region)" begin
         # Two hyperparameters so the SR1 curvature update is actually exercised.
         function create_two_hp_model()
@@ -206,7 +242,9 @@ end
             model = create_two_hp_model()
             y = [0.5, -0.3, 0.8, -0.2]
 
-            θ_bfgs, _, _, info_bfgs = find_hyperparameter_mode(model, y)
+            θ_bfgs, _, _, info_bfgs = find_hyperparameter_mode(
+                model, y; method = BFGS(linesearch = BackTracking(order = 3, maxstep = 5.0)),
+            )
             θ_ntr, pts, lps, info_ntr = find_hyperparameter_mode(
                 model, y; method = NewtonTrustRegion(),
             )
@@ -222,7 +260,9 @@ end
         @testset "SR1-only Hessian model (hessian_refresh = 0)" begin
             model = create_two_hp_model()
             y = [0.5, -0.3, 0.8, -0.2]
-            θ_bfgs, _, _, _ = find_hyperparameter_mode(model, y)
+            θ_bfgs, _, _, _ = find_hyperparameter_mode(
+                model, y; method = BFGS(linesearch = BackTracking(order = 3, maxstep = 5.0)),
+            )
             θ_sr1, _, _, info = find_hyperparameter_mode(
                 model, y; method = NewtonTrustRegion(), hessian_refresh = 0,
             )
@@ -244,7 +284,9 @@ end
             @test all(eigvals(H) .> 0)
 
             # First-order methods have no model Hessian to hand off
-            _, _, _, info_bfgs = find_hyperparameter_mode(model, y)
+            _, _, _, info_bfgs = find_hyperparameter_mode(
+                model, y; method = BFGS(linesearch = BackTracking(order = 3, maxstep = 5.0)),
+            )
             @test info_bfgs.negative_hessian === nothing
         end
 
@@ -255,6 +297,36 @@ end
                 model, y; method = NewtonTrustRegion(),
                 diff_strategy = FiniteDiffStrategy(),
             )
+        end
+
+        @testset "default method resolution" begin
+            @test Latte._resolve_mode_method(nothing, ADStrategy(), 1) isa NewtonTrustRegion
+            @test Latte._resolve_mode_method(nothing, ADStrategy(), 6) isa NewtonTrustRegion
+            @test Latte._resolve_mode_method(nothing, ADStrategy(), 7) isa BFGS
+            @test Latte._resolve_mode_method(nothing, FiniteDiffStrategy(), 1) isa BFGS
+            explicit = BFGS()
+            @test Latte._resolve_mode_method(explicit, ADStrategy(), 1) === explicit
+
+            # Integration: the resolved default at small d is the trust
+            # region — observable through the exploration Hessian handoff —
+            # and the FD default silently falls back to BFGS instead of
+            # throwing.
+            model = create_two_hp_model()
+            y = [0.5, -0.3, 0.8, -0.2]
+            _, _, _, info_default = find_hyperparameter_mode(model, y)
+            @test info_default.negative_hessian !== nothing
+            _, _, _, info_fd = find_hyperparameter_mode(
+                model, y; diff_strategy = FiniteDiffStrategy(),
+            )
+            @test info_fd.negative_hessian === nothing
+        end
+
+        @testset "benign stall classification" begin
+            @test Latte._benign_stall(1.0e-5)
+            @test Latte._benign_stall(5.0e-3)
+            @test !Latte._benign_stall(0.1)
+            @test !Latte._benign_stall(NaN)
+            @test !Latte._benign_stall(Inf)
         end
 
         @testset "forward-difference model Hessian is exact on quadratics" begin
@@ -327,8 +399,11 @@ end
             # stall window is the effective iteration budget. Window 1 stops at
             # the first callback — the model itself converges within a few
             # iterations, so a larger window would never fire.
+            # Start far from the mode so the stop carries a large gradient and
+            # deterministically takes the :warn (non-benign) branch.
             θ, _, _, info = @test_logs (:warn, r"stalled") match_mode = :any find_hyperparameter_mode(
                 model, y; stall_iterations = 1, stall_f_tol = Inf,
+                mode_init = [(; τ = 1.0e6)],
             )
             @test info.stalled
             @test !info.converged

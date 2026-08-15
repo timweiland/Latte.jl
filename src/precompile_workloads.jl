@@ -95,46 +95,51 @@ using PrecompileTools: PrecompileTools, @setup_workload, @compile_workload
     )
 
     @compile_workload begin
-        # SimplifiedLaplace is the most common latent strategy and exercises
-        # the SkewNormal/γ_3 path. AdaptiveMarginal in Gaussian-likelihood
-        # cases short-circuits to GaussianMarginal, so we cover both
-        # explicitly via Poisson (SLA) and Normal (Gaussian).
-        inla(
-            _ttfx_pois_lgm, _ttfx_y_pois;
-            latent_marginalization_method = SimplifiedLaplace(),
-            exploration_strategy = _ttfx_grid_strategy,
-            progress = false, accumulators = (),
-        )
-        inla(
-            _ttfx_bern_lgm, _ttfx_y_bern;
-            latent_marginalization_method = SimplifiedLaplace(),
-            exploration_strategy = _ttfx_grid_strategy,
-            progress = false, accumulators = (),
-        )
-        inla(
-            _ttfx_binom_lgm, _ttfx_y_binom;
-            latent_marginalization_method = SimplifiedLaplace(),
-            exploration_strategy = _ttfx_grid_strategy,
-            progress = false, accumulators = (),
-        )
-        inla(
-            _ttfx_norm_lgm, _ttfx_y_norm;
-            latent_marginalization_method = GaussianMarginal(),
-            exploration_strategy = _ttfx_grid_strategy,
-            progress = false, accumulators = (),
-        )
-        # One Poisson run with the **default method stack** —
-        # AdaptiveMarginal + AutoHyperparameterMarginal + the full
-        # DIC/MLL/WAIC/CPO accumulator chain — wrapped in
-        # AutoExplorationStrategy so the auto-dispatch shape that
-        # `inla(lgm, y)` (no kwargs) hits is also baked in. We pin
-        # the cheap-grid AutoExplorationStrategy variant (not the
-        # default-budget one) to keep precompile time bounded; the
-        # method specialisations are the same.
-        inla(
-            _ttfx_pois_lgm, _ttfx_y_pois;
-            exploration_strategy = _ttfx_auto_strategy,
-            progress = false,
-        )
+        # Workload logging goes to the void: the tiny workload models stop at
+        # the objective noise floor under the trust-region default and would
+        # otherwise print the benign-stall info on every precompile.
+        Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
+            # SimplifiedLaplace is the most common latent strategy and exercises
+            # the SkewNormal/γ_3 path. AdaptiveMarginal in Gaussian-likelihood
+            # cases short-circuits to GaussianMarginal, so we cover both
+            # explicitly via Poisson (SLA) and Normal (Gaussian).
+            inla(
+                _ttfx_pois_lgm, _ttfx_y_pois;
+                latent_marginalization_method = SimplifiedLaplace(),
+                exploration_strategy = _ttfx_grid_strategy,
+                progress = false, accumulators = (),
+            )
+            inla(
+                _ttfx_bern_lgm, _ttfx_y_bern;
+                latent_marginalization_method = SimplifiedLaplace(),
+                exploration_strategy = _ttfx_grid_strategy,
+                progress = false, accumulators = (),
+            )
+            inla(
+                _ttfx_binom_lgm, _ttfx_y_binom;
+                latent_marginalization_method = SimplifiedLaplace(),
+                exploration_strategy = _ttfx_grid_strategy,
+                progress = false, accumulators = (),
+            )
+            inla(
+                _ttfx_norm_lgm, _ttfx_y_norm;
+                latent_marginalization_method = GaussianMarginal(),
+                exploration_strategy = _ttfx_grid_strategy,
+                progress = false, accumulators = (),
+            )
+            # One Poisson run with the **default method stack** —
+            # AdaptiveMarginal + AutoHyperparameterMarginal + the full
+            # DIC/MLL/WAIC/CPO accumulator chain — wrapped in
+            # AutoExplorationStrategy so the auto-dispatch shape that
+            # `inla(lgm, y)` (no kwargs) hits is also baked in. We pin
+            # the cheap-grid AutoExplorationStrategy variant (not the
+            # default-budget one) to keep precompile time bounded; the
+            # method specialisations are the same.
+            inla(
+                _ttfx_pois_lgm, _ttfx_y_pois;
+                exploration_strategy = _ttfx_auto_strategy,
+                progress = false,
+            )
+        end
     end
 end

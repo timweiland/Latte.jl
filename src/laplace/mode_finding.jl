@@ -10,6 +10,7 @@ using Optim
 using Optim.LineSearches: LineSearches
 using FiniteDiff
 using ForwardDiff: ForwardDiff
+using GaussianMarkovRandomFields: GMRF
 using Distributions
 
 export hyperparameter_logpdf, find_hyperparameter_mode, initial_hyperparameter_guess
@@ -258,10 +259,13 @@ function hyperparameter_logpdf(
     # is the first-order IFT response of the inner mode to the θ-step, for one
     # matvec + one triangular solve and zero factorizations.
     x_warm = x0
-    # Plain GMRFs (e.g. the Dual-θ path of the DPPL adapter) carry no
-    # `constraints` field at all — they are unconstrained by construction.
-    unconstrained = !hasproperty(latent_prior, :constraints) ||
-        latent_prior.constraints === nothing
+    # The prior-logdet fast path applies only to provably unconstrained
+    # priors: a plain GMRF (e.g. the Dual-θ path of the DPPL adapter), or a
+    # workspace variant whose `constraints` field is empty. Anything else —
+    # ConstrainedGMRF carries its constraints in the type, not a field — takes
+    # the general `logpdf` fallback below, which is always correct.
+    unconstrained = latent_prior isa GMRF ||
+        (hasproperty(latent_prior, :constraints) && latent_prior.constraints === nothing)
     if PREDICTOR_WARMSTART[] && predictor_ok isa Base.RefValue && predictor_ok[] &&
             x0 !== nothing && unconstrained && eltype(θ.θ) === Float64
         try
@@ -454,24 +458,54 @@ function _observe_pair!(hs::_SR1HessianState, x::AbstractVector, g::AbstractVect
 end
 
 """
-    find_hyperparameter_mode(model::LatentGaussianModel, y; method=BFGS(), collect_points=true, progress_callback=nothing)
+    _resolve_mode_method(method, diff_strategy, d) -> Optim method
+
+Resolve the default optimization method for mode finding. An explicitly
+passed `method` is used as-is. The default (`nothing`) is trust-region
+Newton for AD gradients and `dim(θ) ≤ 6` — measured dominant or tied on
+every benchmark family at d ∈ {1, 2, 4}, and mechanically equivalent at
+5–6, where a model-Hessian refresh still costs ≈ d/5 gradient evaluations
+per accepted iterate. BFGS + backtracking otherwise: finite-difference
+gradients are too noisy to difference into a model Hessian, and at higher
+dim the refresh cost dominates and is unmeasured.
+"""
+function _resolve_mode_method(method, diff_strategy, d::Int)
+    method === nothing || return method
+    diff_strategy isa ADStrategy && d <= 6 && return NewtonTrustRegion()
+    return BFGS(linesearch = LineSearches.BackTracking(order = 3, maxstep = 5.0))
+end
+
+# A stall with a near-tolerance gradient is a benign stop at the objective
+# noise floor: the mode is found, only the g_abstol certificate is out of
+# reach. Observed benign stalls sit at |∇| ≈ 1e-5–5e-3; genuinely stuck
+# optimizations carry |∇| well above 1e-1.
+_benign_stall(g_norm) = isfinite(g_norm) && g_norm < 1.0e-2
+
+"""
+    find_hyperparameter_mode(model::LatentGaussianModel, y; method=nothing, collect_points=true, progress_callback=nothing)
 
 Find the mode θ* of the hyperparameter posterior π(θ | y).
 
 # Arguments
 - `model`: INLA model specification
 - `y`: Observed data
-- `method`: Optimization method (from Optim.jl). First-order methods (the
-  default BFGS) use the AD gradient. Second-order methods (`NewtonTrustRegion()`,
-  `Newton()`) additionally get a model Hessian built from forward differences
-  of AD gradients, refreshed every `hessian_refresh` accepted iterates with
-  SR1 secant updates from every gradient evaluation in between, and require
+- `method`: Optimization method (from Optim.jl). The default (`nothing`)
+  resolves per differentiation strategy and dimension: `NewtonTrustRegion()`
+  for AD gradients and `dim(θ) ≤ 6`, `BFGS` + backtracking otherwise
+  (`_resolve_mode_method`). First-order methods use the AD gradient.
+  Second-order methods (`NewtonTrustRegion()`, `Newton()`) additionally get a
+  model Hessian built from forward differences of AD gradients, refreshed
+  every `hessian_refresh` accepted iterates with SR1 secant updates from
+  every gradient evaluation in between, and require
   `diff_strategy = ADStrategy()`.
 - `collect_points`: Whether to collect intermediate points during optimization
 - `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
 - `hessian_refresh`: For second-order methods, how many accepted iterates to
   carry SR1 curvature updates before recomputing the forward-difference AD
-  Hessian; `0` computes it only once at the start.
+  Hessian; `0` computes it only once at the start. The default (`nothing`)
+  resolves to 1 for `dim(θ) ≤ 2` — there a refresh costs at most two gradient
+  evaluations, and low-dimensional secant updates go stale near the mode —
+  and 5 for higher dimensions, where the refresh is the dominant cost.
 - `stall_iterations`, `stall_f_tol`: Stop an optimization early when
   `stall_iterations` consecutive outer iterations improve the objective by less
   than `stall_f_tol` (roughly the inner-solve noise floor). The best point
@@ -491,7 +525,7 @@ Optimization is performed in working (unconstrained) space. The mode is returned
 """
 function find_hyperparameter_mode(
         model::LatentGaussianModel, y;
-        method = BFGS(linesearch = LineSearches.BackTracking(order = 3, maxstep = 5.0)),
+        method = nothing,
         iterations::Int = 1000,
         collect_points = true, progress_callback = nothing,
         diff_strategy::DifferentiationStrategy = ADStrategy(),
@@ -499,18 +533,10 @@ function find_hyperparameter_mode(
         latent_init = ZeroLatentStart(),
         executor::ParallelExecutor = SequentialExecutor(),
         warm_start::Union{Nothing, Bool} = nothing,
-        hessian_refresh::Int = 5,
+        hessian_refresh::Union{Nothing, Int} = nothing,
         stall_iterations::Union{Nothing, Int} = nothing,
         stall_f_tol::Real = 1.0e-8,
     )
-    # Trust-region accepted steps decrease f monotonically and, once a
-    # rejection has shrunk the radius, the quadratic model is first-order
-    # exact in the remaining region — so a short run of sub-noise iterations
-    # is a terminal signature (gradient at the noise floor), not a plateau.
-    # Line-search quasi-Newton can wander through f-increases before
-    # recovering, so it gets a wide window.
-    stall_window = stall_iterations !== nothing ? stall_iterations :
-        (method isa Optim.SecondOrderOptimizer ? 6 : 50)
     # Normalize y (Vector{Int} → PoissonObservations, etc.) so direct
     # callers behave the same as inla() / tmb() which pre-wrap via
     # `_prepare_for_prediction`. Without this the objective's try/catch
@@ -528,6 +554,28 @@ function find_hyperparameter_mode(
 
     starts = resolve_mode_starts(mode_init, spec)
     n_starts = length(starts)
+
+    method = _resolve_mode_method(method, diff_strategy, length(first(starts)))
+
+    # Trust-region accepted steps decrease f monotonically and, once a
+    # rejection has shrunk the radius, the quadratic model is first-order
+    # exact in the remaining region — so a short run of sub-noise iterations
+    # is a terminal signature (gradient at the noise floor), not a plateau.
+    # Line-search quasi-Newton can wander through f-increases before
+    # recovering, so it gets a wide window.
+    stall_window = stall_iterations !== nothing ? stall_iterations :
+        (method isa Optim.SecondOrderOptimizer ? 6 : 50)
+
+    # A full model-Hessian refresh costs dim(θ) gradient evaluations. At
+    # dim(θ) ≤ 2 that is at most two evaluations — cheaper than one wasted
+    # rejection from a stale model — and the low-dimensional secant updates
+    # are the most noise-fragile: near the mode the pair guard leaves B
+    # frozen at its last refresh exactly when the endgame needs accurate
+    # curvature (measured: refresh-1 certifies where refresh-5 freezes at
+    # the noise floor at d = 1). At higher dim the refresh is the dominant
+    # cost and a 5-iterate cadence measures best.
+    refresh = hessian_refresh !== nothing ? hessian_refresh :
+        (length(first(starts)) <= 2 ? 1 : 5)
 
     # Resolve the FIRST inner-Newton latent start (latent_init). Subsequent θ-steps warm-start
     # from the previous mode; this only seeds each start's first GA solve. Resolved once at the
@@ -630,7 +678,7 @@ function find_hyperparameter_mode(
 
         result, neg_hess = _run_optimization(
             diff_strategy, objective, model, y, spec, θ_init, ws, method, options,
-            last_mode, do_warm; hessian_refresh = hessian_refresh, record! = record!,
+            last_mode, do_warm; hessian_refresh = refresh, record! = record!,
         )
         return (
             idx = i,
@@ -679,7 +727,16 @@ function find_hyperparameter_mode(
     end
 
     if !any_converged
-        if best_stalled
+        if _benign_stall(best_g_norm)
+            # Near-tolerance gradient: the mode is found, only the g_abstol
+            # certificate is out of reach at the objective noise floor —
+            # regardless of whether the stop came from the stall detector, a
+            # collapsed trust radius, or a failed line search.
+            @info "Hyperparameter mode optimization stopped near the mode without " *
+                "certifying the gradient tolerance (best log-density " *
+                "$(round(best_logp; digits = 3)), gradient norm " *
+                "$(round(best_g_norm; sigdigits = 3)))."
+        elseif best_stalled
             @warn "Hyperparameter mode optimization stalled: no objective improvement " *
                 "beyond $stall_f_tol over $stall_window consecutive iterations " *
                 "(best log-density $(round(best_logp; digits = 3)), " *
