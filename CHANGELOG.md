@@ -49,6 +49,15 @@ from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
   through `latte_from_dppl` on the AD-gradient path) are no longer misclassified by
   the prior-logdet fast path; the classification is type-based and fails safe to the
   general `logpdf` fallback.
+- Negative binomial models now support prediction via `missing` observations. The
+  observed-data extraction previously produced a plain vector that failed to
+  materialize; it now wraps counts in `NegativeBinomialObservations`, and linearly
+  transformed observation models delegate the extraction to their base model.
+- `predicted_marginals` and `observed_marginals` on the compact (non-augmented)
+  linear-predictor path now include the observation offset. Previously the offset
+  was silently dropped, biasing predictions at `missing` observations for any model
+  with a fixed offset (e.g. exposure terms). `linear_combinations` gains an
+  `offsets` keyword to support this.
 
 ## [0.1.2] - 2026-08-06
 

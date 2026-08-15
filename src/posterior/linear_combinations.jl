@@ -89,6 +89,8 @@ and precision matrix of the Gaussian approximation at θⱼ.
 - `result::INLAResult`: Results from `inla()` inference
 - `A::AbstractMatrix`: m×n matrix where each row defines a linear combination
 - `a::AbstractVector`: Length-n vector defining a single linear combination
+- `offsets`: optional length-m vector of constants; the k-th marginal is that of
+  `aₖᵀx + offsets[k]` (used for linear predictors with fixed offsets)
 
 # Returns
 - `Vector{WeightedMixture}`: One marginal per row of A (matrix form)
@@ -119,13 +121,17 @@ marginals = linear_combinations(result, A)
   for multi-variable combinations.
 - Sparse matrices are supported and recommended for large, sparse A.
 """
-function linear_combinations(result::INLAResult, A::AbstractMatrix)
+function linear_combinations(result::INLAResult, A::AbstractMatrix; offsets = nothing)
     exploration = result.exploration
     model = result.model
     y_obs = _get_y_obs(result)
 
     m = size(A, 1) # number of linear combinations
     n = size(A, 2) # latent field dimension
+
+    if offsets !== nothing && length(offsets) != m
+        throw(DimensionMismatch("offsets has length $(length(offsets)) but A has $m rows"))
+    end
 
     n_latent = length(result.latent_marginals)
     if n != n_latent
@@ -158,7 +164,7 @@ function linear_combinations(result::INLAResult, A::AbstractMatrix)
         # Posterior variance of each linear functional aₖᵀx via a factor solve.
         for k in 1:m
             a_k = view(A, k, :)
-            z_mean = dot(a_k, μ)
+            z_mean = dot(a_k, μ) + (offsets === nothing ? 0.0 : offsets[k])
             z_var = lincomb_variance(ga, a_k)
             components[k][j] = Normal(z_mean, sqrt(max(z_var, 0.0)))
         end

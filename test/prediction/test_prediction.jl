@@ -1,9 +1,10 @@
 using Test
 using Latte
 using GaussianMarkovRandomFields
-using GaussianMarkovRandomFields: PoissonObservations
+using GaussianMarkovRandomFields: PoissonObservations, NegativeBinomialObservations
 using Distributions
 using SparseArrays
+using Random
 
 @testset "Prediction via Missing Values" begin
 
@@ -217,5 +218,129 @@ using SparseArrays
             @test isfinite(mean(m))
             @test std(m) > 0
         end
+    end
+
+    @testset "_extract_observed wraps NegativeBinomial counts" begin
+        y = Union{Missing, Int}[4, missing, 7, 2]
+        mask = [true, false, true, true]
+
+        y_obs = Latte._extract_observed(y, mask, ExponentialFamily(NegativeBinomial))
+        @test y_obs isa NegativeBinomialObservations
+        @test y_obs.counts == [4, 7, 2]
+
+        # Delegation through a linearly transformed observation model
+        ltm = LinearlyTransformedObservationModel(
+            ExponentialFamily(NegativeBinomial), spdiagm(0 => ones(4))
+        )
+        y_ltm = Latte._extract_observed(y, mask, ltm)
+        @test y_ltm isa NegativeBinomialObservations
+        @test y_ltm.counts == [4, 7, 2]
+
+        # Exposure-carrying Poisson observations behind an LTM (the dispatch
+        # case that requires the disambiguating method)
+        y_pe = poisson_observations(
+            counts = [1, missing, 3], exposure = [1.0, 2.0, 0.5]
+        )
+        ltm_p = LinearlyTransformedObservationModel(
+            ExponentialFamily(Poisson), spdiagm(0 => ones(3))
+        )
+        y_pe_obs = Latte._extract_observed(y_pe, [true, false, true], ltm_p)
+        @test y_pe_obs isa PoissonObservations
+        @test y_pe_obs.counts == [1, 3]
+        @test y_pe_obs.exposure ≈ [1.0, 0.5]
+    end
+
+    @testset "End-to-end NegativeBinomial prediction" begin
+        Random.seed!(42)
+        n_base, n_obs = 4, 24
+        A = sparse(1:n_obs, [mod1(i, n_base) for i in 1:n_obs], 1.0, n_obs, n_base)
+
+        hp_spec = @hyperparams begin
+            (τ ~ Exponential(1.0), transform = log, space = natural)
+            (r ~ Gamma(2, 1), transform = log, space = natural)
+        end
+
+        x_true = 0.5 .* randn(n_base) .+ 2.0
+        μ_true = exp.(A * x_true)
+        r_true = 8.0
+        y_full = [rand(NegativeBinomial(r_true, r_true / (r_true + μ))) for μ in μ_true]
+
+        for augment in (true, false)
+            obs_model = LinearlyTransformedObservationModel(
+                ExponentialFamily(NegativeBinomial), A
+            )
+            model = LatentGaussianModel(
+                hp_spec, IIDModel(n_base), obs_model; augment_latent = augment
+            )
+
+            y = Vector{Union{Missing, Int}}(y_full)
+            y[5] = missing
+            y[11] = missing
+
+            result = inla(model, y; progress = false)
+            @test result.prediction_info.prediction_indices == [5, 11]
+
+            pred_m = predicted_marginals(result)
+            @test length(pred_m) == 2
+            for m in pred_m
+                @test isfinite(mean(m))
+                @test std(m) > 0
+            end
+            @test length(observed_marginals(result)) == n_obs - 2
+        end
+    end
+
+    @testset "Compact-path prediction includes the observation offset" begin
+        Random.seed!(7)
+        n_base, n_obs = 5, 40
+        A = sparse(1:n_obs, [mod1(i, n_base) for i in 1:n_obs], 1.0, n_obs, n_base)
+        offset = [isodd(i) ? 0.0 : 3.0 for i in 1:n_obs]
+
+        hp_spec = @hyperparams begin
+            (τ ~ Exponential(1.0), transform = log, space = natural)
+        end
+
+        x_true = 0.4 .* randn(n_base) .+ 1.0
+        η_true = A * x_true .+ offset
+        y_full = rand.(Poisson.(exp.(η_true)))
+
+        obs_model = LinearlyTransformedObservationModel(
+            ExponentialFamily(Poisson), A; offset = offset
+        )
+        model = LatentGaussianModel(
+            hp_spec, IIDModel(n_base), obs_model; augment_latent = false
+        )
+
+        k = n_obs  # an offset-3 observation, held out for prediction
+        y = Vector{Union{Missing, Int}}(y_full)
+        y[k] = missing
+
+        result = inla(model, y; progress = false)
+
+        # The predicted marginal is the lincomb marginal shifted by the offset.
+        pm = predicted_marginals(result)[1]
+        lc = linear_combinations(result, Vector(A[k, :]))
+        @test mean(pm) ≈ mean(lc) + offset[k] atol = 1.0e-8
+        @test std(pm) ≈ std(lc) atol = 1.0e-8
+
+        # The offset (3.0) dwarfs the posterior error, so this catches dropping it.
+        @test abs(mean(pm) - η_true[k]) < 1.0
+
+        # observed_marginals must include offsets as well.
+        j = 2  # observed offset-3 row; index 2 in the observed set (only row k missing)
+        om = observed_marginals(result)[j]
+        lcj = linear_combinations(result, Vector(A[j, :]))
+        @test mean(om) ≈ mean(lcj) + offset[j] atol = 1.0e-8
+
+        # linear_combinations offsets keyword: exact shift, no variance change.
+        M = Matrix(A[1:3, :])
+        c = [0.5, -1.0, 2.0]
+        base = linear_combinations(result, M)
+        shifted = linear_combinations(result, M; offsets = c)
+        for i in 1:3
+            @test mean(shifted[i]) ≈ mean(base[i]) + c[i] atol = 1.0e-10
+            @test std(shifted[i]) ≈ std(base[i]) atol = 1.0e-10
+        end
+        @test_throws DimensionMismatch linear_combinations(result, M; offsets = [1.0])
     end
 end

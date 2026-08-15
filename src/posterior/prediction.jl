@@ -18,18 +18,21 @@ struct PredictionInfo
     prediction_indices::Vector{Int}
     # Compact (non-augmented) LTM models don't materialize η as latent positions:
     # `*_indices` are then OBSERVATION-row indices into this full design matrix,
-    # and prediction goes through A_missing·μ*. `nothing` for augmented models,
-    # where `*_indices` index the η-block of the latent field directly.
+    # and prediction goes through A_missing·μ* + offset. `nothing` for augmented
+    # models, where `*_indices` index the η-block of the latent field directly.
     design_matrix::Union{Nothing, AbstractMatrix}
+    # Full LTM offset vector (η = A·ψ + offset); `nothing` when the LTM has none
+    # or on the augmented path.
+    offset::Union{Nothing, AbstractVector}
 end
 
 PredictionInfo(n_latent::Int, observed_indices::Vector{Int}, prediction_indices::Vector{Int}) =
-    PredictionInfo(n_latent, observed_indices, prediction_indices, nothing)
+    PredictionInfo(n_latent, observed_indices, prediction_indices, nothing, nothing)
 
-function PredictionInfo(n_latent::Int, observed_mask::AbstractVector{Bool}; design_matrix = nothing)
+function PredictionInfo(n_latent::Int, observed_mask::AbstractVector{Bool}; design_matrix = nothing, offset = nothing)
     observed_indices = findall(observed_mask)
     prediction_indices = findall(.!observed_mask)
-    return PredictionInfo(n_latent, observed_indices, prediction_indices, design_matrix)
+    return PredictionInfo(n_latent, observed_indices, prediction_indices, design_matrix, offset)
 end
 
 function Base.show(io::IO, info::PredictionInfo)
@@ -155,9 +158,8 @@ function _prepare_for_prediction(model::LatentGaussianModel, y::AbstractVector)
         # ψ itself is unchanged (all columns kept).
         A_full = model.observation_model.design_matrix
         observed_indices = findall(observed_mask)
-        prediction_info = PredictionInfo(n_latent, observed_mask; design_matrix = A_full)
-
         off = model.observation_model.offset
+        prediction_info = PredictionInfo(n_latent, observed_mask; design_matrix = A_full, offset = off)
         new_obs_model = LinearlyTransformedObservationModel(
             model.observation_model.base_model, A_full[observed_indices, :];
             offset = off === nothing ? nothing : off[observed_indices],
@@ -200,6 +202,23 @@ function _extract_observed(y::AbstractVector{<:Union{Missing, Integer}}, observe
     return PoissonObservations(Int[y[i] for i in eachindex(y) if observed_mask[i]])
 end
 
+# NegativeBinomial: integer vector → wrap into NegativeBinomialObservations
+function _extract_observed(y::AbstractVector{<:Union{Missing, Integer}}, observed_mask::AbstractVector{Bool}, obs_model::ExponentialFamily{NegativeBinomial})
+    return NegativeBinomialObservations(Int[y[i] for i in eachindex(y) if observed_mask[i]])
+end
+
+# LinearlyTransformedObservationModel — delegate to the base obs model, mirroring
+# _normalize_observations (the base model decides the observations container).
+function _extract_observed(y::AbstractVector, observed_mask::AbstractVector{Bool}, m::LinearlyTransformedObservationModel)
+    return _extract_observed(y, observed_mask, m.base_model)
+end
+
+# Disambiguation vs the LTM delegation above (MissingPoissonObservations is an
+# AbstractVector); the base model decides the container here too.
+function _extract_observed(y::MissingPoissonObservations, observed_mask::AbstractVector{Bool}, m::LinearlyTransformedObservationModel)
+    return _extract_observed(y, observed_mask, m.base_model)
+end
+
 # MissingPoissonObservations with exposure
 function _extract_observed(y::MissingPoissonObservations, observed_mask::AbstractVector{Bool}, obs_model)
     counts_obs = Int[y.counts[i] for i in eachindex(y.counts) if observed_mask[i]]
@@ -226,8 +245,11 @@ function predicted_marginals(result::INLAResult)
     end
     if info.design_matrix !== nothing
         # Compact LTM: the predictors aren't latent, so build the missing obs'
-        # η = A_missing·μ* marginals (μ*-corrected mean + GA variance) via lincombs.
-        return linear_combinations(result, info.design_matrix[info.prediction_indices, :])
+        # η = A_missing·μ* + offset marginals (μ*-corrected mean + GA variance) via lincombs.
+        return linear_combinations(
+            result, info.design_matrix[info.prediction_indices, :];
+            offsets = info.offset === nothing ? nothing : info.offset[info.prediction_indices],
+        )
     end
     return result.latent_marginals[info.prediction_indices]
 end
@@ -243,7 +265,10 @@ function observed_marginals(result::INLAResult)
         return result.latent_marginals
     end
     if info.design_matrix !== nothing
-        return linear_combinations(result, info.design_matrix[info.observed_indices, :])
+        return linear_combinations(
+            result, info.design_matrix[info.observed_indices, :];
+            offsets = info.offset === nothing ? nothing : info.offset[info.observed_indices],
+        )
     end
     return result.latent_marginals[info.observed_indices]
 end
