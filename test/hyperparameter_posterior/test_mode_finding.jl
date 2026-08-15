@@ -189,6 +189,158 @@ end
         @test θ_init[3] ≈ 0 atol = 1.0e-6
     end
 
+    @testset "Second-order mode finding (trust region)" begin
+        # Two hyperparameters so the SR1 curvature update is actually exercised.
+        function create_two_hp_model()
+            spec = @hyperparams begin
+                (σ_latent ~ InverseGamma(2, 1), transform = log, space = natural)
+                (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+            end
+            latent(; σ_latent, kwargs...) = (zeros(4), spdiagm(0 => fill(1 / σ_latent^2, 4)))
+            return LatentGaussianModel(
+                spec, FunctionLatentModel(latent, 4), ExponentialFamily(Normal),
+            )
+        end
+
+        @testset "NewtonTrustRegion reaches the BFGS optimum" begin
+            model = create_two_hp_model()
+            y = [0.5, -0.3, 0.8, -0.2]
+
+            θ_bfgs, _, _, info_bfgs = find_hyperparameter_mode(model, y)
+            θ_ntr, pts, lps, info_ntr = find_hyperparameter_mode(
+                model, y; method = NewtonTrustRegion(),
+            )
+
+            @test info_ntr.converged
+            @test collect(θ_ntr) ≈ collect(θ_bfgs) atol = 1.0e-4
+            @test maximum(info_ntr.final_logdensities) ≈
+                maximum(info_bfgs.final_logdensities) atol = 1.0e-6
+            # Primal evaluations are still collected through the fused fg path
+            @test length(pts) == length(lps) > 0
+        end
+
+        @testset "SR1-only Hessian model (hessian_refresh = 0)" begin
+            model = create_two_hp_model()
+            y = [0.5, -0.3, 0.8, -0.2]
+            θ_bfgs, _, _, _ = find_hyperparameter_mode(model, y)
+            θ_sr1, _, _, info = find_hyperparameter_mode(
+                model, y; method = NewtonTrustRegion(), hessian_refresh = 0,
+            )
+            @test info.converged
+            @test collect(θ_sr1) ≈ collect(θ_bfgs) atol = 1.0e-4
+        end
+
+        @testset "mode_info carries the model Hessian for exploration handoff" begin
+            model = create_two_hp_model()
+            y = [0.5, -0.3, 0.8, -0.2]
+
+            _, _, _, info_ntr = find_hyperparameter_mode(
+                model, y; method = NewtonTrustRegion(),
+            )
+            H = info_ntr.negative_hessian
+            @test H isa Matrix{Float64}
+            @test size(H) == (2, 2)
+            @test issymmetric(H)
+            @test all(eigvals(H) .> 0)
+
+            # First-order methods have no model Hessian to hand off
+            _, _, _, info_bfgs = find_hyperparameter_mode(model, y)
+            @test info_bfgs.negative_hessian === nothing
+        end
+
+        @testset "FiniteDiffStrategy rejects second-order methods" begin
+            model = create_two_hp_model()
+            y = [0.5, -0.3, 0.8, -0.2]
+            @test_throws ArgumentError find_hyperparameter_mode(
+                model, y; method = NewtonTrustRegion(),
+                diff_strategy = FiniteDiffStrategy(),
+            )
+        end
+
+        @testset "forward-difference model Hessian is exact on quadratics" begin
+            Random.seed!(11)
+            n = 3
+            M = randn(n, n)
+            A = Symmetric(M + M' + 2n * I)
+            b = randn(n)
+            f(x) = 0.5 * dot(x, A * x) + dot(b, x)
+            x0 = randn(n)
+            H = Latte._forward_diff_hessian(
+                f, Latte.ADStrategy().backend, x0, A * x0 + b,
+            )
+            @test H ≈ Matrix(A) rtol = 1.0e-6
+        end
+
+        @testset "SR1 update reconstructs a quadratic's Hessian" begin
+            Random.seed!(7)
+            n = 4
+            M = randn(n, n)
+            A = Symmetric(M + M' + 2n * I)
+            B = Matrix(1.0 * I, n, n)
+            # On a quadratic (y = A s exactly), SR1 has the hereditary property:
+            # n well-defined updates along independent steps recover A exactly.
+            for _ in 1:n
+                s = randn(n)
+                @test Latte._sr1_update!(B, s, A * s)
+            end
+            @test B ≈ Matrix(A) rtol = 1.0e-8
+            # Degenerate step (y = B s already satisfied) is skipped, B unchanged
+            s = randn(n)
+            @test !Latte._sr1_update!(B, s, B * s)
+        end
+    end
+
+    @testset "Stall detection" begin
+        @testset "detector unit behavior" begin
+            det = Latte._StallDetector(3, 1.0e-8)
+            @test !Latte._stall_check!(det, 100.0)      # first value: improvement
+            @test !Latte._stall_check!(det, 99.0)       # improvement resets
+            @test !Latte._stall_check!(det, 99.0)       # 1
+            @test !Latte._stall_check!(det, 99.0 - 1.0e-10)  # 2: below tol
+            @test Latte._stall_check!(det, 99.0)        # 3 in a row: stalled
+            @test det.triggered
+
+            # Real progress never triggers
+            det2 = Latte._StallDetector(3, 1.0e-8)
+            for i in 1:20
+                @test !Latte._stall_check!(det2, 100.0 - i)
+            end
+
+            # window = 0 disables detection
+            det3 = Latte._StallDetector(0, 1.0e-8)
+            for _ in 1:50
+                @test !Latte._stall_check!(det3, 1.0)
+            end
+        end
+
+        @testset "stalled optimization stops early and is reported" begin
+            spec = @hyperparams begin
+                (τ ~ Gamma(2, 1), transform = log, space = natural)
+            end
+            latent(; τ, kwargs...) = (zeros(5), spdiagm(0 => fill(τ, 5)))
+            model = LatentGaussianModel(
+                spec, FunctionLatentModel(latent, 5), ExponentialFamily(Bernoulli),
+            )
+            y = [true, false, true, false, true]
+
+            # stall_f_tol = Inf treats every iteration as non-improving, so the
+            # stall window is the effective iteration budget. Window 1 stops at
+            # the first callback — the model itself converges within a few
+            # iterations, so a larger window would never fire.
+            θ, _, _, info = @test_logs (:warn, r"stalled") match_mode = :any find_hyperparameter_mode(
+                model, y; stall_iterations = 1, stall_f_tol = Inf,
+            )
+            @test info.stalled
+            @test !info.converged
+            @test all(isfinite, collect(θ))
+
+            # A healthy run does not stall
+            _, _, _, info_ok = find_hyperparameter_mode(model, y)
+            @test !info_ok.stalled
+            @test info_ok.converged
+        end
+    end
+
     @testset "Parallel multistart matches serial" begin
         # Multi-start mode-finding parallelized over an executor must give the
         # *same* result as the sequential path: identical starts (same seeded

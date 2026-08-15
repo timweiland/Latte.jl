@@ -9,6 +9,7 @@ using LinearAlgebra
 using Optim
 using Optim.LineSearches: LineSearches
 using FiniteDiff
+using ForwardDiff: ForwardDiff
 using Distributions
 
 export hyperparameter_logpdf, find_hyperparameter_mode, initial_hyperparameter_guess
@@ -184,6 +185,19 @@ This is the INLA approximation to the hyperparameter posterior.
 const PREDICTOR_WARMSTART = Ref(false)
 const PREDICTOR_FIRED = Ref(0)
 
+# The primal (Float64) inner-Newton mode carried by a GA solution, for warm
+# starts. Under a ForwardDiff-Dual θ the IFT path converges the primal Newton
+# in Float64 before attaching tangents, so the Dual value parts ARE that
+# converged mode — extracting them lets a fused value-and-gradient evaluation
+# keep the warm start fresh without a separate primal solve. Other element
+# types have no extractable primal mode.
+_primal_mode(x::AbstractVector{<:AbstractFloat}) = collect(x)
+function _primal_mode(x::AbstractVector{<:ForwardDiff.Dual})
+    v = ForwardDiff.value.(x)
+    return eltype(v) <: AbstractFloat ? v : nothing
+end
+_primal_mode(x) = nothing
+
 function hyperparameter_logpdf(
         model::LatentGaussianModel, θ::WorkingHyperparameters, y, ga = nothing;
         ws, x0 = nothing, mode_out = nothing,
@@ -226,7 +240,10 @@ function hyperparameter_logpdf(
         x_G = ga === nothing ?
             gaussian_approximation(prior, obs_lik; θ = θ_nt, ws = ws, x0 = x0) : ga
         x_star = mean(x_G)
-        mode_out !== nothing && eltype(x_star) <: AbstractFloat && (mode_out[] = collect(x_star))
+        if mode_out !== nothing
+            m = _primal_mode(x_star)
+            m !== nothing && (mode_out[] = m)
+        end
         ml = marginal_loglikelihood(prior, obs_lik, x_G; θ_nt...)
         return isfinite(ml) ? log_prior_θ + ml : -Inf
     end
@@ -241,7 +258,10 @@ function hyperparameter_logpdf(
     # is the first-order IFT response of the inner mode to the θ-step, for one
     # matvec + one triangular solve and zero factorizations.
     x_warm = x0
-    unconstrained = latent_prior.constraints === nothing
+    # Plain GMRFs (e.g. the Dual-θ path of the DPPL adapter) carry no
+    # `constraints` field at all — they are unconstrained by construction.
+    unconstrained = !hasproperty(latent_prior, :constraints) ||
+        latent_prior.constraints === nothing
     if PREDICTOR_WARMSTART[] && predictor_ok isa Base.RefValue && predictor_ok[] &&
             x0 !== nothing && unconstrained && eltype(θ.θ) === Float64
         try
@@ -274,8 +294,11 @@ function hyperparameter_logpdf(
 
     x_star = mean(x_G)
     # Expose the GA mode for callers that warm-start the next solve from it
-    # (mode-finding). Only meaningful on primal (Float64) evaluations.
-    mode_out !== nothing && eltype(x_star) <: AbstractFloat && (mode_out[] = collect(x_star))
+    # (mode-finding). On Dual evaluations the value parts carry the mode.
+    if mode_out !== nothing
+        m = _primal_mode(x_star)
+        m !== nothing && (mode_out[] = m)
+    end
 
     # Evaluate the Gaussian (posterior) term FIRST. `latent_prior` and `x_G` share
     # one GMRFWorkspace, which holds a single numeric factorization. The Gaussian
@@ -320,6 +343,117 @@ function hyperparameter_logpdf(model::LatentGaussianModel, θ::NaturalHyperparam
 end
 
 """
+    _StallDetector(window, f_tol)
+
+Track objective values across outer iterations and flag a stall: `window`
+consecutive iterations without an improvement larger than `f_tol`. A window
+of `0` disables detection. Objective values are for minimization (smaller is
+better).
+"""
+mutable struct _StallDetector
+    best_f::Float64
+    since_best::Int
+    window::Int
+    f_tol::Float64
+    triggered::Bool
+end
+_StallDetector(window::Int, f_tol::Real) =
+    _StallDetector(Inf, 0, window, Float64(f_tol), false)
+
+function _stall_check!(det::_StallDetector, fval::Real)
+    det.window <= 0 && return false
+    if fval < det.best_f - det.f_tol
+        det.best_f = fval
+        det.since_best = 0
+    else
+        det.best_f = min(det.best_f, Float64(fval))
+        det.since_best += 1
+        det.since_best >= det.window && (det.triggered = true)
+    end
+    return det.triggered
+end
+
+"""
+    _sr1_update!(B, s, y; r=1e-8) -> Bool
+
+Symmetric-rank-1 update of the model Hessian `B` from step `s` and gradient
+difference `y`. Skips the update (returning `false`) when the standard
+denominator safeguard `|(y - Bs)ᵀs| ≥ r‖s‖‖y - Bs‖` fails, which also covers
+the case where `B` already satisfies the secant equation.
+"""
+function _sr1_update!(B::AbstractMatrix, s::AbstractVector, y::AbstractVector; r::Real = 1.0e-8)
+    v = y .- B * s
+    denom = dot(v, s)
+    # `<=` so that v = 0 (secant equation already satisfied) skips instead of
+    # dividing 0/0.
+    abs(denom) <= r * norm(s) * norm(v) && return false
+    B .+= v .* v' ./ denom
+    return true
+end
+
+"""
+    _forward_diff_hessian(f, backend, x, g_center)
+
+Model Hessian of `f` at `x` from forward differences of AD gradients, reusing
+the already-computed gradient `g_center` at `x` — `length(x)` gradient
+evaluations instead of the `2·length(x)` central-difference stencil of
+[`ad_negative_hessian`](@ref). The O(h) truncation bias is acceptable for a
+trust-region model Hessian (SR1 secant updates correct it between refreshes);
+the CCD's reparameterization Hessian keeps the central-difference version.
+"""
+function _forward_diff_hessian(f, backend, x::AbstractVector{T}, g_center::AbstractVector) where {T}
+    d = length(x)
+    h = cbrt(eps(T))
+    H = Matrix{T}(undef, d, d)
+    xp = similar(x)
+    for i in 1:d
+        copyto!(xp, x)
+        xp[i] += h
+        gp = DifferentiationInterface.gradient(f, backend, xp)
+        @. H[:, i] = (gp - g_center) / h
+    end
+    return (H .+ H') ./ 2
+end
+
+# Model-Hessian policy for second-order mode finding: a fresh
+# forward-difference AD-gradient Hessian every `refresh_every` accepted
+# iterates; between refreshes, an SR1 secant update from every gradient
+# evaluation — including rejected trust-region proposals, whose curvature
+# information is exactly where the model mispredicted. Each refresh costs
+# dim(θ) gradient evaluations; the secant updates are free.
+mutable struct _SR1HessianState
+    B::Matrix{Float64}
+    x_prev::Vector{Float64}
+    g_prev::Vector{Float64}
+    have_prev::Bool
+    refreshed::Bool
+    refresh_every::Int
+    updates_since_refresh::Int
+end
+_SR1HessianState(d::Int, refresh_every::Int) = _SR1HessianState(
+    Matrix{Float64}(I, d, d), zeros(d), zeros(d), false, false, refresh_every, 0,
+)
+
+# One secant pair per gradient evaluation. Steps below the gradient-noise
+# scale are skipped without advancing the anchor (the pair to the next
+# far-enough point stays valid — SR1 pairs need not be consecutive), so a
+# noise-dominated y never enters the model.
+function _observe_pair!(hs::_SR1HessianState, x::AbstractVector, g::AbstractVector)
+    if !hs.have_prev
+        copyto!(hs.x_prev, x)
+        copyto!(hs.g_prev, g)
+        hs.have_prev = true
+        return nothing
+    end
+    s = x .- hs.x_prev
+    norm(s) < 1.0e-6 && return nothing
+    _sr1_update!(hs.B, s, g .- hs.g_prev)
+    copyto!(hs.x_prev, x)
+    copyto!(hs.g_prev, g)
+    return nothing
+end
+
+"""
     find_hyperparameter_mode(model::LatentGaussianModel, y; method=BFGS(), collect_points=true, progress_callback=nothing)
 
 Find the mode θ* of the hyperparameter posterior π(θ | y).
@@ -327,9 +461,25 @@ Find the mode θ* of the hyperparameter posterior π(θ | y).
 # Arguments
 - `model`: INLA model specification
 - `y`: Observed data
-- `method`: Optimization method (from Optim.jl)
+- `method`: Optimization method (from Optim.jl). First-order methods (the
+  default BFGS) use the AD gradient. Second-order methods (`NewtonTrustRegion()`,
+  `Newton()`) additionally get a model Hessian built from forward differences
+  of AD gradients, refreshed every `hessian_refresh` accepted iterates with
+  SR1 secant updates from every gradient evaluation in between, and require
+  `diff_strategy = ADStrategy()`.
 - `collect_points`: Whether to collect intermediate points during optimization
 - `progress_callback`: Optional function for progress updates with signature `f(; kwargs...)`
+- `hessian_refresh`: For second-order methods, how many accepted iterates to
+  carry SR1 curvature updates before recomputing the forward-difference AD
+  Hessian; `0` computes it only once at the start.
+- `stall_iterations`, `stall_f_tol`: Stop an optimization early when
+  `stall_iterations` consecutive outer iterations improve the objective by less
+  than `stall_f_tol` (roughly the inner-solve noise floor). The best point
+  found is still returned and the stop is reported in `mode_info.stalled`.
+  The default (`nothing`) resolves to 6 for second-order methods (accepted
+  trust-region steps decrease f monotonically, so a sub-noise run is terminal)
+  and 50 for line-search methods (which may pass through f-increases).
+  `stall_iterations = 0` disables the check.
 
 # Returns
 - `θ_star`: The posterior mode in working space (WorkingHyperparameters)
@@ -349,7 +499,18 @@ function find_hyperparameter_mode(
         latent_init = ZeroLatentStart(),
         executor::ParallelExecutor = SequentialExecutor(),
         warm_start::Union{Nothing, Bool} = nothing,
+        hessian_refresh::Int = 5,
+        stall_iterations::Union{Nothing, Int} = nothing,
+        stall_f_tol::Real = 1.0e-8,
     )
+    # Trust-region accepted steps decrease f monotonically and, once a
+    # rejection has shrunk the radius, the quadratic model is first-order
+    # exact in the remaining region — so a short run of sub-noise iterations
+    # is a terminal signature (gradient at the noise floor), not a plateau.
+    # Line-search quasi-Newton can wander through f-increases before
+    # recovering, so it gets a wide window.
+    stall_window = stall_iterations !== nothing ? stall_iterations :
+        (method isa Optim.SecondOrderOptimizer ? 6 : 50)
     # Normalize y (Vector{Int} → PoissonObservations, etc.) so direct
     # callers behave the same as inla() / tmb() which pre-wrap via
     # `_prepare_for_prediction`. Without this the objective's try/catch
@@ -437,6 +598,14 @@ function find_hyperparameter_mode(
             end
         end
 
+        record! = function (θ_vec, logp)
+            collect_points || return nothing
+            push!(points, WorkingHyperparameters(copy(θ_vec), spec))
+            push!(logps, logp)
+            return nothing
+        end
+
+        stall = _StallDetector(stall_window, stall_f_tol)
         optim_callback = function (state)
             report_progress && progress_callback(
                 start_index = i, n_starts = n_starts,
@@ -444,7 +613,7 @@ function find_hyperparameter_mode(
                 objective = state.value,
                 gradient_norm = state.g_norm,
             )
-            return false
+            return _stall_check!(stall, state.value)
         end
 
         options = Optim.Options(
@@ -459,15 +628,18 @@ function find_hyperparameter_mode(
             callback = optim_callback,
         )
 
-        result = _run_optimization(
+        result, neg_hess = _run_optimization(
             diff_strategy, objective, model, y, spec, θ_init, ws, method, options,
-            last_mode, do_warm,
+            last_mode, do_warm; hessian_refresh = hessian_refresh, record! = record!,
         )
         return (
             idx = i,
             θ_final = WorkingHyperparameters(Optim.minimizer(result), spec),
             final_logp = -Optim.minimum(result),
             converged = Optim.converged(result),
+            stalled = stall.triggered,
+            g_norm = Optim.g_residual(result),
+            negative_hessian = neg_hess,
             points = points,
             logps = logps,
         )
@@ -487,6 +659,9 @@ function find_hyperparameter_mode(
         _one_start, collect(enumerate(starts)), executor, pool; on_complete = on_complete,
     )
 
+    best_stalled = false
+    best_g_norm = NaN
+    best_neg_hess = nothing
     for r in results
         final_logdensities[r.idx] = r.final_logp
         any_converged |= r.converged
@@ -497,12 +672,23 @@ function find_hyperparameter_mode(
             best_points = r.points
             best_logps = r.logps
             best_converged = r.converged
+            best_stalled = r.stalled
+            best_g_norm = r.g_norm
+            best_neg_hess = r.negative_hessian
         end
     end
 
     if !any_converged
-        @warn "Hyperparameter mode optimization did not converge for any start " *
-            "(n_starts = $n_starts)"
+        if best_stalled
+            @warn "Hyperparameter mode optimization stalled: no objective improvement " *
+                "beyond $stall_f_tol over $stall_window consecutive iterations " *
+                "(best log-density $(round(best_logp; digits = 3)), " *
+                "gradient norm $(round(best_g_norm; sigdigits = 3))). " *
+                "Returning the best point found; the gradient tolerance was not certified."
+        else
+            @warn "Hyperparameter mode optimization did not converge for any start " *
+                "(n_starts = $n_starts)"
+        end
     end
 
     # Runner-up gap (best - second best). nothing for single-start runs.
@@ -518,6 +704,12 @@ function find_hyperparameter_mode(
         best_start_index = best_idx,
         final_logdensities = final_logdensities,
         converged = best_converged,
+        stalled = best_stalled,
+        gradient_norm = best_g_norm,
+        # Second-order methods: the model Hessian (negative log-posterior
+        # curvature) at the selected mode, reusable as the exploration
+        # reparameterization. `nothing` for first-order methods.
+        negative_hessian = best_neg_hess,
         runner_up_gap = runner_up_gap,
     )
 
@@ -528,13 +720,19 @@ function find_hyperparameter_mode(
     end
 end
 
-function _run_optimization(::FiniteDiffStrategy, objective, model, y, spec, θ_init, ws, method, options, last_mode, do_warm)
+function _run_optimization(::FiniteDiffStrategy, objective, model, y, spec, θ_init, ws, method, options, last_mode, do_warm; hessian_refresh::Int = 5, record! = (θ, lp) -> nothing)
+    method isa Optim.SecondOrderOptimizer && throw(
+        ArgumentError(
+            "Second-order mode-finding methods ($(typeof(method).name.name)) build their " *
+                "Hessian from AD gradients; use diff_strategy = ADStrategy() (the default).",
+        ),
+    )
     # The passed `objective` already warm-starts (and updates last_mode) on every
     # primal evaluation, which is all finite differencing does.
-    return Optim.optimize(objective, θ_init.θ, method, options)
+    return Optim.optimize(objective, θ_init.θ, method, options), nothing
 end
 
-function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_init, ws, method, options, last_mode, do_warm)
+function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_init, ws, method, options, last_mode, do_warm; hessian_refresh::Int = 5, record! = (θ, lp) -> nothing)
     # Clean objective for AD (no side effects, safe for Dual numbers).
     # ws is captured by the closure; AD flows through the numeric values only.
     # The Dual gradient solve reads the last primal mode as its Newton seed (a
@@ -550,10 +748,104 @@ function _run_optimization(strategy::ADStrategy, objective, model, y, spec, θ_i
         return isfinite(logpdf_val) ? -logpdf_val : oftype(logpdf_val, Inf)
     end
 
+    if method isa Optim.SecondOrderOptimizer
+        # Dual-safe objective that also refreshes the warm-start mode: the IFT
+        # path converges the primal Newton before attaching tangents, and
+        # `_primal_mode` extracts that mode from the Dual GA solution. The
+        # second-order path evaluates value-and-gradient fused (one Dual pass,
+        # no separate primal solve), so without this the warm start would stay
+        # frozen at the initial mode.
+        mode_buf = Ref(Float64[])
+        function objective_ad(θ_vec)
+            θ = WorkingHyperparameters(θ_vec, spec)
+            logpdf_val = try
+                hyperparameter_logpdf(
+                    model, θ, y; ws = ws,
+                    x0 = do_warm ? last_mode[] : nothing,
+                    mode_out = do_warm ? mode_buf : nothing,
+                )
+            catch e
+                _is_numerical_failure(e) || rethrow(e)
+                oftype(θ_vec[1], -Inf)
+            end
+            isfinite(logpdf_val) || return oftype(logpdf_val, Inf)
+            do_warm && !isempty(mode_buf[]) && (last_mode[] = copy(mode_buf[]))
+            return -logpdf_val
+        end
+        td, hs = _second_order_objective(
+            strategy, objective, objective_ad, θ_init.θ, hessian_refresh, record!,
+        )
+        result = Optim.optimize(td, θ_init.θ, method, options)
+        # Hand the model Hessian at the final accepted iterate to the caller —
+        # exploration reuses it as the CCD/grid reparameterization curvature,
+        # skipping its own stencil. Guarded on `refreshed`: before the first
+        # full refresh B is only the identity placeholder.
+        return result, hs.refreshed ? Matrix(Symmetric(hs.B)) : nothing
+    end
+
     # Explicit gradient via DifferentiationInterface
     function gradient!(G, θ_vec)
         return copyto!(G, DifferentiationInterface.gradient(objective_clean, strategy.backend, θ_vec))
     end
 
-    return Optim.optimize(objective, gradient!, θ_init.θ, method, options)
+    return Optim.optimize(objective, gradient!, θ_init.θ, method, options), nothing
+end
+
+# TwiceDifferentiable plumbing for trust-region / Newton mode finding. Value
+# and gradient are computed in one Dual pass of `objective_ad` (its primal
+# part is exact and it keeps the warm start fresh); the side-effecting primal
+# `objective` only serves value-only requests; the Hessian is the
+# SR1-with-periodic-refresh model above.
+function _second_order_objective(
+        strategy::ADStrategy, objective, objective_ad,
+        θ0::AbstractVector{Float64}, hessian_refresh::Int, record!,
+    )
+    d = length(θ0)
+    hs = _SR1HessianState(d, hessian_refresh)
+    # Memo of the most recent gradient evaluation: the Hessian refresh needs
+    # the gradient at its evaluation point, which the optimizer has always
+    # just computed. The fallback recomputation should never fire in practice.
+    memo_x = fill(NaN, d)
+    memo_g = fill(NaN, d)
+
+    function gradient!(G, θ_vec)
+        DifferentiationInterface.gradient!(objective_ad, G, strategy.backend, θ_vec)
+        copyto!(memo_x, θ_vec)
+        copyto!(memo_g, G)
+        _observe_pair!(hs, θ_vec, G)
+        return G
+    end
+
+    function fg!(G, θ_vec)
+        fval, _ = DifferentiationInterface.value_and_gradient!(
+            objective_ad, G, strategy.backend, θ_vec,
+        )
+        copyto!(memo_x, θ_vec)
+        copyto!(memo_g, G)
+        if isfinite(fval)
+            _observe_pair!(hs, θ_vec, G)
+            record!(θ_vec, -fval)
+        end
+        return fval
+    end
+
+    function h!(H, θ_vec)
+        refresh_due = hs.refresh_every > 0 &&
+            hs.updates_since_refresh >= hs.refresh_every
+        if !hs.refreshed || refresh_due
+            g = θ_vec == memo_x ? memo_g : gradient!(similar(memo_g), θ_vec)
+            hs.B = _forward_diff_hessian(objective_ad, strategy.backend, θ_vec, g)
+            copyto!(hs.x_prev, θ_vec)
+            copyto!(hs.g_prev, g)
+            hs.have_prev = true
+            hs.refreshed = true
+            hs.updates_since_refresh = 0
+        else
+            hs.updates_since_refresh += 1
+        end
+        copyto!(H, hs.B)
+        return H
+    end
+
+    return Optim.TwiceDifferentiable(objective, gradient!, fg!, h!, collect(θ0)), hs
 end
