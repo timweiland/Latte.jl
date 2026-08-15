@@ -10,7 +10,7 @@ using Optim
 using Optim.LineSearches: LineSearches
 using FiniteDiff
 using ForwardDiff: ForwardDiff
-using GaussianMarkovRandomFields: GMRF
+using GaussianMarkovRandomFields: GMRF, ConstrainedGMRF
 using Distributions
 
 export hyperparameter_logpdf, find_hyperparameter_mode, initial_hyperparameter_guess
@@ -192,6 +192,35 @@ function _primal_mode(x::AbstractVector{<:ForwardDiff.Dual})
 end
 _primal_mode(x) = nothing
 
+# Whether the materialized prior is provably unconstrained, i.e. its density
+# is the plain Gaussian with no constraint correction. Dispatch covers the two
+# concrete GMRF types; workspace-backed priors carry their (possibly empty)
+# constraints in a field; anything unrecognized fails safe to constrained.
+_unconstrained_prior(::GMRF) = true
+_unconstrained_prior(::ConstrainedGMRF) = false
+_unconstrained_prior(p) = hasproperty(p, :constraints) && p.constraints === nothing
+
+"""
+    _prior_logpdf_evaluator(prior) -> (x -> log p(x))
+
+Build the prior log-density evaluator with the factor-reuse term order in
+mind: for an unconstrained prior, `log|Σ|` is taken at construction time —
+through the model's `precision_logdet` hook when present, else one
+factorization of `Q_prior` — and the Gaussian density is assembled manually
+per evaluation, so the shared workspace is never reloaded at `Q_prior`
+afterwards. Constrained priors defer to `logpdf`, which applies the
+constraint correction.
+"""
+function _prior_logpdf_evaluator(prior)
+    _unconstrained_prior(prior) || return Base.Fix1(logpdf, prior)
+    ldc = logdetcov(prior)
+    return x -> begin
+        r = x .- mean(prior)
+        return -0.5 * dot(r, prior.precision * r) - 0.5 * ldc -
+            0.5 * length(r) * log(2π)
+    end
+end
+
 function hyperparameter_logpdf(
         model::LatentGaussianModel, θ::WorkingHyperparameters, y, ga = nothing;
         ws, x0 = nothing, mode_out = nothing,
@@ -243,19 +272,10 @@ function hyperparameter_logpdf(
 
     latent_prior = latent_gmrf(model, ws, θ_nt)
 
-    # The prior-logdet fast path applies only to provably unconstrained
-    # priors: a plain GMRF (e.g. the Dual-θ path of the DPPL adapter), or a
-    # workspace variant whose `constraints` field is empty. Anything else —
-    # ConstrainedGMRF carries its constraints in the type, not a field — takes
-    # the general `logpdf` fallback below, which is always correct.
-    unconstrained = latent_prior isa GMRF ||
-        (hasproperty(latent_prior, :constraints) && latent_prior.constraints === nothing)
-
-    # Prior logdet BEFORE the GA: the prior density is assembled manually
-    # further down (matvec quadform), so the workspace is never reloaded at
-    # Q_prior after the GA and the evaluation ends with the Q_post factor
-    # alive for reuse by `logpdf(x_G, ...)` and the next warm-started solve.
-    ldc_prior = unconstrained ? logdetcov(latent_prior) : nothing
+    # Captured BEFORE the GA: any prior factorization happens now, so the
+    # workspace ends the evaluation with the Q_post factor alive for reuse by
+    # `logpdf(x_G, ...)` and the next warm-started solve.
+    prior_logpdf = _prior_logpdf_evaluator(latent_prior)
 
     if ga === nothing
         x_G = gaussian_approximation(
@@ -288,13 +308,7 @@ function hyperparameter_logpdf(
         return -Inf
     end
 
-    if ldc_prior === nothing
-        log_prior_x = logpdf(latent_prior, x_star)   # constrained fallback: old path
-    else
-        r_prior = x_star .- mean(latent_prior)
-        log_prior_x = -0.5 * dot(r_prior, latent_prior.precision * r_prior) -
-            0.5 * ldc_prior - 0.5 * length(r_prior) * log(2π)
-    end
+    log_prior_x = prior_logpdf(x_star)
     log_likelihood = loglik(x_star, obs_lik)
 
     joint_logpdf = log_prior_θ + log_prior_x + log_likelihood
