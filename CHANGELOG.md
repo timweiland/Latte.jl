@@ -32,9 +32,11 @@ from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
 
 ### Changed
 
-- The default mode-finding method is now resolved per differentiation strategy and
-  dimension: `NewtonTrustRegion()` for AD gradients and `dim(θ) ≤ 6`, `BFGS` +
-  backtracking otherwise (finite-difference gradients, or higher dimension). On the
+- The default mode-finding method is now resolved per differentiation strategy,
+  dimension, and warm-start availability: `NewtonTrustRegion()` for AD gradients,
+  `dim(θ) ≤ 6`, and non-augmented models; `BFGS` + backtracking otherwise
+  (finite-difference gradients, higher dimension, or augmented models, whose
+  disabled inner warm start defeats the trust region's fused evaluations). On the
   benchmark families the trust region is uniformly non-worse and strictly better on
   five of seven (identical optima everywhere); it certifies the gradient tolerance
   where BFGS's line search fails at the objective noise floor. Passing an explicit

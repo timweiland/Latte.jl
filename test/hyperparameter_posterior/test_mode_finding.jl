@@ -300,12 +300,14 @@ end
         end
 
         @testset "default method resolution" begin
-            @test Latte._resolve_mode_method(nothing, ADStrategy(), 1) isa NewtonTrustRegion
-            @test Latte._resolve_mode_method(nothing, ADStrategy(), 6) isa NewtonTrustRegion
-            @test Latte._resolve_mode_method(nothing, ADStrategy(), 7) isa BFGS
-            @test Latte._resolve_mode_method(nothing, FiniteDiffStrategy(), 1) isa BFGS
+            @test Latte._resolve_mode_method(nothing, ADStrategy(), 1, true) isa NewtonTrustRegion
+            @test Latte._resolve_mode_method(nothing, ADStrategy(), 6, true) isa NewtonTrustRegion
+            @test Latte._resolve_mode_method(nothing, ADStrategy(), 7, true) isa BFGS
+            @test Latte._resolve_mode_method(nothing, FiniteDiffStrategy(), 1, true) isa BFGS
+            # Augmented models disable the warm start and keep the BFGS default
+            @test Latte._resolve_mode_method(nothing, ADStrategy(), 1, false) isa BFGS
             explicit = BFGS()
-            @test Latte._resolve_mode_method(explicit, ADStrategy(), 1) === explicit
+            @test Latte._resolve_mode_method(explicit, ADStrategy(), 1, true) === explicit
 
             # Integration: the resolved default at small d is the trust
             # region — observable through the exploration Hessian handoff —

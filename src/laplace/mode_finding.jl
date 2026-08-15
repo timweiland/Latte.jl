@@ -430,16 +430,19 @@ end
 
 Resolve the default optimization method for mode finding. An explicitly
 passed `method` is used as-is. The default (`nothing`) is trust-region
-Newton for AD gradients and `dim(θ) ≤ 6` — measured dominant or tied on
-every benchmark family at d ∈ {1, 2, 4}, and mechanically equivalent at
-5–6, where a model-Hessian refresh still costs ≈ d/5 gradient evaluations
-per accepted iterate. BFGS + backtracking otherwise: finite-difference
-gradients are too noisy to difference into a model Hessian, and at higher
-dim the refresh cost dominates and is unmeasured.
+Newton for AD gradients, `dim(θ) ≤ 6`, and models that run the inner-Newton
+warm start (`warm`) — measured dominant or tied on every benchmark family
+at d ∈ {1, 2, 4}, and mechanically equivalent at 5–6, where a model-Hessian
+refresh still costs ≈ d/5 gradient evaluations per accepted iterate. BFGS +
+backtracking otherwise: finite-difference gradients are too noisy to
+difference into a model Hessian; at higher dim the refresh cost dominates
+and is unmeasured; and the trust region's fused value-and-gradient
+evaluations assume the warm start, which augmented models disable — without
+it the gradient certificate degrades.
 """
-function _resolve_mode_method(method, diff_strategy, d::Int)
+function _resolve_mode_method(method, diff_strategy, d::Int, warm::Bool)
     method === nothing || return method
-    diff_strategy isa ADStrategy && d <= 6 && return NewtonTrustRegion()
+    diff_strategy isa ADStrategy && warm && d <= 6 && return NewtonTrustRegion()
     return BFGS(linesearch = LineSearches.BackTracking(order = 3, maxstep = 5.0))
 end
 
@@ -458,8 +461,9 @@ Find the mode θ* of the hyperparameter posterior π(θ | y).
 - `model`: INLA model specification
 - `y`: Observed data
 - `method`: Optimization method (from Optim.jl). The default (`nothing`)
-  resolves per differentiation strategy and dimension: `NewtonTrustRegion()`
-  for AD gradients and `dim(θ) ≤ 6`, `BFGS` + backtracking otherwise
+  resolves per differentiation strategy, dimension, and warm-start
+  availability: `NewtonTrustRegion()` for AD gradients, `dim(θ) ≤ 6`, and
+  non-augmented models; `BFGS` + backtracking otherwise
   (`_resolve_mode_method`). First-order methods use the AD gradient.
   Second-order methods (`NewtonTrustRegion()`, `Newton()`) additionally get a
   model Hessian built from forward differences of AD gradients, refreshed
@@ -523,7 +527,7 @@ function find_hyperparameter_mode(
     starts = resolve_mode_starts(mode_init, spec)
     n_starts = length(starts)
 
-    method = _resolve_mode_method(method, diff_strategy, length(first(starts)))
+    method = _resolve_mode_method(method, diff_strategy, length(first(starts)), do_warm)
 
     # Trust-region accepted steps decrease f monotonically and, once a
     # rejection has shrunk the radius, the quadratic model is first-order
