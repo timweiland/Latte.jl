@@ -5,6 +5,13 @@ from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Negative binomial models now support prediction via `missing` observations. The
+  observed-data extraction previously produced a plain vector that failed to
+  materialize; it now wraps counts in `NegativeBinomialObservations`, and linearly
+  transformed observation models delegate the extraction to their base model.
+
 ## [0.1.2] - 2026-08-06
 
 ### Added

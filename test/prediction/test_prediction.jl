@@ -1,9 +1,10 @@
 using Test
 using Latte
 using GaussianMarkovRandomFields
-using GaussianMarkovRandomFields: PoissonObservations
+using GaussianMarkovRandomFields: PoissonObservations, NegativeBinomialObservations
 using Distributions
 using SparseArrays
+using Random
 
 @testset "Prediction via Missing Values" begin
 
@@ -216,6 +217,76 @@ using SparseArrays
         for m in result.latent_marginals
             @test isfinite(mean(m))
             @test std(m) > 0
+        end
+    end
+
+    @testset "_extract_observed wraps NegativeBinomial counts" begin
+        y = Union{Missing, Int}[4, missing, 7, 2]
+        mask = [true, false, true, true]
+
+        y_obs = Latte._extract_observed(y, mask, ExponentialFamily(NegativeBinomial))
+        @test y_obs isa NegativeBinomialObservations
+        @test y_obs.counts == [4, 7, 2]
+
+        # Delegation through a linearly transformed observation model
+        ltm = LinearlyTransformedObservationModel(
+            ExponentialFamily(NegativeBinomial), spdiagm(0 => ones(4))
+        )
+        y_ltm = Latte._extract_observed(y, mask, ltm)
+        @test y_ltm isa NegativeBinomialObservations
+        @test y_ltm.counts == [4, 7, 2]
+
+        # Exposure-carrying Poisson observations behind an LTM (the dispatch
+        # case that requires the disambiguating method)
+        y_pe = poisson_observations(
+            counts = [1, missing, 3], exposure = [1.0, 2.0, 0.5]
+        )
+        ltm_p = LinearlyTransformedObservationModel(
+            ExponentialFamily(Poisson), spdiagm(0 => ones(3))
+        )
+        y_pe_obs = Latte._extract_observed(y_pe, [true, false, true], ltm_p)
+        @test y_pe_obs isa PoissonObservations
+        @test y_pe_obs.counts == [1, 3]
+        @test y_pe_obs.exposure ≈ [1.0, 0.5]
+    end
+
+    @testset "End-to-end NegativeBinomial prediction" begin
+        Random.seed!(42)
+        n_base, n_obs = 4, 24
+        A = sparse(1:n_obs, [mod1(i, n_base) for i in 1:n_obs], 1.0, n_obs, n_base)
+
+        hp_spec = @hyperparams begin
+            (τ ~ Exponential(1.0), transform = log, space = natural)
+            (r ~ Gamma(2, 1), transform = log, space = natural)
+        end
+
+        x_true = 0.5 .* randn(n_base) .+ 2.0
+        μ_true = exp.(A * x_true)
+        r_true = 8.0
+        y_full = [rand(NegativeBinomial(r_true, r_true / (r_true + μ))) for μ in μ_true]
+
+        for augment in (true, false)
+            obs_model = LinearlyTransformedObservationModel(
+                ExponentialFamily(NegativeBinomial), A
+            )
+            model = LatentGaussianModel(
+                hp_spec, IIDModel(n_base), obs_model; augment_latent = augment
+            )
+
+            y = Vector{Union{Missing, Int}}(y_full)
+            y[5] = missing
+            y[11] = missing
+
+            result = inla(model, y; progress = false)
+            @test result.prediction_info.prediction_indices == [5, 11]
+
+            pred_m = predicted_marginals(result)
+            @test length(pred_m) == 2
+            for m in pred_m
+                @test isfinite(mean(m))
+                @test std(m) > 0
+            end
+            @test length(observed_marginals(result)) == n_obs - 2
         end
     end
 end
