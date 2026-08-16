@@ -97,7 +97,8 @@ function explore_hyperparameter_posterior(
         progress_callback = nothing,
         accumulators::Tuple = (),
         executor::ParallelExecutor = SequentialExecutor(),
-        diff_strategy::DifferentiationStrategy = ADStrategy()
+        diff_strategy::DifferentiationStrategy = ADStrategy(),
+        negative_hessian::Union{Nothing, AbstractMatrix} = nothing
     )
     integration_step_z = strategy.integration_step_z
     max_log_drop = strategy.max_log_drop
@@ -120,7 +121,7 @@ function explore_hyperparameter_posterior(
     # manages its own pool-aware workspace checkouts internally (for the
     # finite-diff or AD Hessian evaluations), so we pass the pool directly.
     progress_callback(status = "Computing reparameterization", dimensions = n_dim)
-    transform = compute_reparameterization(model, y, θ_star; pool = pool, executor = executor, diff_strategy = diff_strategy)
+    transform = compute_reparameterization(model, y, θ_star; pool = pool, executor = executor, diff_strategy = diff_strategy, negative_hessian = negative_hessian)
 
     mode_key = ntuple(_ -> 0, n_dim)
     accumulator_call_keys = NTuple{n_dim, Int}[mode_key]

@@ -62,6 +62,7 @@ function compute_reparameterization(
         pool,
         executor::ParallelExecutor = SequentialExecutor(),
         diff_strategy::DifferentiationStrategy = ADStrategy(),
+        negative_hessian::Union{Nothing, AbstractMatrix} = nothing,
     )
     # Each Hessian evaluation checks out a workspace from the pool. For
     # SequentialExecutor the pool has size 1 and the single workspace is
@@ -81,7 +82,13 @@ function compute_reparameterization(
         end
     end
 
-    H = _compute_negative_hessian(diff_strategy, logpdf_fn, θ_star.θ; executor = executor)
+    # A model Hessian handed off by a second-order mode finder replaces the
+    # stencil computation (saving its gradient evaluations). It is an
+    # SR1-with-refresh approximation at the accepted mode; the PD check and
+    # FD retry below treat it exactly like a computed Hessian.
+    H = negative_hessian === nothing ?
+        _compute_negative_hessian(diff_strategy, logpdf_fn, θ_star.θ; executor = executor) :
+        Matrix(Symmetric(Matrix{Float64}(negative_hessian)))
     eigen_result = eigen(H)
 
     # A non-PD curvature at the mode usually means the differentiated objective

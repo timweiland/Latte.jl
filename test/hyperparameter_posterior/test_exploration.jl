@@ -6,6 +6,8 @@ using Distributions
 using LinearAlgebra
 using SparseArrays
 using FiniteDiff
+using Optim
+using Optim.LineSearches: BackTracking
 
 @testset "Posterior Exploration" begin
 
@@ -145,6 +147,59 @@ using FiniteDiff
             integration_dim_values = [exploration.grid_points[idx].θ[dim] for idx in exploration.integration_indices]
             @test exploration.integration_bounds[dim, 1] <= minimum(integration_dim_values)
             @test exploration.integration_bounds[dim, 2] >= maximum(integration_dim_values)
+        end
+    end
+
+    @testset "Mode-finder Hessian handoff" begin
+        spec = @hyperparams begin
+            (σ_latent ~ InverseGamma(2, 1), transform = log, space = natural)
+            (σ ~ InverseGamma(2, 1), transform = log, space = natural)
+        end
+        latent(; σ_latent, kwargs...) = (zeros(4), spdiagm(0 => fill(1 / σ_latent^2, 4)))
+        model = LatentGaussianModel(
+            spec, FunctionLatentModel(latent, 4), ExponentialFamily(Normal),
+        )
+        y = [0.5, -0.3, 0.8, -0.2]
+        θ_star, _, _ = find_hyperparameter_mode(model, y)
+        θ_nt = convert(NamedTuple, convert(NaturalHyperparameters, θ_star))
+        pool = make_workspace_pool(model.latent_prior; size = 1, θ_nt...)
+
+        @testset "a handed-off Hessian is used verbatim" begin
+            H_given = [4.0 0.5; 0.5 9.0]
+            t = Latte.compute_reparameterization(
+                model, y, θ_star; pool = pool, negative_hessian = H_given,
+            )
+            @test t.H ≈ H_given
+            @test sort(1.0 ./ diag(t.Λ_inv_sqrt) .^ 2) ≈ sort(eigvals(H_given))
+        end
+
+        @testset "a non-PD handoff falls back to a computed Hessian" begin
+            H_bad = [-1.0 0.0; 0.0 1.0]
+            t = Latte.compute_reparameterization(
+                model, y, θ_star; pool = pool, negative_hessian = H_bad,
+            )
+            @test all(1.0 ./ diag(t.Λ_inv_sqrt) .^ 2 .> 0)
+            @test !(t.H ≈ H_bad)
+        end
+
+        @testset "end-to-end: NTR handoff matches BFGS exploration" begin
+            r_bfgs = inla(
+                model, y; progress = false, accumulators = (),
+                mode_method = BFGS(linesearch = BackTracking(order = 3, maxstep = 5.0)),
+            )
+            r_ntr = inla(
+                model, y; progress = false, accumulators = (),
+                mode_method = NewtonTrustRegion(),
+            )
+            m_bfgs = latent_marginals(r_bfgs)
+            m_ntr = latent_marginals(r_ntr)
+            @test mean.(m_ntr) ≈ mean.(m_bfgs) rtol = 2.0e-2
+            hp_bfgs = hyperparameter_marginals(r_bfgs)
+            hp_ntr = hyperparameter_marginals(r_ntr)
+            @test all(
+                isapprox(mean(hp_ntr[k]), mean(hp_bfgs[k]); rtol = 5.0e-2)
+                    for k in keys(hp_bfgs)
+            )
         end
     end
 
