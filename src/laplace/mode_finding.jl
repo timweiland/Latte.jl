@@ -162,23 +162,6 @@ function _initial_guess_for_hyperparameter(hp::Hyperparameter{T, S}) where {T, S
     return _robust_initial_value(hp.prior)
 end
 
-"""
-    hyperparameter_logpdf(model::LatentGaussianModel, θ, y, ga=nothing)
-
-Evaluate log π(θ | y) ∝ log π(θ) + log π(x*(θ), θ, y) - log π̃_G(x*(θ) | θ, y)
-
-This is the INLA approximation to the hyperparameter posterior.
-
-# Arguments
-- `model::LatentGaussianModel`: The INLA model specification
-- `θ`: Hyperparameters (WorkingHyperparameters or NaturalHyperparameters)
-- `y`: Observed data
-- `ga`: Optional pre-computed Gaussian approximation (GMRF object). If `nothing`, will be computed.
-
-# Details
-- Main implementation is for `WorkingHyperparameters` (working space)
-- `NaturalHyperparameters` converts to working space and adds Jacobian correction
-"""
 # The primal (Float64) inner-Newton mode carried by a GA solution, for warm
 # starts. Under a ForwardDiff-Dual θ the IFT path converges the primal Newton
 # in Float64 before attaching tangents, so the Dual value parts ARE that
@@ -221,6 +204,23 @@ function _prior_logpdf_evaluator(prior)
     end
 end
 
+"""
+    hyperparameter_logpdf(model::LatentGaussianModel, θ, y, ga=nothing)
+
+Evaluate log π(θ | y) ∝ log π(θ) + log π(x*(θ), θ, y) - log π̃_G(x*(θ) | θ, y)
+
+This is the INLA approximation to the hyperparameter posterior.
+
+# Arguments
+- `model::LatentGaussianModel`: The INLA model specification
+- `θ`: Hyperparameters (WorkingHyperparameters or NaturalHyperparameters)
+- `y`: Observed data
+- `ga`: Optional pre-computed Gaussian approximation (GMRF object). If `nothing`, will be computed.
+
+# Details
+- Main implementation is for `WorkingHyperparameters` (working space)
+- `NaturalHyperparameters` converts to working space and adds Jacobian correction
+"""
 function hyperparameter_logpdf(
         model::LatentGaussianModel, θ::WorkingHyperparameters, y, ga = nothing;
         ws, x0 = nothing, mode_out = nothing,
