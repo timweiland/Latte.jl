@@ -3,7 +3,7 @@
 Notable changes to Latte.jl. The project will follow [Semantic Versioning](https://semver.org/)
 from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
 
-## [Unreleased]
+## [0.2.0] - 2026-08-31
 
 ### Added
 
