@@ -47,7 +47,11 @@ hmc_laplace(model, y; n_samples = 2000, n_warmup = 1000)
 
 Pass an `rng` for a chain you can reproduce. `diff_strategy` sets how the gradient
 of the target is taken, as on the [TMB](@ref engine-tmb) page; the default
-`ADStrategy()` suits `@latte` models with recognised GMRF latents.
+`ADStrategy()` suits `@latte` models with recognised GMRF latents. It also decides
+how the per-step cost scales: the AD gradient takes a fixed handful of passes
+through the inner Laplace (one per ForwardDiff chunk of partials), while
+`FiniteDiffStrategy()` needs `2d` inner solves per gradient, so switch away from
+the default only for a model whose objective cannot carry `Dual`s.
 
 ## Reference
 
