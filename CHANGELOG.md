@@ -3,6 +3,25 @@
 Notable changes to Latte.jl. The project will follow [Semantic Versioning](https://semver.org/)
 from 1.0 onward; while pre-1.0, minor releases may carry breaking changes.
 
+## [Unreleased]
+
+### Changed
+
+- `hmc_laplace` now differentiates the Laplace marginal `L(θ)` with its
+  `diff_strategy` instead of always finite-differencing it. The NUTS gradient
+  used to cost `2d` evaluations of the inner Laplace solve, which made the
+  engine impractical past a handful of hyperparameters (at `d = 24`, one
+  gradient was ~30 s). The default `ADStrategy()` costs a handful of AD passes
+  instead — one per ForwardDiff chunk, not one per hyperparameter — reusing the
+  ForwardDiff-through-the-inner-Laplace path `tmb` already takes for its outer
+  Hessian. `diff_strategy = FiniteDiffStrategy()` restores the old gradient for
+  models whose objective cannot carry `Dual`s.
+- The `hmc_laplace` target no longer swallows every exception at an out-of-domain
+  `θ`. Numerical failures (`DomainError`, non-PD factorizations) still map to
+  `-Inf` so NUTS records a divergence, but exceptions that indicate an
+  AD-incompatible model now surface instead of silently zeroing the gradient at
+  every `θ`, which would have produced a meaningless chain.
+
 ## [0.2.0] - 2026-08-31
 
 ### Added
