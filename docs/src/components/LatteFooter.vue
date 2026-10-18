@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { withBase } from 'vitepress'
+import EuFunding from './EuFunding.vue'
 </script>
 
 <template>
@@ -45,6 +46,7 @@ import { withBase } from 'vitepress'
           <a href="https://github.com/timweiland/Latte.jl/blob/main/CONTRIBUTING.md">Contributing</a>
         </div>
       </div>
+      <EuFunding />
       <div class="foot-bottom">
         <span>© 2026 · Latte.jl maintainers · MIT licensed</span>
         <span>brewed with ♥ in Julia</span>
@@ -73,7 +75,7 @@ import { withBase } from 'vitepress'
 .foot-grid a { display: block; color: #F5E6D3; text-decoration: none; font-size: 14px; padding: 4px 0; opacity: 0.85; }
 .foot-grid a:hover { opacity: 1; color: #C9986A; }
 .foot-about { font-size: 14px; line-height: 1.55; color: #D4B896; max-width: 320px; margin-top: 8px; }
-.foot-bottom { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 22px; border-top: 1px dashed rgba(201,152,106,0.25); font-size: 12px; color: #9B8268; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px; }
+.foot-bottom { display: flex; flex-wrap: wrap; gap: 6px 24px; justify-content: space-between; margin-top: 48px; padding-top: 22px; border-top: 1px dashed rgba(201,152,106,0.25); font-size: 12px; color: #9B8268; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.3px; }
 
 footer .wm.foot-wm { display: inline-flex; align-items: center; padding: 0; opacity: 1; }
 .wm { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
