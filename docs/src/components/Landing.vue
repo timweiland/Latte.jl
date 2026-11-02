@@ -1,68 +1,18 @@
 <script setup lang="ts">
-import { inject } from 'vue'
-import { useData, withBase } from 'vitepress'
+import { withBase } from 'vitepress'
+import LatteNav from './LatteNav.vue'
 import LandingBenchmark from './LandingBenchmark.vue'
 import EuFunding from './EuFunding.vue'
 // Thumbnails for the three featured tutorial cards (shared with the gallery).
 import gettingStartedThumb from '../assets/thumbs/getting_started.png'
 import spatialSpdeThumb from '../assets/thumbs/spatial_spde.png'
 import hmcLaplaceThumb from '../assets/thumbs/hmc_laplace_when.png'
-
-// Appearance toggle — the landing has its own nav (not the shared LatteNav),
-// so it needs its own switch. Same mechanism as LatteNav / VPSwitchAppearance.
-const { isDark } = useData()
-const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isDark.value })
 </script>
 
 <template>
   <div class="latte-landing">
 
-    <!-- Nav -->
-    <nav class="top">
-      <div class="container">
-        <a class="wm" :href="withBase('/')">
-          <svg width="36" height="36" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-label="Latte.jl">
-            <defs>
-              <radialGradient id="lattecoffee-nav" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stop-color="#D9B98A"/>
-                <stop offset="70%" stop-color="#C9A373"/>
-                <stop offset="100%" stop-color="#B88A5C"/>
-              </radialGradient>
-            </defs>
-            <circle cx="110" cy="110" r="104" fill="#E8D9BE"/>
-            <circle cx="110" cy="110" r="104" fill="none" stroke="#8B6F47" stroke-opacity="0.2" stroke-width="1"/>
-            <circle cx="110" cy="110" r="84" fill="#6E4A2C"/>
-            <circle cx="110" cy="110" r="80" fill="#B88A5C"/>
-            <circle cx="110" cy="110" r="78" fill="url(#lattecoffee-nav)"/>
-            <path d="M110 48 C90 52 60 90 58 128 C56 162 85 178 110 178 C135 178 164 162 162 128 C160 90 130 52 110 48 Z" fill="#FFFFFF" fill-opacity="0.38"/>
-            <path d="M110 66 C95 70 74 100 72 128 C70 152 92 166 110 166 C128 166 150 152 148 128 C146 100 125 70 110 66 Z" fill="#FFFFFF" fill-opacity="0.55"/>
-            <path d="M110 84 C100 86 88 108 86 128 C84 146 98 156 110 156 C122 156 136 146 134 128 C132 108 120 86 110 84 Z" fill="#FFFFFF" fill-opacity="0.82"/>
-            <path d="M110 102 C104 104 100 118 98 128 C96 140 105 146 110 146 C115 146 124 140 122 128 C120 118 116 104 110 102 Z" fill="#FFFFFF"/>
-          </svg>
-          <span class="wm-txt">Latte<span class="wm-jl">.jl</span></span>
-        </a>
-        <div class="links">
-          <div class="nav-item nav-item-dropdown">
-            <a :href="withBase('/reference/')" class="nav-link">Docs <span class="caret">▾</span></a>
-            <div class="dropdown">
-              <a :href="withBase('/reference/latte')">Defining models</a>
-              <a :href="withBase('/reference/results')">Working with results</a>
-              <a :href="withBase('/reference/')">API reference</a>
-            </div>
-          </div>
-          <a :href="withBase('/tutorials/')">Tutorials</a>
-          <a :href="withBase('/benchmarks/')">Benchmarks</a>
-          <a :href="withBase('/validation/')">Validation</a>
-          <a href="https://github.com/timweiland/Latte.jl">GitHub</a>
-          <span class="ver">v0.1-dev</span>
-          <button class="theme-toggle" type="button" @click="toggleAppearance"
-                  aria-label="Toggle light/dark theme" title="Toggle light/dark theme">
-            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-          </button>
-        </div>
-      </div>
-    </nav>
+    <LatteNav />
 
     <!-- Hero: pitch + code -->
     <section class="hero">
@@ -258,35 +208,18 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
 
 .container { max-width: 1200px; margin: 0 auto; padding: 0 48px; }
 
-/* ── Nav ── */
-nav.top { padding: 22px 0; }
-nav.top .container { display: flex; align-items: center; justify-content: space-between; }
-.links { display: flex; gap: 28px; font-size: 14.5px; color: #4A3828; align-items: center; }
-.links a { text-decoration: none; transition: color .15s; }
-.links a:hover { color: var(--berry); }
-.ver { background: var(--bean); color: var(--cream); padding: 5px 10px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; letter-spacing: 0.3px; }
-
-/* Docs dropdown — ported from LatteNav so the landing nav matches inner pages. */
-.nav-item-dropdown { position: relative; }
-.nav-item-dropdown .nav-link .caret { font-size: 0.75em; margin-left: 2px; color: var(--mocha); transition: transform .12s; display: inline-block; }
-.nav-item-dropdown:hover .nav-link .caret,
-.nav-item-dropdown:focus-within .nav-link .caret { transform: rotate(180deg); }
-.dropdown { display: none; position: absolute; top: 100%; left: -8px; background: var(--foam); border: 1px solid var(--tan); padding: 6px 0; min-width: 180px; z-index: 100; box-shadow: 0 12px 32px rgba(42,24,16,0.10); margin-top: 6px; }
-.dropdown::before { content: ''; position: absolute; top: -6px; left: 0; right: 0; height: 6px; }
-.nav-item-dropdown:hover .dropdown,
-.nav-item-dropdown:focus-within .dropdown { display: block; }
-.dropdown a { display: block; padding: 8px 16px; font-size: 14px; color: var(--espresso); white-space: nowrap; }
-.dropdown a:hover { background: var(--cream); color: var(--berry); }
-
 /* ── Hero ── */
 /* Fill the first screen so the hero is all that shows on load and the
    benchmark section sits below the fold. min-height (not height) lets tall
    content on small screens still expand rather than clip the code window.
-   The ~80px subtracts the in-component nav (nav.top is padding: 22px 0). */
+   The ~80px subtracts LatteNav's height. */
 .hero { position: relative; min-height: calc(100vh - 80px); display: flex; align-items: center; padding: 32px 0 80px; overflow: hidden; }
 .hero > .container { width: 100%; }
 .hero-mark { position: absolute; top: -120px; right: -160px; opacity: 0.09; pointer-events: none; }
 .hero-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 56px; align-items: center; }
+/* Grid items default to min-width: auto, which lets the code window's long
+   lines widen the column past the viewport instead of scrolling inside pre. */
+.hero-grid > * { min-width: 0; }
 .hero h1 { font-family: 'Fraunces', Georgia, serif; font-weight: 400; font-size: clamp(42px, 5.4vw, 72px); line-height: 0.98; letter-spacing: -0.045em; margin: 0; }
 .hero h1 em { font-style: italic; color: var(--bean); font-weight: 400; }
 .hero .lede { font-size: 18.5px; line-height: 1.55; color: #4A3828; margin: 26px 0 0; max-width: 540px; }
@@ -358,12 +291,6 @@ footer .wm.foot-wm { display: inline-flex; align-items: center; padding: 0; opac
 .wm .wm-jl { font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 20px; color: var(--caramel); font-weight: 500; }
 footer .wm .wm-txt { color: var(--cream); }
 
-/* Theme toggle (mirrors LatteNav) */
-.theme-toggle { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; background: transparent; border: 1px solid var(--tan); border-radius: 6px; color: #4A3828; cursor: pointer; transition: color .15s, border-color .15s; }
-.theme-toggle:hover { border-color: var(--caramel); color: var(--berry); }
-.theme-toggle svg { width: 17px; height: 17px; display: block; }
-.theme-toggle .icon-sun { display: none; }
-
 /* Responsive */
 @media (max-width: 1024px) {
   .hero-grid { grid-template-columns: 1fr; gap: 40px; }
@@ -372,6 +299,19 @@ footer .wm .wm-txt { color: var(--cream); }
   .engine:last-child { border-bottom: none; }
   .cards { grid-template-columns: 1fr; }
   .foot-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 640px) {
+  .container { padding: 0 20px; }
+  .hero { min-height: 0; padding: 24px 0 56px; }
+  .hero .lede { font-size: 17px; margin-top: 20px; }
+  .cta-row { margin-top: 26px; }
+  .engines { margin-top: 44px; }
+  pre.code { padding: 18px 16px; font-size: 11.5px; }
+  .code-window .code-link { padding: 11px 16px; }
+  .bench-viz-section { padding: 48px 0; }
+  .gallery { padding: 56px 0; }
+  .gallery h2 { font-size: 36px; margin-bottom: 24px; }
+  .foot-grid { grid-template-columns: 1fr; gap: 32px; }
 }
 </style>
 
@@ -383,12 +323,6 @@ footer .wm .wm-txt { color: var(--cream); }
      dark-on-dark cases (primary button, code window) explicitly. -->
 <style>
 html.dark .latte-landing { --bg: #2A1810; --foam: #38241B; --tan: rgba(201, 152, 106, 0.2); --mocha: #B79877; --berry: #D9603F; color: #F5E6D3; }
-html.dark .latte-landing .links { color: var(--cream); }
-html.dark .latte-landing .links a:hover { color: var(--caramel); }
-html.dark .latte-landing .nav-item-dropdown .caret { color: var(--caramel); }
-html.dark .latte-landing .dropdown { background: #38241B; border-color: rgba(201,152,106,0.25); box-shadow: 0 12px 32px rgba(0,0,0,0.45); }
-html.dark .latte-landing .dropdown a { color: var(--cream); }
-html.dark .latte-landing .dropdown a:hover { background: rgba(201,152,106,0.15); color: var(--caramel); }
 html.dark .latte-landing .wm .wm-txt { color: #F5E6D3; }
 html.dark .latte-landing .hero .lede { color: #D4B896; }
 html.dark .latte-landing .hero h1 em { color: var(--caramel); }
@@ -402,8 +336,4 @@ html.dark .latte-landing .code-window pre.code { background: #1F130D; }
 html.dark .latte-landing .card p { color: #D4B896; }
 html.dark .latte-landing .card-thumb { background: rgba(201, 152, 106, 0.12); }
 html.dark .latte-landing footer { border-top: 1px solid rgba(201, 152, 106, 0.18); }
-html.dark .latte-landing .theme-toggle { border-color: rgba(201, 152, 106, 0.3); color: var(--cream); }
-html.dark .latte-landing .theme-toggle:hover { border-color: var(--caramel); color: var(--caramel); }
-html.dark .latte-landing .theme-toggle .icon-sun { display: block; }
-html.dark .latte-landing .theme-toggle .icon-moon { display: none; }
 </style>

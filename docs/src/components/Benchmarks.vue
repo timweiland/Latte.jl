@@ -313,7 +313,10 @@ const comparabilityLabel: Record<Receipt['comparability'], string> = {
   .repro-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
+  .container { padding: 0 20px; }
   .receipt-grid { grid-template-columns: 1fr; }
+  .bench-hero { margin-bottom: 44px; }
+  .bench-section-head h2 { font-size: 30px; }
 }
 </style>
 

@@ -86,6 +86,7 @@ footer .wm.foot-wm { display: inline-flex; align-items: center; padding: 0; opac
   .foot-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 640px) {
-  .foot-grid { grid-template-columns: 1fr; }
+  .container { padding: 0 20px; }
+  .foot-grid { grid-template-columns: 1fr; gap: 32px; }
 }
 </style>

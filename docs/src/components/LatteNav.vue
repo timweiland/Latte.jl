@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, inject } from 'vue'
-import { useData, withBase } from 'vitepress'
+import { onMounted, onUnmounted, inject, ref, watch } from 'vue'
+import { useData, useRoute, withBase } from 'vitepress'
 
 // Appearance toggle. The default Vitepress nav (which carries the switch) is
 // hidden in style.css, so we surface our own here. Uses the same mechanism as
@@ -16,6 +16,15 @@ const toggleAppearance = inject('toggle-appearance', () => { isDark.value = !isD
 // paint over the nav.
 let resizeObserver: ResizeObserver | null = null
 
+// Below the mobile breakpoint the links collapse into a dropdown panel.
+const menuOpen = ref(false)
+const route = useRoute()
+watch(() => route.path, () => { menuOpen.value = false })
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') menuOpen.value = false
+}
+
 function publishNavHeight() {
   const navEl = document.querySelector('.latte-nav-wrap') as HTMLElement | null
   if (!navEl) return
@@ -30,10 +39,12 @@ onMounted(() => {
     resizeObserver = new ResizeObserver(publishNavHeight)
     resizeObserver.observe(navEl)
   }
+  window.addEventListener('keydown', onKeydown)
 })
 
 onUnmounted(() => {
   if (resizeObserver) resizeObserver.disconnect()
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
 
@@ -82,6 +93,26 @@ onUnmounted(() => {
             <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
             <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
           </button>
+          <button class="menu-toggle" type="button" @click="menuOpen = !menuOpen"
+                  :aria-expanded="menuOpen" aria-controls="latte-mobile-menu"
+                  aria-label="Toggle navigation menu">
+            <svg v-if="!menuOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div v-show="menuOpen" id="latte-mobile-menu" class="mobile-menu">
+        <div class="container">
+          <div class="mm-group">Docs</div>
+          <a :href="withBase('/reference/latte')">Defining models</a>
+          <a :href="withBase('/reference/results')">Working with results</a>
+          <a :href="withBase('/reference/')">API reference</a>
+          <div class="mm-sep"></div>
+          <a :href="withBase('/tutorials/')">Tutorials</a>
+          <a :href="withBase('/benchmarks/')">Benchmarks</a>
+          <a :href="withBase('/validation/')">Validation</a>
+          <a href="https://github.com/timweiland/Latte.jl">GitHub</a>
+          <span class="ver">v0.1-dev</span>
         </div>
       </div>
     </nav>
@@ -181,6 +212,52 @@ nav.top .container { display: flex; align-items: center; justify-content: space-
 .theme-toggle:hover { border-color: var(--caramel); color: var(--berry); }
 .theme-toggle svg { width: 17px; height: 17px; display: block; }
 .theme-toggle .icon-sun { display: none; }
+
+.menu-toggle {
+  display: none; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0;
+  background: transparent; border: 1px solid var(--tan); border-radius: 6px;
+  color: var(--espresso); cursor: pointer;
+}
+.menu-toggle svg { width: 20px; height: 20px; display: block; }
+
+.mobile-menu {
+  position: absolute; top: 100%; left: 0; right: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--tan);
+  border-bottom: 1px solid var(--tan);
+  box-shadow: 0 16px 32px rgba(42,24,16,0.12);
+  padding: 8px 0 18px;
+  max-height: calc(100vh - var(--latte-nav-height, 64px));
+  overflow-y: auto;
+}
+nav.top .mobile-menu .container { display: flex; flex-direction: column; align-items: stretch; }
+.mobile-menu a {
+  display: block; padding: 11px 0;
+  font-size: 16px; color: var(--espresso); text-decoration: none;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.6);
+}
+.mobile-menu a:hover { color: var(--berry); }
+.mm-group {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1.3px;
+  text-transform: uppercase; color: var(--caramel); padding: 12px 0 2px;
+}
+.mm-sep { height: 10px; }
+.mobile-menu .ver { align-self: flex-start; margin-top: 16px; }
+
+@media (max-width: 900px) {
+  .links { gap: 10px; }
+  .links > :not(.theme-toggle):not(.menu-toggle) { display: none; }
+  .theme-toggle { width: 36px; height: 36px; }
+  .menu-toggle { display: inline-flex; }
+}
+@media (max-width: 640px) {
+  .container { padding: 0 20px; }
+  nav.top { padding: 14px 0; }
+}
+@media (min-width: 901px) {
+  .mobile-menu { display: none !important; }
+}
 </style>
 
 <!-- Dark-mode overrides in a NON-scoped block. Vue's scoped `:global()` is
@@ -204,4 +281,8 @@ html.dark .latte-nav-wrap .theme-toggle { border-color: rgba(201, 152, 106, 0.3)
 html.dark .latte-nav-wrap .theme-toggle:hover { border-color: var(--caramel); color: var(--caramel); }
 html.dark .latte-nav-wrap .theme-toggle .icon-sun { display: block; }
 html.dark .latte-nav-wrap .theme-toggle .icon-moon { display: none; }
+html.dark .latte-nav-wrap .menu-toggle { border-color: rgba(201, 152, 106, 0.3); color: var(--cream); }
+html.dark .latte-nav-wrap .mobile-menu { background: var(--espresso); border-color: rgba(201, 152, 106, 0.18); box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45); }
+html.dark .latte-nav-wrap .mobile-menu a { color: var(--cream); border-bottom-color: rgba(201, 152, 106, 0.14); }
+html.dark .latte-nav-wrap .mobile-menu a:hover { color: var(--caramel); }
 </style>

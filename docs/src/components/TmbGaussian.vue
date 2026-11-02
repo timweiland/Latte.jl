@@ -133,8 +133,8 @@ const pTmb = computed(() => poly(xs, i => yy(tmbMarg.value[i], lmaxR.value), xx)
 .axlab { fill: var(--mocha); font-size: 9.5px; text-anchor: middle; font-family: 'JetBrains Mono', monospace; }
 
 .tmb-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 18px 26px; margin: 14px 4px 6px; }
-.tmb-controls label { font-size: 13px; color: var(--bean); display: flex; align-items: center; gap: 10px; }
-.tmb-controls input[type=range] { accent-color: var(--berry); width: 180px; }
+.tmb-controls label { font-size: 13px; color: var(--bean); display: flex; align-items: center; gap: 10px; max-width: 100%; }
+.tmb-controls input[type=range] { accent-color: var(--berry); width: 180px; min-width: 0; flex-shrink: 1; }
 .aval { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--berry); }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; }
 .lg { font-size: 11.5px; color: #4A3828; display: inline-flex; align-items: center; }

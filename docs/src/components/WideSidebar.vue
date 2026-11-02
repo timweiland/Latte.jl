@@ -99,8 +99,9 @@ onUnmounted(() => {
   background: rgba(42, 24, 16, 0.32);
 }
 
-@media (max-width: 640px) {
-  .latte-sidebar-toggle { padding: 8px; }
-  .latte-sidebar-toggle__label { display: none; }
+/* Below 960px Vitepress's local-nav "Menu" bar handles the sidebar. */
+@media (max-width: 959px) {
+  .latte-sidebar-toggle,
+  .latte-sidebar-scrim { display: none; }
 }
 </style>

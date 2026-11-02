@@ -144,8 +144,8 @@ const drawDots = computed(() => draws.value.map((t, i) => ({ cx: thx(t), cy: yy(
 .axlab { fill: var(--mocha); font-size: 9.5px; text-anchor: middle; font-family: 'JetBrains Mono', monospace; }
 
 .hmc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px; margin: 14px 4px 6px; }
-.hmc-controls label { font-size: 13px; color: var(--bean); display: flex; align-items: center; gap: 10px; }
-.hmc-controls input[type=range] { accent-color: var(--berry); width: 180px; }
+.hmc-controls label { font-size: 13px; color: var(--bean); display: flex; align-items: center; gap: 10px; max-width: 100%; }
+.hmc-controls input[type=range] { accent-color: var(--berry); width: 180px; min-width: 0; flex-shrink: 1; }
 .nval { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--berry); min-width: 1.6em; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; }
 .lg { font-size: 11.5px; color: #4A3828; display: inline-flex; align-items: center; }

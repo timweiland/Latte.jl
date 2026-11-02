@@ -88,25 +88,27 @@ const lgY0 = MT + 8
       </g>
     </svg>
 
-    <table class="scl-table">
-      <thead>
-        <tr>
-          <th>n</th><th>Latte<br>serial</th><th>Latte<br>threaded</th>
-          <th>R-INLA<br>serial</th><th>R-INLA<br>parallel</th>
-          <th>Latte thr ÷<br>R-INLA par</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="l in levels" :key="'r' + l.n">
-          <td>{{ l.n.toLocaleString() }}</td>
-          <td>{{ l.latte_serial.toFixed(2) }}s</td>
-          <td>{{ l.latte_threaded.toFixed(2) }}s</td>
-          <td>{{ l.rinla_serial.toFixed(2) }}s</td>
-          <td>{{ l.rinla_parallel.toFixed(2) }}s</td>
-          <td class="gain">{{ (l.rinla_parallel / l.latte_threaded).toFixed(1) }}×</td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="scl-table-wrap">
+      <table class="scl-table">
+        <thead>
+          <tr>
+            <th>n</th><th>Latte<br>serial</th><th>Latte<br>threaded</th>
+            <th>R-INLA<br>serial</th><th>R-INLA<br>parallel</th>
+            <th>Latte thr ÷<br>R-INLA par</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="l in levels" :key="'r' + l.n">
+            <td>{{ l.n.toLocaleString() }}</td>
+            <td>{{ l.latte_serial.toFixed(2) }}s</td>
+            <td>{{ l.latte_threaded.toFixed(2) }}s</td>
+            <td>{{ l.rinla_serial.toFixed(2) }}s</td>
+            <td>{{ l.rinla_parallel.toFixed(2) }}s</td>
+            <td class="gain">{{ (l.rinla_parallel / l.latte_threaded).toFixed(1) }}×</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
     <p class="scl-foot">
       Latte's <em>serial</em> fit tracks R-INLA's <em>parallel</em> fit at the top end and beats it below it;
@@ -144,6 +146,7 @@ const lgY0 = MT + 8
 .scl-dot.rinla { fill: var(--bean); }
 .scl-lglab { fill: var(--bean); font-size: 11.5px; font-family: 'JetBrains Mono', monospace; }
 
+.scl-table-wrap { overflow-x: auto; }
 .scl-table {
   width: 100%; border-collapse: collapse; margin: 18px 0 4px;
   font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--bean);
@@ -160,6 +163,7 @@ const lgY0 = MT + 8
 .scl-foot em { font-style: italic; color: var(--bean); }
 
 @media (max-width: 640px) {
+  .scl { padding: 22px 16px; }
   .scl-table { font-size: 10.5px; }
   .scl-table th, .scl-table td { padding: 4px 5px; }
 }

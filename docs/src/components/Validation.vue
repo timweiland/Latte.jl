@@ -119,6 +119,7 @@ const regimeTitle = (r: string) =>
             </p>
           </header>
 
+          <div class="table-scroll">
           <table class="val-table">
             <thead>
               <tr><th>cell</th><th>quantity</th><th class="ecdf-h">ECDF − z vs band</th><th class="num">KS</th><th>verdict</th></tr>
@@ -139,6 +140,7 @@ const regimeTitle = (r: string) =>
               </tr>
             </tbody>
           </table>
+          </div>
         </section>
       </div>
 
@@ -241,6 +243,7 @@ const regimeTitle = (r: string) =>
 .rollup-inline.good { color: var(--good); }
 .rollup-inline.weak { color: var(--berry); }
 
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .val-table { width: 100%; border-collapse: collapse; background: var(--foam); border: 1px solid var(--tan); border-radius: 10px; overflow: hidden; }
 .val-table th {
   text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 1px;
@@ -285,6 +288,9 @@ const regimeTitle = (r: string) =>
 code { font-family: 'JetBrains Mono', monospace; font-size: 0.9em; background: rgba(139,111,71,0.1); padding: 1px 5px; border-radius: 4px; }
 
 @media (max-width: 760px) { .how-grid { grid-template-columns: 1fr; } .container { padding: 0 24px; } }
+@media (max-width: 640px) {
+  .container { padding: 0 20px; }
+}
 </style>
 
 <style>
