@@ -110,8 +110,14 @@
 
 /* ─── Hide Vitepress's nav; LatteNav (slot: layout-top) replaces it. ─ */
 .VPNav,
-.VPNavBar,
-.VPLocalNav { display: none !important; }
+.VPNavBar { display: none !important; }
+/* Vitepress's local nav bar carries the sidebar "Menu" toggle and the
+ * "On this page" outline below 960px, where the sidebar is off-canvas.
+ * Keep it there (pinned under LatteNav) and hide it on desktop. */
+.VPLocalNav { top: var(--latte-nav-height, 0px) !important; }
+@media (min-width: 960px) {
+  .VPLocalNav { display: none !important; }
+}
 :root {
   /* Vitepress positions the sidebar / aside / content offset using
    * --vp-nav-height. Since we hide its nav we set this to 0 so those
@@ -230,18 +236,20 @@ mjx-container > svg { margin: auto; display: inline-block; }
  * floating toggle that slides the sidebar back in as an overlay drawer
  * (publishing the `latte-sidebar-open` class on <html>). Everything is
  * scoped under `.latte-wide` so all other pages are untouched. */
-.latte-wide .VPSidebar {
-  transform: translateX(-100%) !important;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-  z-index: 56 !important;
-}
-html.latte-sidebar-open .latte-wide .VPSidebar {
-  transform: translateX(0) !important;
-  box-shadow: 8px 0 32px rgba(42, 24, 16, 0.22);
-}
-
-/* Reclaim the freed space and widen the reading column on desktop. */
+/* Below 960px the sidebar is already off-canvas behind Vitepress's own
+ * local-nav "Menu" button, so the drawer override is desktop-only. */
 @media (min-width: 960px) {
+  .latte-wide .VPSidebar {
+    transform: translateX(-100%) !important;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    z-index: 56 !important;
+  }
+  html.latte-sidebar-open .latte-wide .VPSidebar {
+    transform: translateX(0) !important;
+    box-shadow: 8px 0 32px rgba(42, 24, 16, 0.22);
+  }
+
+  /* Reclaim the freed space and widen the reading column. */
   .latte-wide .VPContent.has-sidebar {
     padding-left: 0 !important;
     padding-right: 0 !important;

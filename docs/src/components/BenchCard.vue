@@ -123,10 +123,10 @@ view.forEach(c => { active[c.id] = 0 })
 .bc-grid {
   --tan: #E8D5B7; --caramel: #C9986A; --mocha: #8B6F47; --bean: #3D2817;
   --berry: #C04A2A; --foam: #FFFCF7;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 18px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 18px;
   font-family: 'Inter', system-ui, sans-serif;
 }
-.bc { margin: 0; padding: 20px 22px; background: var(--foam); border: 1px solid var(--tan); border-radius: 14px; }
+.bc { margin: 0; min-width: 0; padding: 20px 22px; background: var(--foam); border: 1px solid var(--tan); border-radius: 14px; }
 .bc-head { margin-bottom: 12px; }
 .bc-title { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-size: 20px; color: var(--bean); line-height: 1.1; }
 .bc-scn { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--mocha); margin-top: 3px; }

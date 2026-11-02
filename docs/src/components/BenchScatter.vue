@@ -110,6 +110,10 @@ const label = (p: Pt) =>
 .sc-plab { fill: var(--bean); font-size: 12px; font-family: 'JetBrains Mono', monospace; }
 
 .sc-foot { font-size: 11.5px; color: var(--mocha); margin: 12px 2px 0; line-height: 1.5; }
+
+@media (max-width: 640px) {
+  .sc { padding: 22px 16px; }
+}
 </style>
 
 <style>

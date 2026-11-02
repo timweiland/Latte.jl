@@ -86,4 +86,8 @@ const tiles = (strip as Rec[]).map(r => ({ ...r, p: paths(r) }))
 .lg::before { content: ''; width: 16px; height: 0; border-top-width: 2.5px; border-top-style: solid; margin-right: 7px; }
 .latte-lg::before { border-top-color: var(--berry); }
 .rinla-lg::before { border-top-color: var(--bean); border-top-style: dashed; }
+
+@media (max-width: 640px) {
+  .os { padding: 22px 16px; }
+}
 </style>

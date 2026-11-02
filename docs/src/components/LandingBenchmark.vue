@@ -128,6 +128,10 @@ const area = computed(() => `${line(active.value.latte)} L${gx(gmax.value)},${AX
 @media (max-width: 720px) {
   .lb-panels { flex-direction: column; gap: 18px; }
 }
+@media (max-width: 640px) {
+  .lb { padding: 22px 16px; }
+  .lb-head h3 { font-size: 23px; }
+}
 </style>
 
 <style>

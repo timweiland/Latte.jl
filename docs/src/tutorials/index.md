@@ -29,6 +29,10 @@ layout: false
   min-height: 60vh;
 }
 .tutorials-page .container { max-width: 1200px; margin: 0 auto; padding: 0 48px; }
+@media (max-width: 640px) {
+  .tutorials-page { padding: 40px 0 64px; }
+  .tutorials-page .container { padding: 0 20px; }
+}
 .tutorials-page h1 {
   font-family: 'Fraunces', Georgia, serif;
   font-style: italic;
